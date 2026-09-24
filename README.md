@@ -7,6 +7,22 @@ to reset, a pace projection, and where today's usage went by project.
 ◔ 23% · 18m          ← 5-hour window used · time to reset. ~ means estimated.
 ```
 
+## What the dropdown shows
+
+- **5-hour window**: %, reset time, a chart of the window so far with a dashed pace line to
+  the reset, and where that pace lands (or when it hits the cap).
+- **Weekly**: the same without the chart, plus per-model weekly buckets when a reading has them.
+- **Accuracy**: every exact reading is compared with what the meter was estimating at that
+  moment (`checks` in `state.json`); the dropdown shows the typical error. Exact readings from
+  the desktop app are whole percents, so ±0.5 is the floor.
+- **Burning now**: each session that spent in the last 15 minutes, by title, with $/hr and
+  points of the 5-hour window per hour. Titles come from the transcripts' `custom-title` /
+  `agent-name` lines.
+- **Today**: spend by project and model, cache-hit rate, and the last 7 days.
+
+Right-click the menu bar item for Sync, settings and Quit. Settings (also under the gear):
+open at login, weekly % in the menu bar title, notifications.
+
 ## Where the numbers come from
 
 Anthropic's limits are exact only on Anthropic's side, and every way of asking is either
@@ -17,7 +33,7 @@ rare or rate-limited. So the meter joins sparse **exact readings** with the cont
 |---|---|---|
 | `~/.claude/projects/**/*.jsonl` | every Claude Code turn on this Mac: model, tokens, project | continuously (tailed every 10s) |
 | statusline tap | Claude Code's own `rate_limits` (exact) | whenever a **terminal** `claude` session redraws its statusline |
-| usage endpoint | same numbers as `/usage` (exact) | at most hourly; it answers 429 with `retry-after: 3600` |
+| usage endpoint | same numbers as `/usage` (exact) | at most hourly; it answers 429 with `retry-after: 3600`, and needs a live Claude Code CLI login (`claude` → `/login`) |
 | `tap.json` drop-in | any exact reading, from anywhere | when written |
 
 Each turn is weighted by API list price (`Pricing.swift`). An exact reading fixes the
@@ -32,6 +48,9 @@ at the next exact reading, and they push the cap estimate low, so the meter errs
 ```bash
 ./scripts/build.sh --install     # → ~/Applications/ClaudeMeter.app, launched
 ```
+
+The log index is cached at `~/Library/Caches/ClaudeMeter/index.plist` (a warm launch reads
+it in about a second instead of scanning every transcript; delete it to force a full scan).
 
 `ClaudeMeter --render out.png [--dark]` draws the popover offscreen and prints the menu bar
 title, for checking the UI without screen-recording access.

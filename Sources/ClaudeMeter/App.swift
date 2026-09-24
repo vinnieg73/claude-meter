@@ -23,15 +23,16 @@ enum Main {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let meter = Meter()
-    private var item: NSStatusItem!
+    private var statusItem: NSStatusItem!
     private let popover = NSPopover()
     private var subscription: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.target = self
-        item.button?.action = #selector(toggle)
-        item.button?.imagePosition = .imageLeading
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(clicked)
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        statusItem.button?.imagePosition = .imageLeading
 
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: PopoverView(meter: meter))
@@ -40,8 +41,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         meter.start()
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        meter.shutdown()
+    }
+
     private func render(_ s: Snapshot) {
-        guard let button = item.button else { return }
+        guard let button = statusItem.button else { return }
         let symbol: String
         switch s.menuPct {
         case ..<20: symbol = "gauge.with.dots.needle.0percent"
@@ -65,8 +70,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.attributedTitle = NSAttributedString(string: " " + s.menuTitle, attributes: attrs)
     }
 
-    @objc private func toggle() {
-        guard let button = item.button else { return }
+    @objc private func clicked() {
+        if NSApp.currentEvent?.type == .rightMouseUp { showMenu() } else { toggle() }
+    }
+
+    private func toggle() {
+        guard let button = statusItem.button else { return }
         if popover.isShown {
             popover.performClose(nil)
         } else {
@@ -76,4 +85,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.activate()
         }
     }
+
+    private func showMenu() {
+        popover.performClose(nil)
+        let menu = NSMenu()
+        menu.addItem(menuItem("Sync now", #selector(syncNow)))
+        menu.addItem(.separator())
+        menu.addItem(menuItem("Open at login", #selector(toggleLogin), on: meter.launchAtLogin))
+        menu.addItem(menuItem("Weekly % in menu bar", #selector(toggleWeekly), on: meter.showWeeklyInTitle))
+        menu.addItem(menuItem("Notifications", #selector(toggleNotifications), on: meter.notificationsOn))
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Quit Claude Meter", action: #selector(NSApplication.terminate(_:)),
+                                keyEquivalent: "q"))
+        // A status item shows its menu on click only while it has one; attach it for this click.
+        statusItem.menu = menu
+        statusItem.button?.performClick(nil)
+        statusItem.menu = nil
+    }
+
+    private func menuItem(_ title: String, _ action: Selector, on: Bool? = nil) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        if let on { item.state = on ? .on : .off }
+        return item
+    }
+
+    @objc private func syncNow() { meter.sync(force: true) }
+    @objc private func toggleLogin() { meter.setLaunchAtLogin(!meter.launchAtLogin) }
+    @objc private func toggleWeekly() { meter.showWeeklyInTitle.toggle() }
+    @objc private func toggleNotifications() { meter.notificationsOn.toggle() }
 }

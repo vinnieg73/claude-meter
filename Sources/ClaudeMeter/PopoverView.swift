@@ -27,6 +27,10 @@ struct PopoverView: View {
                     Text("No limit reading yet. Run Claude Code in a terminal once, or press Sync.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                if !s.burning.isEmpty {
+                    Divider()
+                    burning(s)
+                }
                 Divider()
                 today(s)
             }
@@ -42,12 +46,40 @@ struct PopoverView: View {
         HStack {
             Text("Claude usage").font(.headline)
             Spacer()
-            if !s.active.isEmpty {
-                let names = Array(Set(s.active)).sorted().joined(separator: ", ")
-                Label("\(s.active.count) active", systemImage: "circle.fill")
-                    .labelStyle(ActiveLabelStyle())
-                    .help(names)
+            if s.activeCount > 0 {
+                HStack(spacing: 4) {
+                    Circle().fill(.green).frame(width: 6, height: 6)
+                    Text("\(s.activeCount) active").font(.caption).foregroundStyle(.secondary)
+                }
             }
+        }
+    }
+
+    private func burning(_ s: Snapshot) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Burning now").font(.subheadline.weight(.semibold))
+                Spacer()
+                let total = s.burning.reduce(0) { $0 + $1.perHour }
+                let pct = s.burning.compactMap(\.pctPerHour).reduce(0, +)
+                Text("\(Fmt.dollars(total))/hr" + (s.calibrated ? " · +\(Fmt.rate(pct))%/hr" : ""))
+                    .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            }
+            ForEach(s.burning.prefix(4)) { b in
+                HStack(spacing: 6) {
+                    Text(b.name).lineLimit(1).truncationMode(.tail)
+                    Text(b.model).foregroundStyle(.tertiary).lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text("\(Fmt.dollars(b.perHour))/hr").monospacedDigit()
+                    if let p = b.pctPerHour {
+                        Text("+\(Fmt.rate(p))%/hr").monospacedDigit().foregroundStyle(.secondary)
+                            .frame(width: 58, alignment: .trailing)
+                    }
+                }
+                .font(.caption)
+            }
+            Text("Last 15 minutes. %/hr is of the 5-hour window.")
+                .font(.caption2).foregroundStyle(.tertiary)
         }
     }
 
@@ -61,7 +93,7 @@ struct PopoverView: View {
             }
 
             let top = s.projects.first?.cost ?? 1
-            ForEach(s.projects.prefix(5)) { row in
+            ForEach(s.projects.prefix(4)) { row in
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
                         Text(row.id).lineLimit(1)
@@ -101,7 +133,7 @@ struct PopoverView: View {
                     AxisValueLabel { Text(Fmt.dollars(value.as(Double.self) ?? 0)) }
                 }
             }
-            .frame(height: 70)
+            .frame(height: 64)
         }
     }
 
@@ -115,9 +147,17 @@ struct PopoverView: View {
             }
             HStack {
                 Button("Sync") { meter.sync(force: true) }
-                Toggle("Open at login", isOn: Binding(get: { meter.launchAtLogin },
-                                                      set: { meter.setLaunchAtLogin($0) }))
-                    .toggleStyle(.checkbox)
+                Menu {
+                    Toggle("Open at login", isOn: Binding(get: { meter.launchAtLogin },
+                                                          set: { meter.setLaunchAtLogin($0) }))
+                    Toggle("Weekly % in menu bar", isOn: $meter.showWeeklyInTitle)
+                    Toggle("Notifications", isOn: $meter.notificationsOn)
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
                 Spacer()
                 Button("Quit") { NSApp.terminate(nil) }
             }
@@ -155,13 +195,17 @@ private struct WindowCard: View {
                     .font(.title2.weight(.semibold)).monospacedDigit()
                     .foregroundStyle(color)
             }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.secondary.opacity(0.2))
-                    Capsule().fill(color).frame(width: geo.size.width * min(w.pct, 100) / 100)
+            if w.series.count > 1, w.start != nil {
+                PaceChart(w: w, color: color)
+            } else {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.secondary.opacity(0.2))
+                        Capsule().fill(color).frame(width: geo.size.width * min(w.pct, 100) / 100)
+                    }
                 }
+                .frame(height: 6)
             }
-            .frame(height: 6)
             if w.idle {
                 Text("Idle. Your next message opens a new window.")
             } else if let r = w.resetsAt {
@@ -174,16 +218,49 @@ private struct WindowCard: View {
                 Text(w.exact ? "Exact · \(Fmt.ago(asOf))" : "Last exact reading \(Fmt.ago(asOf))")
                     .foregroundStyle(.tertiary)
             }
+            if let accuracy = w.accuracy {
+                Text(accuracy).foregroundStyle(.tertiary)
+            }
         }
         .font(.caption)
     }
 }
 
-private struct ActiveLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 4) {
-            configuration.icon.font(.system(size: 6)).foregroundStyle(.green)
-            configuration.title.font(.caption).foregroundStyle(.secondary)
+/// The 5-hour window so far, the pace line to its reset, and the cap.
+private struct PaceChart: View {
+    let w: WindowView
+    let color: Color
+
+    var body: some View {
+        let start = w.start ?? Date()
+        let end = max(w.resetsAt ?? Date(), start.addingTimeInterval(60))
+        // Scaled to where the window is heading, so a quiet window isn't an empty box.
+        // The cap line appears once the window is heading anywhere near it.
+        let peak = max(w.pct, w.pace.map(\.pct).max() ?? 0)
+        let top = peak >= 70 ? max(100, peak) : max(20, peak * 1.3)
+        Chart {
+            if top >= 100 {
+                RuleMark(y: .value("Cap", 100))
+                    .foregroundStyle(Color.red.opacity(0.4))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 3]))
+            }
+            ForEach(Array(w.series.enumerated()), id: \.offset) { _, p in
+                AreaMark(x: .value("Time", p.at), y: .value("Used", p.pct))
+                    .foregroundStyle(color.opacity(0.15))
+                LineMark(x: .value("Time", p.at), y: .value("Used", p.pct), series: .value("Series", "used"))
+                    .foregroundStyle(color)
+            }
+            ForEach(Array(w.pace.enumerated()), id: \.offset) { _, p in
+                LineMark(x: .value("Time", p.at), y: .value("Used", p.pct), series: .value("Series", "pace"))
+                    .foregroundStyle(w.projectionWarn ? Color.orange : Color.secondary)
+                    .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
+            }
         }
+        .chartXScale(domain: start...end)
+        .chartYScale(domain: 0...top)
+        .chartXAxis(.hidden)
+        .chartYAxis(.hidden)
+        .chartPlotStyle { $0.background(Color.secondary.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 4)) }
+        .frame(height: 44)
     }
 }

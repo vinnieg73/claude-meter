@@ -24,8 +24,20 @@ struct Calibration: Codable {
     var updatedAt: Date?
 }
 
+/// What the meter was showing when an exact reading arrived.
+struct Check: Codable {
+    var at: Date
+    /// "5h" or "week"
+    var window: String
+    var estimated: Double
+    var exact: Double
+    var minutesSinceExact: Double
+}
+
 struct PersistedState: Codable {
     var lastExact: ExactReading?
+    /// Optional so a state file written before checks existed still decodes.
+    var checks: [Check]?
     var calibration = Calibration()
     var apiNextAllowed: Date?
     var apiStatus: String?
@@ -119,6 +131,8 @@ enum UsageAPI {
             case 200:
                 guard let reading = parse(data) else { return .failed("unreadable response") }
                 return .reading(reading)
+            case 401, 403:
+                return .failed("Claude Code CLI login expired; run claude /login")
             case 429:
                 let retry = Double(http?.value(forHTTPHeaderField: "Retry-After") ?? "") ?? 3600
                 return .retryAfter(retry)

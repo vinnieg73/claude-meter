@@ -18,6 +18,9 @@ enum Fmt {
 
     static func pct(_ v: Double) -> String { "\(Int(v.rounded()))%" }
 
+    /// A rate: one decimal while it is small enough for the decimal to matter.
+    static func rate(_ v: Double) -> String { String(format: v < 10 ? "%.1f" : "%.0f", v) }
+
     /// "32m", "3h10m", "5d 20h"
     static func duration(_ seconds: TimeInterval) -> String {
         let m = Int(max(0, seconds) / 60)
@@ -28,6 +31,8 @@ enum Fmt {
 
     /// "3:50 PM" today, "Wed 3:50 PM" this week, "Sep 30" beyond.
     static func when(_ date: Date) -> String {
+        // The API reports resets like 18:59:59.5; show the minute it means.
+        let date = Date(timeIntervalSince1970: (date.timeIntervalSince1970 / 60).rounded() * 60)
         let f = DateFormatter()
         let cal = Calendar.current
         if cal.isDateInToday(date) {
