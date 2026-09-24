@@ -67,7 +67,8 @@ struct Snapshot {
     var models: [Row] = []
     var daily: [DayBar] = []
     var activeCount = 0
-    var apiStatus: String?
+    var probing = false
+    var probeStatus: String?
     var tapSeen: Date?
     var menuTitle = "Claude"
     var menuPct: Double = 0
@@ -98,13 +99,14 @@ final class Meter: ObservableObject {
     private var loaded = false
     private var scanning = false
     private var tapMTime: Date?
-    private var apiInFlight = false
+    private var probing = false
     private var timer: Timer?
     private var quiet = false
 
     private static let fiveHours: TimeInterval = 5 * 3600
     private static let week: TimeInterval = 7 * 86400
     private static let burnLookback: TimeInterval = 900
+    private static let probeEvery: TimeInterval = 900
 
     func start() {
         let index = self.index
@@ -190,40 +192,36 @@ final class Meter: ObservableObject {
         absorb(reading)
     }
 
-    /// Asks the usage endpoint when the last exact reading is over an hour old,
-    /// or when forced. Always honours the endpoint's retry-after.
+    /// Runs the probe when the estimate may have drifted: the last exact reading is 15+ minutes
+    /// old and something has been logged since. Idle time changes nothing, so it costs nothing.
+    /// Forced (Sync) runs regardless. A failure waits 30 minutes before trying again.
     func sync(force: Bool) {
-        guard !apiInFlight else { return }
+        guard !probing else { return }
         let now = Date()
-        if let next = store.state.apiNextAllowed, now < next { return }
-        if !force, let last = store.state.lastExact, now.timeIntervalSince(last.at) < 3600 { return }
-        apiInFlight = true
+        if !force {
+            if let retry = store.state.probeRetryAt, now < retry { return }
+            if let last = store.state.lastExact {
+                guard now.timeIntervalSince(last.at) >= Self.probeEvery,
+                      let latest = turns.last, latest.at > last.at else { return }
+            }
+        }
+        probing = true
+        recompute()
         Task {
-            let outcome = await UsageAPI.fetch()
-            apiInFlight = false
+            let outcome = await Probe.run()
+            probing = false
             switch outcome {
             case .reading(let reading):
-                store.state.apiNextAllowed = Date().addingTimeInterval(3600)
-                store.state.apiStatus = "synced \(Fmt.when(Date()))"
+                store.state.probeError = nil
+                store.state.probeRetryAt = nil
                 absorb(reading)
-            case .retryAfter(let seconds):
-                let until = Date().addingTimeInterval(max(seconds, 600))
-                store.state.apiNextAllowed = until
-                store.state.apiStatus = "rate-limited"
             case .failed(let reason):
-                store.state.apiNextAllowed = Date().addingTimeInterval(3600)
-                store.state.apiStatus = reason
+                store.state.probeError = reason
+                store.state.probeRetryAt = Date().addingTimeInterval(1800)
             }
             store.save()
             recompute()
         }
-    }
-
-    /// When `sync(force: false)` will next call: an hour after the last exact reading,
-    /// and never before the endpoint's retry-after.
-    private func nextSync(_ now: Date) -> Date {
-        let due = store.state.lastExact.map { $0.at.addingTimeInterval(3600) } ?? now
-        return max(due, store.state.apiNextAllowed ?? now, now)
     }
 
     private func absorb(_ reading: ExactReading) {
@@ -305,8 +303,10 @@ final class Meter: ObservableObject {
         var s = Snapshot()
         s.loaded = loaded
         s.calibrated = store.state.calibration.cap5h != nil
-        if let status = store.state.apiStatus {
-            s.apiStatus = "API \(status) · next try \(Fmt.when(nextSync(now)))"
+        s.probing = probing
+        if let error = store.state.probeError {
+            let retry = store.state.probeRetryAt.map { " · retry \(Fmt.when($0))" } ?? ""
+            s.probeStatus = "Probe failed: \(error)\(retry)"
         }
         s.tapSeen = store.state.tapSeen
         s.activeCount = active.count

@@ -24,7 +24,7 @@ struct PopoverView: View {
                     .foregroundStyle(.secondary)
                 }
                 if s.fiveHour == nil {
-                    Text("No limit reading yet. Run Claude Code in a terminal once, or press Sync.")
+                    Text("No limit reading yet. Press Sync to take one.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 if !s.burning.isEmpty {
@@ -146,7 +146,8 @@ struct PopoverView: View {
                 Text(error).font(.caption2).foregroundStyle(.red)
             }
             HStack {
-                Button("Sync") { meter.sync(force: true) }
+                Button(s.probing ? "Syncing…" : "Sync") { meter.sync(force: true) }
+                    .disabled(s.probing)
                 Menu {
                     Toggle("Open at login", isOn: Binding(get: { meter.launchAtLogin },
                                                           set: { meter.setLaunchAtLogin($0) }))
@@ -167,10 +168,10 @@ struct PopoverView: View {
 
     private func sources(_ s: Snapshot) -> String {
         var parts: [String] = []
-        parts.append(s.tapSeen.map { "Statusline \(Fmt.ago($0))" } ?? "Statusline: not seen")
-        if let api = s.apiStatus { parts.append(api) }
+        parts.append(s.probeStatus ?? "Exact reading every 15 min while you work")
+        if let tap = s.tapSeen { parts.append("statusline \(Fmt.ago(tap))") }
         if !s.calibrated { parts.append("not calibrated yet") }
-        parts.append("~ = estimated from this Mac's Claude Code logs")
+        parts.append("~ = estimated from this Mac's logs in between")
         return parts.joined(separator: " · ")
     }
 }

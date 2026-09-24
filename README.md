@@ -25,15 +25,14 @@ open at login, weekly % in the menu bar title, notifications.
 
 ## Where the numbers come from
 
-Anthropic's limits are exact only on Anthropic's side, and every way of asking is either
-rare or rate-limited. So the meter joins sparse **exact readings** with the continuous
-**local logs**:
+Anthropic's limits are exact only on Anthropic's side. The meter takes an **exact reading**
+every 15 minutes while you work and fills the time between from the **local logs**:
 
 | Source | What | When |
 |---|---|---|
 | `~/.claude/projects/**/*.jsonl` | every Claude Code turn on this Mac: model, tokens, project | continuously (tailed every 10s) |
+| probe | Claude Code's `rate_limit_event` (exact) | every 15 min, only if something was logged since the last reading; **Sync** on demand |
 | statusline tap | Claude Code's own `rate_limits` (exact) | whenever a **terminal** `claude` session redraws its statusline |
-| usage endpoint | same numbers as `/usage` (exact) | at most hourly; it answers 429 with `retry-after: 3600`, and needs a live Claude Code CLI login (`claude` → `/login`) |
 | `tap.json` drop-in | any exact reading, from anywhere | when written |
 
 Each turn is weighted by API list price (`Pricing.swift`). An exact reading fixes the
@@ -54,6 +53,20 @@ it in about a second instead of scanning every transcript; delete it to force a 
 
 `ClaudeMeter --render out.png [--dark]` draws the popover offscreen and prints the menu bar
 title, for checking the UI without screen-recording access.
+
+## Probe
+
+One headless Claude Code turn: `claude -p ok --model haiku`, a one-line system prompt, no
+tools, no MCP servers, no saved session, run in an empty folder. Claude Code reports the plan
+limits alongside the reply (`rate_limit_event` → `unifiedWindows`, utilization as a fraction).
+About $0.002 of usage per run, so at most ~$0.01/hr while you work and nothing while idle.
+
+- It strips `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` first. The
+  desktop app sets the first for everything it launches, and any of them would move the call
+  off the subscription onto API billing.
+- It needs the Claude Code CLI signed in to the subscription (`claude` → `/login` → Claude
+  account). The meter never reads the token; Claude Code refreshes it itself. If the CLI is
+  signed out, the footer says so and the probe retries every 30 minutes.
 
 ## Statusline tap
 
