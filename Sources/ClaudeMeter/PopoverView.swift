@@ -1,0 +1,189 @@
+import Charts
+import SwiftUI
+
+struct PopoverView: View {
+    @ObservedObject var meter: Meter
+
+    var body: some View {
+        let s = meter.snapshot
+        VStack(alignment: .leading, spacing: 14) {
+            header(s)
+
+            if !s.loaded {
+                ProgressView("Reading Claude Code logs…").controlSize(.small)
+            } else {
+                if let w = s.fiveHour { WindowCard(w: w) }
+                if let w = s.weekly { WindowCard(w: w) }
+                ForEach(s.extras, id: \.title) { w in
+                    HStack {
+                        Text(w.title)
+                        Spacer()
+                        Text(Fmt.pct(w.pct)).monospacedDigit()
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                if s.fiveHour == nil {
+                    Text("No limit reading yet. Run Claude Code in a terminal once, or press Sync.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Divider()
+                today(s)
+            }
+
+            Divider()
+            footer(s)
+        }
+        .padding(16)
+        .frame(width: 340)
+    }
+
+    private func header(_ s: Snapshot) -> some View {
+        HStack {
+            Text("Claude usage").font(.headline)
+            Spacer()
+            if !s.active.isEmpty {
+                let names = Array(Set(s.active)).sorted().joined(separator: ", ")
+                Label("\(s.active.count) active", systemImage: "circle.fill")
+                    .labelStyle(ActiveLabelStyle())
+                    .help(names)
+            }
+        }
+    }
+
+    private func today(_ s: Snapshot) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Today").font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("\(Fmt.dollars(s.todayCost)) API-equiv · \(Fmt.tokens(s.todayTokens)) tokens")
+                    .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            }
+
+            let top = s.projects.first?.cost ?? 1
+            ForEach(s.projects.prefix(5)) { row in
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text(row.id).lineLimit(1)
+                        Spacer()
+                        Text(Fmt.dollars(row.cost)).monospacedDigit().foregroundStyle(.secondary)
+                    }
+                    GeometryReader { geo in
+                        Capsule().fill(Color.accentColor.opacity(0.7))
+                            .frame(width: max(2, geo.size.width * row.cost / max(top, 0.01)))
+                    }
+                    .frame(height: 3)
+                }
+                .font(.caption)
+            }
+
+            HStack {
+                Text(s.models.prefix(3).map { "\($0.id) \(Fmt.dollars($0.cost))" }.joined(separator: " · "))
+                    .lineLimit(1)
+                Spacer()
+                if let hit = s.cacheHit { Text("cache hit \(Fmt.pct(hit * 100))") }
+            }
+            .font(.caption2).foregroundStyle(.secondary)
+
+            Chart(s.daily) { bar in
+                BarMark(x: .value("Day", bar.day, unit: .day), y: .value("Cost", bar.cost))
+                    .foregroundStyle(Calendar.current.isDateInToday(bar.day)
+                                     ? Color.accentColor : Color.secondary.opacity(0.45))
+            }
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .day)) { _ in
+                    AxisValueLabel(format: .dateTime.weekday(.narrow))
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .trailing, values: .automatic(desiredCount: 2)) { value in
+                    AxisGridLine()
+                    AxisValueLabel { Text(Fmt.dollars(value.as(Double.self) ?? 0)) }
+                }
+            }
+            .frame(height: 70)
+        }
+    }
+
+    private func footer(_ s: Snapshot) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(sources(s))
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let error = meter.loginError {
+                Text(error).font(.caption2).foregroundStyle(.red)
+            }
+            HStack {
+                Button("Sync") { meter.sync(force: true) }
+                Toggle("Open at login", isOn: Binding(get: { meter.launchAtLogin },
+                                                      set: { meter.setLaunchAtLogin($0) }))
+                    .toggleStyle(.checkbox)
+                Spacer()
+                Button("Quit") { NSApp.terminate(nil) }
+            }
+            .controlSize(.small)
+        }
+    }
+
+    private func sources(_ s: Snapshot) -> String {
+        var parts: [String] = []
+        parts.append(s.tapSeen.map { "Statusline \(Fmt.ago($0))" } ?? "Statusline: not seen")
+        if let api = s.apiStatus { parts.append(api) }
+        if !s.calibrated { parts.append("not calibrated yet") }
+        parts.append("~ = estimated from this Mac's Claude Code logs")
+        return parts.joined(separator: " · ")
+    }
+}
+
+private struct WindowCard: View {
+    let w: WindowView
+
+    private var color: Color {
+        switch w.level {
+        case .critical: .red
+        case .warn: .orange
+        case .normal: .accentColor
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(w.title).font(.subheadline.weight(.semibold))
+                Spacer()
+                Text((w.exact ? "" : "~") + Fmt.pct(w.pct))
+                    .font(.title2.weight(.semibold)).monospacedDigit()
+                    .foregroundStyle(color)
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.secondary.opacity(0.2))
+                    Capsule().fill(color).frame(width: geo.size.width * min(w.pct, 100) / 100)
+                }
+            }
+            .frame(height: 6)
+            if w.idle {
+                Text("Idle. Your next message opens a new window.")
+            } else if let r = w.resetsAt {
+                Text("Resets \(Fmt.when(r)) · in \(Fmt.duration(r.timeIntervalSinceNow))")
+            }
+            if let p = w.projection {
+                Text(p).foregroundStyle(w.projectionWarn ? Color.orange : Color.secondary)
+            }
+            if let asOf = w.asOf {
+                Text(w.exact ? "Exact · \(Fmt.ago(asOf))" : "Last exact reading \(Fmt.ago(asOf))")
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .font(.caption)
+    }
+}
+
+private struct ActiveLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 4) {
+            configuration.icon.font(.system(size: 6)).foregroundStyle(.green)
+            configuration.title.font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
