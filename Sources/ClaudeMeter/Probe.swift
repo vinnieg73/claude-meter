@@ -48,6 +48,8 @@ enum Probe {
         return parse(data)
     }
 
+    static var cliPath: String? { binary()?.path }
+
     /// Apps don't see the shell's PATH, so look where the installers put it.
     private static func binary() -> URL? {
         let home = FileManager.default.homeDirectoryForCurrentUser.path

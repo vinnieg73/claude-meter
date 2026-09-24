@@ -44,6 +44,18 @@ final class Notifier {
         }
     }
 
+    /// Posts a sample alert, and reports whether the system lets this app notify at all.
+    func test(_ done: @escaping @MainActor (Bool) -> Void) {
+        guard let center else { return done(false) }
+        center.getNotificationSettings { settings in
+            let allowed = settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
+            Task { @MainActor in
+                if allowed { self.post("Claude Meter", "Notifications are working. You'll hear from it at 80% and 95%.") }
+                done(allowed)
+            }
+        }
+    }
+
     private func post(_ title: String, _ body: String) {
         let content = UNMutableNotificationContent()
         content.title = title

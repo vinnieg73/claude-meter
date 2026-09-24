@@ -146,8 +146,8 @@ struct PopoverView: View {
             Text(sources(s))
                 .font(.caption2).foregroundStyle(s.probeStatus == nil ? .secondary : Color.orange)
                 .fixedSize(horizontal: false, vertical: true)
-            if let error = meter.loginError {
-                Text(error).font(.caption2).foregroundStyle(.red)
+            ForEach([meter.loginError, meter.notice].compactMap { $0 }, id: \.self) { message in
+                Text(message).font(.caption2).foregroundStyle(.red)
             }
             HStack {
                 Button(s.probing ? "Syncing…" : "Sync") { meter.sync(force: true) }
@@ -157,6 +157,9 @@ struct PopoverView: View {
                                                           set: { meter.setLaunchAtLogin($0) }))
                     Toggle("Weekly % in menu bar", isOn: $meter.showWeeklyInTitle)
                     Toggle("Notifications", isOn: $meter.notificationsOn)
+                    Button("Send test notification") { meter.testNotification() }
+                    Divider()
+                    Text("Claude Meter \(Meter.version)")
                 } label: {
                     Image(systemName: "gearshape")
                 }

@@ -54,6 +54,21 @@ it in about a second instead of scanning every transcript; delete it to force a 
 `ClaudeMeter --render out.png [--dark]` draws the popover offscreen and prints the menu bar
 title, for checking the UI without screen-recording access.
 
+`~/Applications/ClaudeMeter.app/Contents/MacOS/ClaudeMeter --status` prints how the app is
+set up (open at login, notification permission, CLI found) and what it last knew (last exact
+reading, calibrated caps, accuracy).
+
+`swift scripts/make-icon.swift` redraws `Resources/AppIcon.icns`.
+
+## Uninstall
+
+```bash
+./scripts/uninstall.sh
+```
+
+Quits the app, removes its login item, the app, its data and cache, its preferences, and the
+statusline entry in `~/.claude/settings.json` (only if it points at the tap).
+
 ## Probe
 
 One headless Claude Code turn: `claude -p ok --model haiku`, a one-line system prompt, no
@@ -93,4 +108,5 @@ State (last exact reading, calibration, notifications sent) is in `state.json` n
 ## Notifications
 
 At 80% and 95% of each window, once per window, and when a 5-hour window that passed 80%
-resets.
+resets. **Send test notification** (gear or right-click menu) checks they get through; if macOS
+is blocking them it opens the Notifications settings pane.

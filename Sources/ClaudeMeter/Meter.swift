@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import ServiceManagement
 
 enum Level: Comparable { case normal, warn, critical }
@@ -84,6 +84,10 @@ final class Meter: ObservableObject {
     @Published private(set) var snapshot = Snapshot()
     @Published private(set) var launchAtLogin = SMAppService.mainApp.status == .enabled
     @Published private(set) var loginError: String?
+    /// A one-off message for the footer, e.g. when notifications are switched off in System Settings.
+    @Published private(set) var notice: String?
+
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
     @Published var showWeeklyInTitle = UserDefaults.standard.bool(forKey: "showWeeklyInTitle") {
         didSet { UserDefaults.standard.set(showWeeklyInTitle, forKey: "showWeeklyInTitle"); recompute() }
     }
@@ -95,7 +99,14 @@ final class Meter: ObservableObject {
     private let queue = DispatchQueue(label: "claude-meter.logs", qos: .utility)
     private let store = StateStore()
     private lazy var notifier = Notifier(store: store)
-    private var turns: [Turn] = []
+    /// Sorted by time. `spent[i]` is the cost of `turns[..<i]`, so any range costs two lookups.
+    private var turns: [Turn] = [] {
+        didSet {
+            var running = 0.0
+            spent = [0] + turns.map { running += $0.cost; return running }
+        }
+    }
+    private var spent: [Double] = [0]
     private var active: [String] = []
     private var names: [String: String] = [:]
     private var loaded = false
@@ -117,6 +128,7 @@ final class Meter: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
+        timer?.tolerance = 3 // let macOS batch the wake-up with others
     }
 
     /// Saves the log index so the next launch starts warm.
@@ -146,20 +158,37 @@ final class Meter: ObservableObject {
         }
     }
 
+    /// Called when the dropdown opens, so it never shows data up to a tick old.
+    func refreshNow() {
+        recompute()
+        scan()
+    }
+
+    func testNotification() {
+        notifier.test { [weak self] allowed in
+            self?.notice = allowed ? nil
+                : "Notifications are blocked for Claude Meter. Turn them on in the settings pane that just opened."
+            if !allowed, let pane = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
+                NSWorkspace.shared.open(pane)
+            }
+        }
+    }
+
     private func scan() {
         guard !scanning else { return }
         scanning = true
         let index = self.index
+        let firstScan = !loaded // a warm cache can make the first refresh "unchanged"
         queue.async { [weak self] in
-            index.refresh()
+            let changed = index.refresh()
             index.saveCache()
-            let turns = index.turns
+            let turns: [Turn]? = changed || firstScan ? index.turns : nil
             let active = index.activeSessions
             let names = index.sessionNames
             Task { @MainActor in
                 guard let self else { return }
                 self.scanning = false
-                self.turns = turns
+                if let turns { self.turns = turns }
                 self.active = active
                 self.names = names
                 if !self.loaded {
@@ -347,9 +376,18 @@ final class Meter: ObservableObject {
     }
 
     private func cost(from: Date, to: Date) -> Double {
-        var total = 0.0
-        for t in turns where t.at >= from && t.at < to { total += t.cost }
-        return total
+        let a = first(atOrAfter: from), b = first(atOrAfter: to)
+        return b > a ? spent[b] - spent[a] : 0
+    }
+
+    /// Index of the first turn at or after `date` (binary search over the sorted turns).
+    private func first(atOrAfter date: Date) -> Int {
+        var low = 0, high = turns.count
+        while low < high {
+            let mid = (low + high) / 2
+            if turns[mid].at < date { low = mid + 1 } else { high = mid }
+        }
+        return low
     }
 
     private func fiveHour(_ now: Date) -> WindowView? {
@@ -367,13 +405,15 @@ final class Meter: ObservableObject {
             // so walk forward window by window from the last known reset.
             var anchor = last?.fiveHour?.resetsAt ?? turns.first?.at ?? now
             while true {
-                guard let first = turns.first(where: { $0.at >= anchor && $0.at <= now }) else {
+                let i = first(atOrAfter: anchor)
+                guard i < turns.count, turns[i].at <= now else {
                     return WindowView(title: "5-hour window", pct: 0, exact: false,
                                       asOf: last?.at, idle: true)
                 }
-                let end = first.at.addingTimeInterval(Self.fiveHours)
+                let opened = turns[i].at
+                let end = opened.addingTimeInterval(Self.fiveHours)
                 if end > now {
-                    v = WindowView(title: "5-hour window", pct: cost(from: first.at, to: now) / cap * 100,
+                    v = WindowView(title: "5-hour window", pct: cost(from: opened, to: now) / cap * 100,
                                    resetsAt: end, exact: false, asOf: last?.at)
                     break
                 }
@@ -459,7 +499,7 @@ final class Meter: ObservableObject {
     private func series(_ v: inout WindowView, now: Date) {
         guard let resets = v.resetsAt, !v.idle else { return }
         let start = resets.addingTimeInterval(-Self.fiveHours)
-        let inWindow = turns.filter { $0.at >= start && $0.at <= now }
+        let inWindow = turns[first(atOrAfter: start)..<first(atOrAfter: now.addingTimeInterval(1))]
         let total = inWindow.reduce(0) { $0 + $1.cost }
         var points = [PacePoint(at: start, pct: 0)]
         if total > 0 {
@@ -506,13 +546,18 @@ final class Meter: ObservableObject {
         var models: [String: (Double, Int)] = [:]
         var uncached = 0, read = 0, written = 0
 
-        for t in turns where t.at >= dayStart {
+        var names: [String: String] = [:]
+        for t in turns[first(atOrAfter: dayStart)...] {
             s.todayCost += t.cost
             s.todayTokens += t.tokens
             s.todayTurns += 1
             projects[t.project, default: (0, 0)].0 += t.cost
             projects[t.project, default: (0, 0)].1 += t.tokens
-            let name = Fmt.model(t.model)
+            let name = names[t.model] ?? {
+                let n = Fmt.model(t.model)
+                names[t.model] = n
+                return n
+            }()
             models[name, default: (0, 0)].0 += t.cost
             models[name, default: (0, 0)].1 += t.tokens
             uncached += t.input

@@ -13,6 +13,8 @@ enum Main {
             Preview.render(to: args[i + 1], dark: args.contains("--dark"))
             return
         }
+        if args.contains("--status") { return Status.print() }
+        if args.contains("--unregister-login") { return Status.unregisterLogin() }
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory) // menu bar only, no Dock icon
         app.delegate = delegate
@@ -35,7 +37,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.imagePosition = .imageLeading
 
         popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: PopoverView(meter: meter))
+        let host = NSHostingController(rootView: PopoverView(meter: meter))
+        host.sizingOptions = .preferredContentSize // the popover follows the content as sections come and go
+        popover.contentViewController = host
 
         subscription = meter.$snapshot.sink { [weak self] in self?.render($0) }
         meter.start()
@@ -79,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
-            meter.recompute()
+            meter.refreshNow()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
             NSApp.activate()
@@ -94,6 +98,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(menuItem("Open at login", #selector(toggleLogin), on: meter.launchAtLogin))
         menu.addItem(menuItem("Weekly % in menu bar", #selector(toggleWeekly), on: meter.showWeeklyInTitle))
         menu.addItem(menuItem("Notifications", #selector(toggleNotifications), on: meter.notificationsOn))
+        menu.addItem(menuItem("Send test notification", #selector(testNotification)))
+        menu.addItem(.separator())
+        let version = NSMenuItem(title: "Claude Meter \(Meter.version)", action: nil, keyEquivalent: "")
+        version.isEnabled = false
+        menu.addItem(version)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Claude Meter", action: #selector(NSApplication.terminate(_:)),
                                 keyEquivalent: "q"))
@@ -114,4 +123,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleLogin() { meter.setLaunchAtLogin(!meter.launchAtLogin) }
     @objc private func toggleWeekly() { meter.showWeeklyInTitle.toggle() }
     @objc private func toggleNotifications() { meter.notificationsOn.toggle() }
+    @objc private func testNotification() { meter.testNotification() }
 }

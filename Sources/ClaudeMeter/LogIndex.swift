@@ -75,6 +75,12 @@ final class LogIndex: @unchecked Sendable {
     private var customTitles: [String: String] = [:]
     private var agentNames: [String: String] = [:]
     private var lastSaved = Date.distantPast
+    /// Recent transcripts, refound once a minute.
+    private var known: [String] = []
+    private var lastDiscovery = Date.distantPast
+    private static let skipped: Set<String> = ["tool-results", "memory"]
+    /// Set when a turn arrives earlier than the one before it (files are read in no set order).
+    private var unsorted = false
     private var dirty = false
 
     private(set) var turns: [Turn] = []
@@ -106,27 +112,32 @@ final class LogIndex: @unchecked Sendable {
     }
 
     /// Reads whatever was appended since the last call. Returns true if new turns arrived.
+    /// Checks only the recent transcripts it knows about; the full tree is walked once a
+    /// minute to find new ones, since walking it is most of what a refresh would cost.
     @discardableResult
     func refresh() -> Bool {
         let now = Date()
         let cutoff = now.addingTimeInterval(-horizon)
-        let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
-        guard let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys) else {
-            return false
+        if now.timeIntervalSince(lastDiscovery) > 60 {
+            discover(cutoff: cutoff)
+            lastDiscovery = now
         }
         var added = false
         var active: Set<String> = []
 
-        for case let url as URL in files where url.pathExtension == "jsonl" {
-            guard let values = try? url.resourceValues(forKeys: Set(keys)),
-                  let mtime = values.contentModificationDate, mtime > cutoff,
-                  let size = values.fileSize else { continue }
+        for path in known {
+            var info = stat()
+            guard stat(path, &info) == 0 else { continue }
+            let mtime = Date(timeIntervalSince1970: TimeInterval(info.st_mtimespec.tv_sec))
+            guard mtime > cutoff else { continue }
+            let url = URL(fileURLWithPath: path)
             if now.timeIntervalSince(mtime) < activeWindow {
                 active.insert(Self.session(of: url))
             }
-            var start = offsets[url.path] ?? 0
-            if UInt64(size) < start { start = 0 } // rewritten; `seen` absorbs the repeats
-            guard UInt64(size) > start else { continue }
+            let size = UInt64(info.st_size)
+            var start = offsets[path] ?? 0
+            if size < start { start = 0 } // rewritten; `seen` absorbs the repeats
+            guard size > start else { continue }
             if read(url, from: start, cutoff: cutoff) { added = true }
         }
 
@@ -134,11 +145,33 @@ final class LogIndex: @unchecked Sendable {
             let before = turns.count
             turns.removeAll { $0.at < cutoff }
             if turns.count < before { seen = Set(turns.map(\.key)) }
-            turns.sort { $0.at < $1.at }
+            if unsorted {
+                turns.sort { $0.at < $1.at }
+                unsorted = false
+            }
             dirty = true
         }
         activeSessions = active.sorted()
         return added
+    }
+
+    /// Transcripts touched within the horizon. Tool-result dumps and memory folders hold
+    /// no transcripts and are most of the tree, so they are skipped whole.
+    private func discover(cutoff: Date) {
+        let keys: [URLResourceKey] = [.contentModificationDateKey]
+        guard let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys) else { return }
+        var found: [String] = []
+        for case let url as URL in files {
+            if Self.skipped.contains(url.lastPathComponent) {
+                files.skipDescendants()
+                continue
+            }
+            guard url.pathExtension == "jsonl",
+                  let mtime = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+                  mtime > cutoff else { continue }
+            found.append(url.path)
+        }
+        known = found
     }
 
     private func read(_ url: URL, from start: UInt64, cutoff: Date) -> Bool {
@@ -161,6 +194,7 @@ final class LogIndex: @unchecked Sendable {
                 if line.range(of: Self.usageMarker) != nil, line.range(of: Self.assistantMarker) != nil {
                     autoreleasepool {
                         if let turn = parseTurn(Data(line)), turn.at >= cutoff {
+                            if let last = turns.last, turn.at < last.at { unsorted = true }
                             turns.append(turn)
                             added = true
                         }
