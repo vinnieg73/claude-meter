@@ -6,22 +6,25 @@ struct PopoverView: View {
 
     var body: some View {
         let s = meter.snapshot
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             header(s)
 
             if !s.loaded {
                 ProgressView("Reading Claude Code logs…").controlSize(.small)
             } else {
                 if let w = s.fiveHour { WindowCard(w: w) }
-                if let w = s.weekly { WindowCard(w: w) }
-                ForEach(s.extras, id: \.title) { w in
-                    HStack {
-                        Text(w.title)
-                        Spacer()
-                        Text(Fmt.pct(w.pct)).monospacedDigit()
+                if let w = s.weekly {
+                    VStack(alignment: .leading, spacing: 3) {
+                        WindowCard(w: w)
+                        ForEach(s.extras, id: \.title) { x in
+                            HStack {
+                                Text(x.title)
+                                Spacer()
+                                Text(Fmt.pct(x.pct)).monospacedDigit()
+                            }
+                            .font(.caption2).foregroundStyle(.secondary)
+                        }
                     }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 }
                 if s.fiveHour == nil {
                     Text("No limit reading yet. Press Sync to take one.")
@@ -38,7 +41,7 @@ struct PopoverView: View {
             Divider()
             footer(s)
         }
-        .padding(16)
+        .padding(14)
         .frame(width: 340)
     }
 
@@ -56,7 +59,7 @@ struct PopoverView: View {
     }
 
     private func burning(_ s: Snapshot) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Burning now").font(.subheadline.weight(.semibold))
                 Spacer()
@@ -65,6 +68,7 @@ struct PopoverView: View {
                 Text("\(Fmt.dollars(total))/hr" + (s.calibrated ? " · +\(Fmt.rate(pct))%/hr" : ""))
                     .font(.caption).monospacedDigit().foregroundStyle(.secondary)
             }
+            .help("Spend over the last 15 minutes. %/hr is of the 5-hour window.")
             ForEach(s.burning.prefix(4)) { b in
                 HStack(spacing: 6) {
                     Text(b.name).lineLimit(1).truncationMode(.tail)
@@ -78,44 +82,43 @@ struct PopoverView: View {
                 }
                 .font(.caption)
             }
-            Text("Last 15 minutes. %/hr is of the 5-hour window.")
-                .font(.caption2).foregroundStyle(.tertiary)
         }
     }
 
     private func today(_ s: Snapshot) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Today").font(.subheadline.weight(.semibold))
                 Spacer()
-                Text("\(Fmt.dollars(s.todayCost)) API-equiv · \(Fmt.tokens(s.todayTokens)) tokens")
+                let hit = s.cacheHit.map { " · cache \(Fmt.pct($0 * 100))" } ?? ""
+                Text("\(Fmt.dollars(s.todayCost)) API-equiv · \(Fmt.tokens(s.todayTokens)) tok\(hit)")
                     .font(.caption).monospacedDigit().foregroundStyle(.secondary)
             }
 
-            let top = s.projects.first?.cost ?? 1
+            // Each project's share of today, drawn behind its row.
+            let top = max(s.projects.first?.cost ?? 1, 0.01)
             ForEach(s.projects.prefix(4)) { row in
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack {
-                        Text(row.id).lineLimit(1)
-                        Spacer()
-                        Text(Fmt.dollars(row.cost)).monospacedDigit().foregroundStyle(.secondary)
-                    }
-                    GeometryReader { geo in
-                        Capsule().fill(Color.accentColor.opacity(0.7))
-                            .frame(width: max(2, geo.size.width * row.cost / max(top, 0.01)))
-                    }
-                    .frame(height: 3)
+                HStack {
+                    Text(row.id).lineLimit(1)
+                    Spacer()
+                    Text(Fmt.dollars(row.cost)).monospacedDigit().foregroundStyle(.secondary)
                 }
                 .font(.caption)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(alignment: .leading) {
+                    GeometryReader { geo in
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.accentColor.opacity(0.22))
+                            .frame(width: max(3, geo.size.width * row.cost / top))
+                    }
+                }
             }
 
-            HStack {
+            if s.models.count > 1 {
                 Text(s.models.prefix(3).map { "\($0.id) \(Fmt.dollars($0.cost))" }.joined(separator: " · "))
-                    .lineLimit(1)
-                Spacer()
-                if let hit = s.cacheHit { Text("cache hit \(Fmt.pct(hit * 100))") }
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
-            .font(.caption2).foregroundStyle(.secondary)
 
             Chart(s.daily) { bar in
                 BarMark(x: .value("Day", bar.day, unit: .day), y: .value("Cost", bar.cost))
@@ -133,14 +136,15 @@ struct PopoverView: View {
                     AxisValueLabel { Text(Fmt.dollars(value.as(Double.self) ?? 0)) }
                 }
             }
-            .frame(height: 64)
+            .frame(height: 40)
+            .padding(.top, 4)
         }
     }
 
     private func footer(_ s: Snapshot) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(sources(s))
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(.caption2).foregroundStyle(s.probeStatus == nil ? .secondary : Color.orange)
                 .fixedSize(horizontal: false, vertical: true)
             if let error = meter.loginError {
                 Text(error).font(.caption2).foregroundStyle(.red)
@@ -167,11 +171,10 @@ struct PopoverView: View {
     }
 
     private func sources(_ s: Snapshot) -> String {
-        var parts: [String] = []
-        parts.append(s.probeStatus ?? "Exact reading every 15 min while you work")
+        if let failure = s.probeStatus { return failure }
+        var parts = ["Exact every 15 min while you work", "~ = estimated in between"]
         if let tap = s.tapSeen { parts.append("statusline \(Fmt.ago(tap))") }
         if !s.calibrated { parts.append("not calibrated yet") }
-        parts.append("~ = estimated from this Mac's logs in between")
         return parts.joined(separator: " · ")
     }
 }
@@ -187,13 +190,26 @@ private struct WindowCard: View {
         }
     }
 
+    /// "exact · 2m ago", or "est. ±0.7 · 12m ago" counting from the last exact reading.
+    private var status: String? {
+        guard let asOf = w.asOf else { return nil }
+        if w.exact { return "exact · \(Fmt.ago(asOf))" }
+        return ["est.", w.accuracy].compactMap { $0 }.joined(separator: " ") + " · \(Fmt.ago(asOf))"
+    }
+
+    private var tooltip: String {
+        guard let asOf = w.asOf, !w.exact else { return "Exact reading." }
+        let base = "Estimated from this Mac's logs since the last exact reading \(Fmt.ago(asOf))."
+        return [base, w.accuracyDetail].compactMap { $0 }.joined(separator: " ")
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline) {
                 Text(w.title).font(.subheadline.weight(.semibold))
                 Spacer()
                 Text((w.exact ? "" : "~") + Fmt.pct(w.pct))
-                    .font(.title2.weight(.semibold)).monospacedDigit()
+                    .font(.title3.weight(.semibold)).monospacedDigit()
                     .foregroundStyle(color)
             }
             if w.series.count > 1, w.start != nil {
@@ -205,22 +221,21 @@ private struct WindowCard: View {
                         Capsule().fill(color).frame(width: geo.size.width * min(w.pct, 100) / 100)
                     }
                 }
-                .frame(height: 6)
+                .frame(height: 5)
             }
-            if w.idle {
-                Text("Idle. Your next message opens a new window.")
-            } else if let r = w.resetsAt {
-                Text("Resets \(Fmt.when(r)) · in \(Fmt.duration(r.timeIntervalSinceNow))")
+            HStack {
+                if w.idle {
+                    Text("Idle. Next message opens a window.")
+                } else if let r = w.resetsAt {
+                    Text("Resets \(Fmt.when(r)) · \(Fmt.duration(r.timeIntervalSinceNow))")
+                }
+                Spacer(minLength: 6)
+                if let status {
+                    Text(status).foregroundStyle(.tertiary).help(tooltip)
+                }
             }
             if let p = w.projection {
                 Text(p).foregroundStyle(w.projectionWarn ? Color.orange : Color.secondary)
-            }
-            if let asOf = w.asOf {
-                Text(w.exact ? "Exact · \(Fmt.ago(asOf))" : "Last exact reading \(Fmt.ago(asOf))")
-                    .foregroundStyle(.tertiary)
-            }
-            if let accuracy = w.accuracy {
-                Text(accuracy).foregroundStyle(.tertiary)
             }
         }
         .font(.caption)
@@ -262,6 +277,6 @@ private struct PaceChart: View {
         .chartXAxis(.hidden)
         .chartYAxis(.hidden)
         .chartPlotStyle { $0.background(Color.secondary.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 4)) }
-        .frame(height: 44)
+        .frame(height: 34)
     }
 }

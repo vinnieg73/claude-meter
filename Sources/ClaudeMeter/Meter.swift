@@ -20,8 +20,10 @@ struct WindowView {
     var projectionWarn = false
     /// No window open: the next message starts one.
     var idle = false
-    /// How far past estimates for this window have been from the exact readings that followed.
+    /// How far past estimates for this window have been from the exact readings that followed:
+    /// "±0.7" for the card, and a sentence for its tooltip.
     var accuracy: String?
+    var accuracyDetail: String?
     /// The window so far, and where the current pace takes it.
     var start: Date?
     var series: [PacePoint] = []
@@ -258,16 +260,17 @@ final class Meter: ObservableObject {
         store.state.checks = Array(checks.suffix(200))
     }
 
-    private func accuracy(_ window: String) -> String? {
+    private func setAccuracy(_ v: inout WindowView, window: String) {
         let recent = (store.state.checks ?? []).filter { $0.window == window }.suffix(20)
-        guard !recent.isEmpty else { return nil }
+        guard !recent.isEmpty else { return }
         let errors = recent.map { $0.estimated - $0.exact }
         let typical = errors.map(abs).reduce(0, +) / Double(errors.count)
         let bias = errors.reduce(0, +) / Double(errors.count)
-        var text = String(format: "Estimates within ±%.1f pts", typical)
+        var text = String(format: "Estimates have been within ±%.1f pts", typical)
         text += " over \(recent.count) check\(recent.count == 1 ? "" : "s")"
         if recent.count >= 3, abs(bias) >= 1 { text += bias > 0 ? ", usually high" : ", usually low" }
-        return text
+        v.accuracy = String(format: "±%.1f", typical)
+        v.accuracyDetail = text + "."
     }
 
     /// Cap = logged spend in the window / fraction used. Blended so one odd reading
@@ -313,12 +316,15 @@ final class Meter: ObservableObject {
         if loaded {
             s.fiveHour = fiveHour(now)
             if var f = s.fiveHour {
-                if !f.exact { f.accuracy = accuracy("5h") }
+                if !f.exact { setAccuracy(&f, window: "5h") }
                 series(&f, now: now)
                 s.fiveHour = f
             }
             s.weekly = weekly(now)
-            if s.weekly?.exact == false { s.weekly?.accuracy = accuracy("week") }
+            if var w = s.weekly, !w.exact {
+                setAccuracy(&w, window: "week")
+                s.weekly = w
+            }
             s.extras = extras(now)
             s.burning = burning(now)
             fillToday(&s, now: now)
