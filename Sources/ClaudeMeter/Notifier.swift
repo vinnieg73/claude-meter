@@ -32,6 +32,18 @@ final class Notifier {
             }
         }
 
+        // Once per window, when the pace says the cap is half an hour out or less.
+        if let capAt = s.capWarning, let resets = s.fiveHour?.resetsAt {
+            let lead = capAt.timeIntervalSince(now)
+            let key = "pace|\(Int(resets.timeIntervalSince1970))|0"
+            if lead > 0, lead <= 1800, !store.state.notified.contains(key) {
+                store.state.notified.append(key)
+                store.save()
+                post("Claude 5-hour cap in ~\(Fmt.duration(lead))",
+                     "At this pace you hit it at \(Fmt.when(capAt)). The window resets \(Fmt.when(resets)).")
+            }
+        }
+
         guard let f = s.fiveHour else { return }
         if f.resetsAt != currentReset {
             if let previous = currentReset, now >= previous, peak >= thresholds[0] {

@@ -3,6 +3,8 @@ import SwiftUI
 
 struct PopoverView: View {
     @ObservedObject var meter: Meter
+    var openHistory: () -> Void = {}
+    @AppStorage("weekScope") private var weekScope = false
 
     var body: some View {
         let s = meter.snapshot
@@ -33,6 +35,9 @@ struct PopoverView: View {
                 if !s.burning.isEmpty {
                     Divider()
                     burning(s)
+                }
+                if !s.cooling.isEmpty {
+                    cooling(s)
                 }
                 Divider()
                 today(s)
@@ -85,33 +90,70 @@ struct PopoverView: View {
         }
     }
 
-    private func today(_ s: Snapshot) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Today").font(.subheadline.weight(.semibold))
-                Spacer()
-                let hit = s.cacheHit.map { " · cache \(Fmt.pct($0 * 100))" } ?? ""
-                Text("\(Fmt.dollars(s.todayCost)) API-equiv · \(Fmt.tokens(s.todayTokens)) tok\(hit)")
-                    .font(.caption).monospacedDigit().foregroundStyle(.secondary)
-            }
-
-            // Each project's share of today, drawn behind its row.
-            let top = max(s.projects.first?.cost ?? 1, 0.01)
-            ForEach(s.projects.prefix(4)) { row in
-                HStack {
-                    Text(row.id).lineLimit(1)
-                    Spacer()
-                    Text(Fmt.dollars(row.cost)).monospacedDigit().foregroundStyle(.secondary)
+    /// Sessions gone quiet whose cache will expire, and what their next message would cost then.
+    private func cooling(_ s: Snapshot) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("Going cold").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                .help("Idle sessions whose prompt cache expires soon. After that, their next message "
+                      + "re-writes the whole context instead of reading it from cache.")
+            ForEach(s.cooling.prefix(3)) { c in
+                HStack(spacing: 6) {
+                    Text(c.name).lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 4)
+                    Text("cold in \(Fmt.duration(c.coldAt.timeIntervalSinceNow))").foregroundStyle(.secondary)
+                    Text("then +\(Fmt.dollars(c.extra))" + (c.extraPct.map { " (+\(Fmt.rate($0))%)" } ?? ""))
+                        .monospacedDigit()
                 }
                 .font(.caption)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
-                .background(alignment: .leading) {
-                    GeometryReader { geo in
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(Color.accentColor.opacity(0.22))
-                            .frame(width: max(3, geo.size.width * row.cost / top))
+            }
+        }
+    }
+
+    private func today(_ s: Snapshot) -> some View {
+        let week = weekScope && !s.weekShares.isEmpty
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .center) {
+                if s.weekShares.isEmpty {
+                    Text("Today").font(.subheadline.weight(.semibold))
+                } else {
+                    Picker("", selection: $weekScope) {
+                        Text("Today").tag(false)
+                        Text("This week").tag(true)
                     }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .fixedSize()
+                }
+                Spacer()
+                if week {
+                    let logged = s.weekShares.reduce(0) { $0 + $1.pct }
+                    Text("\(Fmt.pct(logged)) of weekly limit from this Mac")
+                        .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                } else {
+                    let hit = s.cacheHit.map { " · cache \(Fmt.pct($0 * 100))" } ?? ""
+                    Text("\(Fmt.dollars(s.todayCost)) · \(Fmt.tokens(s.todayTokens)) tok\(hit)")
+                        .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                        .help("API-list-price equivalent of today's Claude Code usage on this Mac.")
+                }
+            }
+
+            if week {
+                // Each project as a share of the weekly limit.
+                let top = max(s.weekShares.first?.pct ?? 1, 0.01)
+                ForEach(s.weekShares.prefix(4)) { share in
+                    barRow(share.id, value: "\(Fmt.pct(share.pct)) · \(Fmt.dollars(share.cost))",
+                           fraction: share.pct / top)
+                }
+                if let elsewhere = s.weekElsewhere {
+                    barRow("Elsewhere (chat, other devices)", value: Fmt.pct(elsewhere), fraction: 0)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                // Each project's share of today, drawn behind its row.
+                let top = max(s.projects.first?.cost ?? 1, 0.01)
+                ForEach(s.projects.prefix(4)) { row in
+                    barRow(row.id, value: Fmt.dollars(row.cost), fraction: row.cost / top)
                 }
             }
 
@@ -141,6 +183,24 @@ struct PopoverView: View {
         }
     }
 
+    private func barRow(_ name: String, value: String, fraction: Double) -> some View {
+        HStack {
+            Text(name).lineLimit(1)
+            Spacer()
+            Text(value).monospacedDigit().foregroundStyle(.secondary)
+        }
+        .font(.caption)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(alignment: .leading) {
+            GeometryReader { geo in
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.accentColor.opacity(fraction > 0 ? 0.22 : 0))
+                    .frame(width: max(3, geo.size.width * min(fraction, 1)))
+            }
+        }
+    }
+
     private func footer(_ s: Snapshot) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(sources(s))
@@ -152,12 +212,14 @@ struct PopoverView: View {
             HStack {
                 Button(s.probing ? "Syncing…" : "Sync") { meter.sync(force: true) }
                     .disabled(s.probing)
+                Button("History") { openHistory() }
                 Menu {
                     Toggle("Open at login", isOn: Binding(get: { meter.launchAtLogin },
                                                           set: { meter.setLaunchAtLogin($0) }))
                     Toggle("Weekly % in menu bar", isOn: $meter.showWeeklyInTitle)
                     Toggle("Notifications", isOn: $meter.notificationsOn)
                     Button("Send test notification") { meter.testNotification() }
+                    Toggle("Shortcut ⌃⌥⌘U", isOn: $meter.hotkeyOn)
                     Divider()
                     Text("Claude Meter \(Meter.version)")
                 } label: {

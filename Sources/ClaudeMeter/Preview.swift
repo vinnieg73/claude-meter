@@ -6,15 +6,15 @@ import SwiftUI
 /// without screen-recording access. No timers, notifications, or network.
 @MainActor
 enum Preview {
-    static func render(to path: String, dark: Bool) {
+    static func render(to path: String, dark: Bool, history: Bool = false) {
         _ = NSApplication.shared
         let meter = Meter()
         meter.loadOnce()
         print("menu bar: \(meter.snapshot.menuTitle)")
 
-        let host = NSHostingView(rootView: PopoverView(meter: meter)
-            .background(Color(nsColor: .windowBackgroundColor)))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 800),
+        let content = history ? AnyView(HistoryView(meter: meter)) : AnyView(PopoverView(meter: meter))
+        let host = NSHostingView(rootView: content.background(Color(nsColor: .windowBackgroundColor)))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: history ? 560 : 340, height: 900),
                               styleMask: .borderless, backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         window.contentView = host

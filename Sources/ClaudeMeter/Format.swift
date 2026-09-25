@@ -11,6 +11,7 @@ enum Fmt {
     static func tokens(_ n: Int) -> String {
         let v = Double(n)
         if v >= 1e9 { return String(format: "%.1fB", v / 1e9) }
+        if v >= 1e8 { return String(format: "%.0fM", v / 1e6) }
         if v >= 1e6 { return String(format: "%.1fM", v / 1e6) }
         if v >= 1e3 { return String(format: "%.0fk", v / 1e3) }
         return "\(n)"

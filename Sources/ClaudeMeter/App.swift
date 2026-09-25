@@ -10,7 +10,7 @@ enum Main {
     static func main() {
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--render"), i + 1 < args.count {
-            Preview.render(to: args[i + 1], dark: args.contains("--dark"))
+            Preview.render(to: args[i + 1], dark: args.contains("--dark"), history: args.contains("--history"))
             return
         }
         if args.contains("--status") { return Status.print() }
@@ -23,11 +23,13 @@ enum Main {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let meter = Meter()
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
-    private var subscription: AnyCancellable?
+    private var subscriptions: Set<AnyCancellable> = []
+    private var historyWindow: NSWindow?
+    private var hotKey: HotKey?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -37,11 +39,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.imagePosition = .imageLeading
 
         popover.behavior = .transient
-        let host = NSHostingController(rootView: PopoverView(meter: meter))
+        let host = NSHostingController(rootView: PopoverView(meter: meter) { [weak self] in self?.openHistory() })
         host.sizingOptions = .preferredContentSize // the popover follows the content as sections come and go
         popover.contentViewController = host
 
-        subscription = meter.$snapshot.sink { [weak self] in self?.render($0) }
+        meter.$snapshot.sink { [weak self] in self?.render($0) }.store(in: &subscriptions)
+        meter.$hotkeyOn.sink { [weak self] on in
+            self?.hotKey = on ? HotKey { [weak self] in self?.toggle() } : nil
+        }.store(in: &subscriptions)
         meter.start()
     }
 
@@ -94,11 +99,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.performClose(nil)
         let menu = NSMenu()
         menu.addItem(menuItem("Sync now", #selector(syncNow)))
+        menu.addItem(menuItem("History…", #selector(showHistory)))
         menu.addItem(.separator())
         menu.addItem(menuItem("Open at login", #selector(toggleLogin), on: meter.launchAtLogin))
         menu.addItem(menuItem("Weekly % in menu bar", #selector(toggleWeekly), on: meter.showWeeklyInTitle))
         menu.addItem(menuItem("Notifications", #selector(toggleNotifications), on: meter.notificationsOn))
         menu.addItem(menuItem("Send test notification", #selector(testNotification)))
+        menu.addItem(menuItem("Shortcut ⌃⌥⌘U", #selector(toggleHotkey), on: meter.hotkeyOn))
         menu.addItem(.separator())
         let version = NSMenuItem(title: "Claude Meter \(Meter.version)", action: nil, keyEquivalent: "")
         version.isEnabled = false
@@ -124,4 +131,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleWeekly() { meter.showWeeklyInTitle.toggle() }
     @objc private func toggleNotifications() { meter.notificationsOn.toggle() }
     @objc private func testNotification() { meter.testNotification() }
+    @objc private func toggleHotkey() { meter.hotkeyOn.toggle() }
+    @objc private func showHistory() { openHistory() }
+
+    private func openHistory() {
+        popover.performClose(nil)
+        if historyWindow == nil {
+            let host = NSHostingController(rootView: HistoryView(meter: meter))
+            host.sizingOptions = .preferredContentSize
+            let window = NSWindow(contentViewController: host)
+            window.title = "Claude Meter · History"
+            window.styleMask = [.titled, .closable, .miniaturizable]
+            window.isReleasedWhenClosed = false
+            window.delegate = self
+            window.center()
+            historyWindow = window
+        }
+        NSApp.activate()
+        historyWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Dropped on close, so its view stops recomputing history every tick.
+    func windowWillClose(_ notification: Notification) {
+        if (notification.object as? NSWindow) === historyWindow { historyWindow = nil }
+    }
 }

@@ -28,6 +28,9 @@ struct WindowView {
     var start: Date?
     var series: [PacePoint] = []
     var pace: [PacePoint] = []
+    /// Where the current pace lands at the reset, and when it hits the cap if that comes first.
+    var atReset: Double?
+    var capAt: Date?
 
     var level: Level { pct >= 90 ? .critical : pct >= 70 ? .warn : .normal }
 }
@@ -40,6 +43,24 @@ struct Burn: Identifiable {
     let perHour: Double
     /// Points of the 5-hour window per hour, once a cap is known.
     let pctPerHour: Double?
+}
+
+/// A session idle long enough to stop burning, whose prompt cache will expire before long.
+/// Its next message after that re-writes the whole context instead of reading it from cache.
+struct Cooling: Identifiable {
+    let id: String
+    let name: String
+    let coldAt: Date
+    /// What the next message would cost on top of a warm one, once the cache is cold.
+    let extra: Double
+    let extraPct: Double?
+}
+
+/// A project's share of the weekly limit.
+struct Share: Identifiable {
+    let id: String
+    let pct: Double
+    let cost: Double
 }
 
 struct Row: Identifiable {
@@ -61,6 +82,12 @@ struct Snapshot {
     var extras: [WindowView] = []
     var calibrated = false
     var burning: [Burn] = []
+    var cooling: [Cooling] = []
+    var weekShares: [Share] = []
+    /// Weekly % the logs can't account for: claude.ai chat, the phone, other machines.
+    var weekElsewhere: Double?
+    /// Set while the 5-hour pace hits the cap before the reset: when.
+    var capWarning: Date?
     var todayCost = 0.0
     var todayTokens = 0
     var todayTurns = 0
@@ -94,6 +121,12 @@ final class Meter: ObservableObject {
     @Published var notificationsOn = UserDefaults.standard.object(forKey: "notifications") as? Bool ?? true {
         didSet { UserDefaults.standard.set(notificationsOn, forKey: "notifications") }
     }
+    @Published var plan = Plan(rawValue: UserDefaults.standard.string(forKey: "plan") ?? "") ?? .max5x {
+        didSet { UserDefaults.standard.set(plan.rawValue, forKey: "plan") }
+    }
+    @Published var hotkeyOn = UserDefaults.standard.object(forKey: "hotkey") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(hotkeyOn, forKey: "hotkey") }
+    }
 
     private let index = LogIndex()
     private let queue = DispatchQueue(label: "claude-meter.logs", qos: .utility)
@@ -115,11 +148,16 @@ final class Meter: ObservableObject {
     private var probing = false
     private var timer: Timer?
     private var quiet = false
+    /// Cap warning, with some hysteresis so a wobbling pace doesn't flip the menu bar every tick.
+    private var warningOn = false
+    private var warningWindow: Date?
+    private var lastCapAt: Date?
 
     private static let fiveHours: TimeInterval = 5 * 3600
     private static let week: TimeInterval = 7 * 86400
     private static let burnLookback: TimeInterval = 900
     private static let probeEvery: TimeInterval = 900
+    private static let probeEveryNearCap: TimeInterval = 300
 
     func start() {
         let index = self.index
@@ -232,7 +270,7 @@ final class Meter: ObservableObject {
         if !force {
             if let retry = store.state.probeRetryAt, now < retry { return }
             if let last = store.state.lastExact {
-                guard now.timeIntervalSince(last.at) >= Self.probeEvery,
+                guard now.timeIntervalSince(last.at) >= probeInterval(now, last: last),
                       let latest = turns.last, latest.at > last.at else { return }
             }
         }
@@ -255,6 +293,14 @@ final class Meter: ObservableObject {
         }
     }
 
+    /// Every 15 minutes normally; every 5 near the cap, where accuracy matters most; and within
+    /// a minute of activity once the window the last reading described has reset.
+    private func probeInterval(_ now: Date, last: ExactReading) -> TimeInterval {
+        if let resets = last.fiveHour?.resetsAt, resets < now { return 60 }
+        if let f = snapshot.fiveHour, f.pct >= 75 || snapshot.capWarning != nil { return Self.probeEveryNearCap }
+        return Self.probeEvery
+    }
+
     private func absorb(_ reading: ExactReading) {
         var reading = reading
         if let last = store.state.lastExact {
@@ -264,6 +310,7 @@ final class Meter: ObservableObject {
         }
         recordAccuracy(reading)
         calibrate(from: reading)
+        if !quiet { HistoryLog.append(reading) }
         store.state.lastExact = reading
         store.save()
         recompute()
@@ -356,18 +403,25 @@ final class Meter: ObservableObject {
             }
             s.extras = extras(now)
             s.burning = burning(now)
+            s.cooling = cooling(now)
             fillToday(&s, now: now)
+            fillWeekShares(&s)
+            s.capWarning = updateWarning(s.fiveHour)
         }
 
         if let f = s.fiveHour {
             var title = (f.exact ? "" : "~") + Fmt.pct(f.pct)
-            if let r = f.resetsAt { title += " · " + Fmt.duration(r.timeIntervalSince(now)) }
+            if let capAt = s.capWarning {
+                title += " · cap " + Fmt.when(capAt)
+            } else if let r = f.resetsAt {
+                title += " · " + Fmt.duration(r.timeIntervalSince(now))
+            }
             if showWeeklyInTitle, let w = s.weekly {
                 title += "  wk " + (w.exact ? "" : "~") + Fmt.pct(w.pct)
             }
             s.menuTitle = title
             s.menuPct = f.pct
-            s.level = max(f.level, s.weekly?.level ?? .normal)
+            s.level = max(f.level, s.weekly?.level ?? .normal, s.capWarning != nil ? .warn : .normal)
         } else if loaded {
             s.menuTitle = Fmt.dollars(s.todayCost) + " today"
         }
@@ -483,8 +537,10 @@ final class Meter: ObservableObject {
         }
         let perHour = cost(from: now.addingTimeInterval(-span), to: now) / cap * 100 / (span / 3600)
         let atReset = v.pct + perHour * resets.timeIntervalSince(now) / 3600
+        v.atReset = atReset
         if atReset >= 100 {
             let capAt = now.addingTimeInterval((100 - v.pct) / perHour * 3600)
+            v.capAt = capAt
             v.projection = "At this pace: capped at \(Fmt.when(capAt))"
             v.projectionWarn = true
             v.pace = [PacePoint(at: now, pct: v.pct), PacePoint(at: capAt, pct: 100)]
@@ -537,6 +593,144 @@ final class Meter: ObservableObject {
         }
         .filter { $0.perHour >= 0.5 }
         .sorted { $0.perHour > $1.perHour }
+    }
+
+    /// On once the pace caps the window at least 10 minutes before it resets; off once the pace
+    /// lands under 95% at the reset. In between it holds, so a wobbling pace doesn't flicker.
+    private func updateWarning(_ f: WindowView?) -> Date? {
+        guard let f, !f.idle, f.pct < 100, let resets = f.resetsAt else {
+            warningOn = false
+            return nil
+        }
+        if warningWindow != resets {
+            warningWindow = resets
+            warningOn = false
+        }
+        if let capAt = f.capAt {
+            lastCapAt = capAt
+            if capAt <= resets.addingTimeInterval(-600) { warningOn = true }
+        } else if let atReset = f.atReset, atReset < 95 {
+            warningOn = false
+        }
+        return warningOn ? (f.capAt ?? lastCapAt) : nil
+    }
+
+    private func cooling(_ now: Date) -> [Cooling] {
+        // Each session's last turn within the hour, and whether it writes the 1-hour cache.
+        var last: [String: Turn] = [:]
+        var hourCache: Set<String> = []
+        for t in turns.reversed() {
+            if t.at < now.addingTimeInterval(-3600) { break }
+            if last[t.session] == nil { last[t.session] = t }
+            if t.write1h > 0 { hourCache.insert(t.session) }
+        }
+        let cap = store.state.calibration.cap5h
+        return last.compactMap { session, t -> Cooling? in
+            let ttl: TimeInterval = hourCache.contains(session) ? 3600 : 300
+            let idle = now.timeIntervalSince(t.at)
+            guard idle >= Self.burnLookback, idle < ttl, let price = Pricing.price(for: t.model) else { return nil }
+            // Cold, the whole prompt is written to cache again instead of read from it.
+            let context = Double(t.input + t.cacheRead + t.cacheWrite)
+            let write = price.input * (ttl == 3600 ? 2 : 1.25)
+            let extra = context * (write - price.cacheRead) / 1_000_000 * (t.fast ? 2 : 1)
+            guard extra >= 0.5 else { return nil }
+            return Cooling(id: session, name: names[session] ?? t.project,
+                           coldAt: t.at.addingTimeInterval(ttl), extra: extra,
+                           extraPct: cap.map { extra / $0 * 100 })
+        }
+        .sorted { $0.coldAt < $1.coldAt }
+    }
+
+    private func fillWeekShares(_ s: inout Snapshot) {
+        guard let w = s.weekly, let resets = w.resetsAt, let cap = store.state.calibration.capWeek else { return }
+        var byProject: [String: Double] = [:]
+        for t in turns[first(atOrAfter: resets.addingTimeInterval(-Self.week))...] {
+            byProject[t.project, default: 0] += t.cost
+        }
+        s.weekShares = byProject.map { Share(id: $0.key, pct: $0.value / cap * 100, cost: $0.value) }
+            .sorted { $0.pct > $1.pct }
+        let elsewhere = w.pct - s.weekShares.reduce(0) { $0 + $1.pct }
+        s.weekElsewhere = elsewhere >= 2 ? elsewhere : nil
+    }
+
+    // MARK: History
+
+    /// The last seven days of 5-hour windows, this week's climb, and how each plan would have
+    /// fared. Exact readings where the history log has them, estimates from the logs otherwise.
+    func history() -> History {
+        let now = Date()
+        var h = History()
+        h.calibrated = store.state.calibration.cap5h != nil
+        let since = now.addingTimeInterval(-Self.week)
+        let readings = HistoryLog.load(since: since.addingTimeInterval(-Self.fiveHours))
+        h.exactSince = readings.first?.at
+
+        // Highest exact reading per window, keyed by the minute it resets.
+        var exactPeak: [Int: Double] = [:]
+        for r in readings {
+            guard let w = r.fiveHour else { continue }
+            let key = Int((w.resetsAt.timeIntervalSince1970 / 60).rounded())
+            exactPeak[key] = max(exactPeak[key] ?? 0, w.pct)
+        }
+        let known = exactPeak.keys.map { Date(timeIntervalSince1970: Double($0) * 60) }
+
+        if let cap = store.state.calibration.cap5h {
+            // Walk the windows forward: each opens with the first message after the last closed,
+            // snapped to the real window where an exact reading pins one down.
+            var anchor = since
+            while true {
+                let i = first(atOrAfter: anchor)
+                guard i < turns.count, turns[i].at <= now else { break }
+                var start = turns[i].at
+                var end = start.addingTimeInterval(Self.fiveHours)
+                if let pinned = known.first(where: { $0.addingTimeInterval(-Self.fiveHours) <= start && start < $0 }) {
+                    start = pinned.addingTimeInterval(-Self.fiveHours)
+                    end = pinned
+                }
+                let estimate = cost(from: start, to: min(end, now)) / cap * 100
+                let exact = exactPeak[Int((end.timeIntervalSince1970 / 60).rounded())]
+                h.windows.append(HistoryWindow(start: start, end: end, peak: max(exact ?? 0, estimate),
+                                               exact: exact != nil, open: end > now))
+                anchor = end
+            }
+        }
+
+        if let w = weekly(now), let resets = w.resetsAt, let cap = store.state.calibration.capWeek {
+            let start = resets.addingTimeInterval(-Self.week)
+            h.weekStart = start
+            h.weekEnd = resets
+            h.weekNow = w.pct
+            h.weekAtReset = w.atReset
+            let hoursLeft = resets.timeIntervalSince(now) / 3600
+            if let atReset = w.atReset, hoursLeft > 0 { h.weekRate = (atReset - w.pct) / hoursLeft }
+            // Hourly climb from the logs, scaled to end at the week's actual %.
+            let logged = cost(from: start, to: now) / cap * 100
+            let scale = logged > 0 ? w.pct / logged : 1
+            var t = start
+            while t < now {
+                h.weekSeries.append(PacePoint(at: t, pct: cost(from: start, to: t) / cap * 100 * scale))
+                t.addTimeInterval(3600)
+            }
+            h.weekSeries.append(PacePoint(at: now, pct: w.pct))
+        }
+
+        let recent = h.windows.filter { $0.end > since }
+        let peak = recent.map(\.peak).max() ?? 0
+        let week = h.weekAtReset ?? h.weekNow
+        h.plans = Plan.allCases.map { p in
+            let factor = plan.multiplier / p.multiplier
+            var runsOut: Date?
+            let over = (h.weekNow ?? 0) * factor >= 100
+            if !over, let used = h.weekNow, let rate = h.weekRate, rate > 0, let end = h.weekEnd {
+                let at = now.addingTimeInterval((100 - used * factor) / (rate * factor) * 3600)
+                if at < end { runsOut = at }
+            }
+            return PlanFit(plan: p, current: p == plan,
+                           capped: recent.filter { $0.peak * factor >= 100 }.count,
+                           peak: peak * factor, weekAtReset: week.map { $0 * factor },
+                           weekRunsOut: runsOut, weekOver: over)
+        }
+        return h
     }
 
     private func fillToday(_ s: inout Snapshot, now: Date) {

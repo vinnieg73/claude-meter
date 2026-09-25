@@ -18,10 +18,24 @@ to reset, a pace projection, and where today's usage went by project.
 - **Burning now**: each session that spent in the last 15 minutes, by title, with $/hr and
   points of the 5-hour window per hour. Titles come from the transcripts' `custom-title` /
   `agent-name` lines.
-- **Today**: spend by project and model, cache-hit rate, and the last 7 days.
+- **Going cold**: sessions idle 15+ minutes whose 1-hour prompt cache expires soon, and what
+  their next message would cost on top of a warm one once it has (the whole context is
+  re-written at 2x input instead of read at the cache price).
+- **Today / This week**: spend by project today, or each project's share of the weekly
+  limit, plus what the logs can't account for (chat, other devices).
 
-Right-click the menu bar item for Sync, settings and Quit. Settings (also under the gear):
-open at login, weekly % in the menu bar title, notifications.
+**Cap warning.** When the 5-hour pace hits the cap at least 10 minutes before the reset, the
+menu bar switches to `31% · cap 10:49 PM` in orange, and one notification fires when the cap
+is 30 minutes out. It clears once the pace lands under 95% at the reset.
+
+**History** (button, or right-click → History…): every 5-hour window of the last 7 days at its
+peak, this week's climb against an even pace, and plan fit: how the same usage would have
+gone on Pro, Max 5x and Max 20x. Exact readings are logged to `history.jsonl` from 0.6 on;
+windows before that are estimated from the logs.
+
+**Shortcut** ⌃⌥⌘U opens the dropdown from anywhere (Carbon hot key, no accessibility
+permission needed). Right-click the menu bar item for Sync, History and settings: open at
+login, weekly % in the title, notifications, the shortcut.
 
 ## Where the numbers come from
 
@@ -31,7 +45,7 @@ every 15 minutes while you work and fills the time between from the **local logs
 | Source | What | When |
 |---|---|---|
 | `~/.claude/projects/**/*.jsonl` | every Claude Code turn on this Mac: model, tokens, project | continuously (tailed every 10s) |
-| probe | Claude Code's `rate_limit_event` (exact) | every 15 min, only if something was logged since the last reading; **Sync** on demand |
+| probe | Claude Code's `rate_limit_event` (exact) | every 15 min while active (5 min past 75% or under a cap warning, 1 min after a reset), only if something was logged since the last reading; **Sync** on demand |
 | statusline tap | Claude Code's own `rate_limits` (exact) | whenever a **terminal** `claude` session redraws its statusline |
 | `tap.json` drop-in | any exact reading, from anywhere | when written |
 
