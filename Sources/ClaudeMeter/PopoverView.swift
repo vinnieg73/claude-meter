@@ -75,7 +75,12 @@ struct PopoverView: View {
             }
             .help("Spend over the last 15 minutes. %/hr is of the 5-hour window.")
             ForEach(s.burning.prefix(4)) { b in
+                let runaway = s.runaways.first { $0.id == b.id }
                 HStack(spacing: 6) {
+                    if runaway != nil {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                            .help("Used \(Fmt.pct(runaway?.pct ?? 0)) of the 5-hour window in the last 30 minutes.")
+                    }
                     Text(b.name).lineLimit(1).truncationMode(.tail)
                     Text(b.model).foregroundStyle(.tertiary).lineLimit(1)
                     Spacer(minLength: 4)
@@ -301,6 +306,9 @@ private struct WindowCard: View {
             }
             if let p = w.projection {
                 Text(p).foregroundStyle(w.projectionWarn ? Color.orange : Color.secondary)
+            }
+            if let budget = w.budget {
+                Text(budget).foregroundStyle(w.budgetWarn ? Color.orange : Color.secondary)
             }
         }
         .font(.caption)

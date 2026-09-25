@@ -10,6 +10,7 @@ enum Main {
     static func main() {
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--render"), i + 1 < args.count {
+            if args.contains("--icons") { return Preview.icons(to: args[i + 1]) }
             Preview.render(to: args[i + 1], dark: args.contains("--dark"), history: args.contains("--history"))
             return
         }
@@ -30,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var subscriptions: Set<AnyCancellable> = []
     private var historyWindow: NSWindow?
     private var hotKey: HotKey?
+    private var sigterm: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -48,6 +50,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self?.hotKey = on ? HotKey { [weak self] in self?.toggle() } : nil
         }.store(in: &subscriptions)
         meter.start()
+
+        // pkill and logout send SIGTERM, which skips applicationWillTerminate; route it there
+        // so the log index is saved.
+        signal(SIGTERM, SIG_IGN)
+        sigterm = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        sigterm?.setEventHandler { NSApp.terminate(nil) }
+        sigterm?.resume()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -56,17 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func render(_ s: Snapshot) {
         guard let button = statusItem.button else { return }
-        let symbol: String
-        switch s.menuPct {
-        case ..<20: symbol = "gauge.with.dots.needle.0percent"
-        case ..<42: symbol = "gauge.with.dots.needle.33percent"
-        case ..<58: symbol = "gauge.with.dots.needle.50percent"
-        case ..<85: symbol = "gauge.with.dots.needle.67percent"
-        default: symbol = "gauge.with.dots.needle.100percent"
-        }
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Claude usage")
-        image?.isTemplate = true
-        button.image = image
+        button.image = Self.ring(s.menuPct)
 
         var attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
@@ -77,6 +76,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case .normal: break
         }
         button.attributedTitle = NSAttributedString(string: " " + s.menuTitle, attributes: attrs)
+    }
+
+    /// A progress ring filled to the 5-hour window's %, clockwise from 12 o'clock. A template
+    /// image, so the menu bar tints it for light and dark.
+    static func ring(_ pct: Double) -> NSImage {
+        let image = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
+            let center = NSPoint(x: rect.midX, y: rect.midY)
+            let radius = rect.width / 2 - 2
+            let track = NSBezierPath()
+            track.appendArc(withCenter: center, radius: radius, startAngle: 0, endAngle: 360)
+            track.lineWidth = 2.2
+            NSColor.black.withAlphaComponent(0.3).setStroke()
+            track.stroke()
+            let used = min(max(pct, 0), 100) / 100
+            if used > 0 {
+                let arc = NSBezierPath()
+                arc.appendArc(withCenter: center, radius: radius, startAngle: 90,
+                              endAngle: 90 - 360 * used, clockwise: true)
+                arc.lineWidth = 2.2
+                arc.lineCapStyle = .round
+                NSColor.black.setStroke()
+                arc.stroke()
+            }
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Claude usage \(Int(pct.rounded()))%"
+        return image
     }
 
     @objc private func clicked() {

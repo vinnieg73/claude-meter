@@ -114,7 +114,7 @@ struct HistoryView: View {
                     }
                 }
                 .frame(height: 130)
-                Text("Dotted grey: an even pace to the reset. Dashed: where the last 24 hours' pace lands.")
+                Text("Dotted grey: an even pace to the reset. Dashed: where your average pace lands.")
                     .font(.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             } else {
@@ -139,7 +139,7 @@ struct HistoryView: View {
                     Text("")
                     Text("Capped (7 days)")
                     Text("Busiest window")
-                    Text("Weekly limit at this pace")
+                    Text("Weekly limit at your average")
                 }
                 .font(.caption).foregroundStyle(.secondary)
                 ForEach(h.plans) { p in
@@ -176,7 +176,7 @@ struct HistoryView: View {
         var trouble: [String] = []
         if current.capped > 0 { trouble.append("\(current.capped) window\(current.capped == 1 ? "" : "s") capped") }
         if current.weekOver { trouble.append("the weekly limit is already spent") }
-        if let out = current.weekRunsOut { trouble.append("the weekly limit runs out \(Fmt.when(out)) at the last 24 hours' pace") }
+        if let out = current.weekRunsOut { trouble.append("the weekly limit runs out \(Fmt.when(out)) at your average pace") }
         var text = "On \(current.plan.name): " + trouble.joined(separator: ", ") + "."
         if let bigger = h.plans.filter({ $0.plan.multiplier > current.plan.multiplier && fits($0) })
             .min(by: { $0.plan.multiplier < $1.plan.multiplier }) {
@@ -197,7 +197,7 @@ struct HistoryView: View {
     }
 
     private func footnote(_ h: History) -> String {
-        var text = "Estimates use this Mac's Claude Code logs and today's calibration; claude.ai chat and other devices only show up in exact readings."
+        var text = "Estimates use this Mac's Claude Code logs and today's calibration; claude.ai chat and other devices only show up in exact readings. Days spent on other models (Opus 5 before Sep 22, Fable) are priced differently and may read high."
         if let since = h.exactSince { text += " Exact readings logged since \(Fmt.when(since))." }
         text += " Plan fit assumes each plan's limits scale with its multiplier (Pro 1×, Max 5×, Max 20×)."
         return text

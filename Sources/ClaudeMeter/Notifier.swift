@@ -23,10 +23,7 @@ final class Notifier {
         for w in [s.fiveHour, s.weekly].compactMap({ $0 }) where !w.idle {
             guard let resets = w.resetsAt else { continue }
             for t in thresholds where w.pct >= t {
-                let key = "\(w.title)|\(Int(resets.timeIntervalSince1970))|\(Int(t))"
-                guard !store.state.notified.contains(key) else { continue }
-                store.state.notified.append(key)
-                store.save()
+                guard remember("\(w.title)", resets, "\(Int(t))") else { continue }
                 post("Claude \(w.title.lowercased()) at \(Fmt.pct(w.pct))",
                      "Resets \(Fmt.when(resets)), in \(Fmt.duration(resets.timeIntervalSince(now))).")
             }
@@ -35,17 +32,23 @@ final class Notifier {
         // Once per window, when the pace says the cap is half an hour out or less.
         if let capAt = s.capWarning, let resets = s.fiveHour?.resetsAt {
             let lead = capAt.timeIntervalSince(now)
-            let key = "pace|\(Int(resets.timeIntervalSince1970))|0"
-            if lead > 0, lead <= 1800, !store.state.notified.contains(key) {
-                store.state.notified.append(key)
-                store.save()
+            if lead > 0, lead <= 1800, remember("pace", resets, "0") {
                 post("Claude 5-hour cap in ~\(Fmt.duration(lead))",
                      "At this pace you hit it at \(Fmt.when(capAt)). The window resets \(Fmt.when(resets)).")
             }
         }
 
+        // A session eating the window fast enough to look like a loop: once per session per window.
+        if let resets = s.fiveHour?.resetsAt {
+            for r in s.runaways {
+                guard remember("runaway:\(r.id)", resets, "0") else { continue }
+                post("\(r.name) is burning fast",
+                     "It used \(Fmt.pct(r.pct)) of your 5-hour window in the last 30 minutes.")
+            }
+        }
+
         guard let f = s.fiveHour else { return }
-        if f.resetsAt != currentReset {
+        if !Window.same(f.resetsAt, currentReset) {
             if let previous = currentReset, now >= previous, peak >= thresholds[0] {
                 post("Claude 5-hour window reset", "You're back to a full window.")
             }
@@ -54,6 +57,20 @@ final class Notifier {
         } else {
             peak = max(peak, f.pct)
         }
+    }
+
+    /// Records an alert as sent for this window. False if it already went out for the same
+    /// window, allowing for the seconds-to-minutes its reset time varies by between readings.
+    private func remember(_ kind: String, _ resets: Date, _ detail: String) -> Bool {
+        let sent = store.state.notified.contains { key in
+            let parts = key.split(separator: "|")
+            guard parts.count == 3, parts[0] == kind, parts[2] == detail, let epoch = Double(parts[1]) else { return false }
+            return Window.same(Date(timeIntervalSince1970: epoch), resets)
+        }
+        guard !sent else { return false }
+        store.state.notified.append("\(kind)|\(Int(resets.timeIntervalSince1970))|\(detail)")
+        store.save()
+        return true
     }
 
     /// Posts a sample alert, and reports whether the system lets this app notify at all.

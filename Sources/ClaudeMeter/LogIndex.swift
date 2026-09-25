@@ -99,11 +99,7 @@ final class LogIndex: @unchecked Sendable {
     }()
     private let iso = ISO8601DateFormatter()
 
-    /// The name the app shows for a session: its title if it has one, else its project.
-    func name(of session: String) -> String {
-        customTitles[session] ?? agentNames[session] ?? projectOfSession[session] ?? "…"
-    }
-
+    /// What the app calls each session: its title if it has one, else its project.
     var sessionNames: [String: String] {
         var names = projectOfSession
         names.merge(agentNames) { $1 }

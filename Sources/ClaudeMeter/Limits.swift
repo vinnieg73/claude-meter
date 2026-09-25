@@ -4,6 +4,18 @@ import Foundation
 struct Window: Codable {
     var pct: Double
     var resetsAt: Date
+
+    /// Sources disagree by seconds on the same reset (18:59:59.5 vs 19:00:00), and an estimated
+    /// window by a few minutes, so two resets this close are the same window.
+    static func same(_ a: Date?, _ b: Date?) -> Bool {
+        guard let a, let b else { return a == nil && b == nil }
+        return abs(a.timeIntervalSince(b)) < 900
+    }
+
+    /// The reset on the minute it means.
+    var normalized: Window {
+        Window(pct: pct, resetsAt: Date(timeIntervalSince1970: (resetsAt.timeIntervalSince1970 / 60).rounded() * 60))
+    }
 }
 
 /// An exact reading of the plan limits, from whichever source had one.

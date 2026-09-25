@@ -7,11 +7,18 @@ to reset, a pace projection, and where today's usage went by project.
 ◔ 23% · 18m          ← 5-hour window used · time to reset. ~ means estimated.
 ```
 
+The ring fills to the exact 5-hour %.
+
 ## What the dropdown shows
 
 - **5-hour window**: %, reset time, a chart of the window so far with a dashed pace line to
   the reset, and where that pace lands (or when it hits the cap).
 - **Weekly**: the same without the chart, plus per-model weekly buckets when a reading has them.
+  The forecast leads with your average pace (from exact readings only: this week's average
+  until the history log covers 3+ days, then a 7-day average) and gives today's pace second,
+  plus a **budget**: what's left per day to last to the reset, against what you average.
+  A log-based average isn't used because the logs price each model differently, and a model
+  change inside the span (Opus 5 to 5.5, Sep 22) skews it.
 - **Accuracy**: every exact reading is compared with what the meter was estimating at that
   moment (`checks` in `state.json`); the dropdown shows the typical error. Exact readings from
   the desktop app are whole percents, so ±0.5 is the floor.
@@ -23,6 +30,10 @@ to reset, a pace projection, and where today's usage went by project.
   re-written at 2x input instead of read at the cache price).
 - **Today / This week**: spend by project today, or each project's share of the weekly
   limit, plus what the logs can't account for (chat, other devices).
+
+**Runaway alert.** A single session that uses 20%+ of the 5-hour window within 30 minutes
+gets a ⚠ in Burning now and one notification per window, to catch loops and large workflows
+while you're away.
 
 **Cap warning.** When the 5-hour pace hits the cap at least 10 minutes before the reset, the
 menu bar switches to `31% · cap 10:49 PM` in orange, and one notification fires when the cap

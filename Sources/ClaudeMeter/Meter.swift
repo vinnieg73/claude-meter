@@ -31,6 +31,12 @@ struct WindowView {
     /// Where the current pace lands at the reset, and when it hits the cap if that comes first.
     var atReset: Double?
     var capAt: Date?
+    /// Weekly only: the same at the 7-day average pace, and what's left per day to last to reset.
+    var averagePerDay: Double?
+    var averageAtReset: Double?
+    var averageRunsOut: Date?
+    var budget: String?
+    var budgetWarn = false
 
     var level: Level { pct >= 90 ? .critical : pct >= 70 ? .warn : .normal }
 }
@@ -54,6 +60,14 @@ struct Cooling: Identifiable {
     /// What the next message would cost on top of a warm one, once the cache is cold.
     let extra: Double
     let extraPct: Double?
+}
+
+/// A session eating the 5-hour window fast enough to look like a runaway loop.
+struct Runaway: Identifiable {
+    let id: String
+    let name: String
+    /// Points of the 5-hour window used in the last 30 minutes.
+    let pct: Double
 }
 
 /// A project's share of the weekly limit.
@@ -82,6 +96,7 @@ struct Snapshot {
     var extras: [WindowView] = []
     var calibrated = false
     var burning: [Burn] = []
+    var runaways: [Runaway] = []
     var cooling: [Cooling] = []
     var weekShares: [Share] = []
     /// Weekly % the logs can't account for: claude.ai chat, the phone, other machines.
@@ -90,7 +105,6 @@ struct Snapshot {
     var capWarning: Date?
     var todayCost = 0.0
     var todayTokens = 0
-    var todayTurns = 0
     var cacheHit: Double?
     var projects: [Row] = []
     var models: [Row] = []
@@ -158,6 +172,8 @@ final class Meter: ObservableObject {
     private static let burnLookback: TimeInterval = 900
     private static let probeEvery: TimeInterval = 900
     private static let probeEveryNearCap: TimeInterval = 300
+    /// A single session using this much of the 5-hour window within 30 minutes is flagged.
+    private static let runawayPct: Double = 20
 
     func start() {
         let index = self.index
@@ -303,6 +319,9 @@ final class Meter: ObservableObject {
 
     private func absorb(_ reading: ExactReading) {
         var reading = reading
+        reading.fiveHour = reading.fiveHour?.normalized
+        reading.weekly = reading.weekly?.normalized
+        reading.extras = reading.extras.mapValues(\.normalized)
         if let last = store.state.lastExact {
             guard reading.at > last.at else { return }
             // The tap reports no per-model buckets; keep the last ones known.
@@ -402,8 +421,10 @@ final class Meter: ObservableObject {
                 s.weekly = w
             }
             s.extras = extras(now)
-            s.burning = burning(now)
-            s.cooling = cooling(now)
+            let recent = recentBySession(now)
+            s.burning = burning(recent)
+            s.runaways = runaways(recent)
+            s.cooling = cooling(recent, now: now)
             fillToday(&s, now: now)
             fillWeekShares(&s)
             s.capWarning = updateWarning(s.fiveHour)
@@ -507,8 +528,74 @@ final class Meter: ObservableObject {
         if let cap, let resets = v.resetsAt {
             project(&v, cap: cap, now: now, windowStart: resets.addingTimeInterval(-Self.week),
                     lookback: 86400, minLookback: 7200)
+            forecast(&v, cap: cap, now: now, resets: resets)
         }
         return v
+    }
+
+    /// The last 24 hours overstate a workday and understate a weekend, so the weekly card leads
+    /// with an average and gives today's pace second. The budget is what's left per day to last
+    /// until the reset, set against that average.
+    private func forecast(_ v: inout WindowView, cap: Double, now: Date, resets: Date) {
+        guard v.pct < 100, let (perDay, label, averageLabel) = averagePerDay(now: now, pct: v.pct, resets: resets) else { return }
+        let daysLeft = resets.timeIntervalSince(now) / 86400
+        let atReset = v.pct + perDay * daysLeft
+        v.averagePerDay = perDay
+        v.averageAtReset = atReset
+        if atReset >= 100, perDay > 0 {
+            v.averageRunsOut = now.addingTimeInterval((100 - v.pct) / perDay * 86400)
+        }
+
+        let average = v.averageRunsOut.map { "\(label) pace: out \(Fmt.when($0))" }
+            ?? "\(label) pace: ~\(Fmt.pct(atReset)) at reset"
+        let today = v.capAt.map { "today's: out \(Fmt.when($0))" }
+            ?? v.atReset.map { "today's: ~\(Fmt.pct($0))" }
+        v.projection = [average, today].compactMap { $0 }.joined(separator: " · ")
+        v.projectionWarn = v.averageRunsOut != nil
+
+        let budget = (100 - v.pct) / max(daysLeft, 1.0 / 24)
+        v.budget = "Budget ~\(Fmt.rate(budget))%/day to the reset · \(averageLabel) \(Fmt.rate(perDay))%/day"
+        v.budgetWarn = perDay > budget
+    }
+
+    /// Weekly points used per day, from exact readings only. The logs price each model
+    /// differently, and a model change inside the span (Opus 5 to 5.5 on Sep 22) makes a
+    /// log-based average unreliable. Uses the history log's increments over the last 7 days
+    /// once it covers 3+ days; before that, this week's own average once it is a day old.
+    private func averagePerDay(now: Date, pct: Double, resets: Date) -> (Double, String, String)? {
+        let readings = exactHistory(since: now.addingTimeInterval(-Self.week))
+            .compactMap { r in r.weekly.map { (at: r.at, window: $0) } }
+        if let first = readings.first, now.timeIntervalSince(first.at) >= 3 * 86400 {
+            var used = 0.0
+            let cap = store.state.calibration.capWeek
+            for (a, b) in zip(readings, readings.dropFirst()) {
+                if Window.same(a.window.resetsAt, b.window.resetsAt) {
+                    used += max(0, b.window.pct - a.window.pct)
+                } else {
+                    // A reset between them: the old week's last stretch (from the logs), then the new week.
+                    let tail = cap.map { cost(from: a.at, to: a.window.resetsAt) / $0 * 100 } ?? 0
+                    used += min(tail, max(0, 100 - a.window.pct)) + b.window.pct
+                }
+            }
+            if let last = readings.last, Window.same(last.window.resetsAt, resets) {
+                used += max(0, pct - last.window.pct) // since the last reading
+            }
+            return (used / (now.timeIntervalSince(first.at) / 86400), "7-day", "7-day average")
+        }
+        let elapsed = now.timeIntervalSince(resets.addingTimeInterval(-Self.week)) / 86400
+        return elapsed >= 1 ? (pct / elapsed, "Week's", "this week's average") : nil
+    }
+
+    /// The history log, reread only when it changes.
+    private var historyCache: (mtime: Date, readings: [ExactReading])?
+    private func exactHistory(since: Date) -> [ExactReading] {
+        let mtime = (try? Paths.support.appendingPathComponent("history.jsonl")
+            .resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        guard let mtime else { return [] }
+        if historyCache?.mtime != mtime {
+            historyCache = (mtime, HistoryLog.load(since: Date().addingTimeInterval(-8 * 86400)))
+        }
+        return historyCache?.readings.filter { $0.at >= since } ?? []
     }
 
     /// Per-model weekly buckets are only known from exact readings; shown as of then.
@@ -575,21 +662,36 @@ final class Meter: ObservableObject {
         v.series = points
     }
 
-    private func burning(_ now: Date) -> [Burn] {
-        let since = now.addingTimeInterval(-Self.burnLookback)
-        var spent: [String: Double] = [:]
-        var model: [String: String] = [:]
+    /// One session's last hour: what burning, runaways and cooling each need.
+    private struct Recent {
+        var last15 = 0.0
+        var last30 = 0.0
+        var lastTurn: Turn?
+        var hourCache = false
+    }
+
+    private func recentBySession(_ now: Date) -> [String: Recent] {
+        var recent: [String: Recent] = [:]
         for t in turns.reversed() {
-            if t.at < since { break }
-            spent[t.session, default: 0] += t.cost
-            if model[t.session] == nil { model[t.session] = t.model }
+            let age = now.timeIntervalSince(t.at)
+            if age > 3600 { break }
+            var r = recent[t.session] ?? Recent()
+            if r.lastTurn == nil { r.lastTurn = t }
+            if age <= Self.burnLookback { r.last15 += t.cost }
+            if age <= 1800 { r.last30 += t.cost }
+            if t.write1h > 0 { r.hourCache = true }
+            recent[t.session] = r
         }
+        return recent
+    }
+
+    private func burning(_ recent: [String: Recent]) -> [Burn] {
         let cap = store.state.calibration.cap5h
-        return spent.map { session, cost in
-            let perHour = cost / (Self.burnLookback / 3600)
-            return Burn(id: session, name: names[session] ?? "…",
-                        model: Fmt.model(model[session] ?? ""), perHour: perHour,
-                        pctPerHour: cap.map { perHour / $0 * 100 })
+        return recent.compactMap { session, r in
+            guard r.last15 > 0, let t = r.lastTurn else { return nil }
+            let perHour = r.last15 / (Self.burnLookback / 3600)
+            return Burn(id: session, name: names[session] ?? "…", model: Fmt.model(t.model),
+                        perHour: perHour, pctPerHour: cap.map { perHour / $0 * 100 })
         }
         .filter { $0.perHour >= 0.5 }
         .sorted { $0.perHour > $1.perHour }
@@ -602,10 +704,8 @@ final class Meter: ObservableObject {
             warningOn = false
             return nil
         }
-        if warningWindow != resets {
-            warningWindow = resets
-            warningOn = false
-        }
+        if !Window.same(warningWindow, resets) { warningOn = false }
+        warningWindow = resets
         if let capAt = f.capAt {
             lastCapAt = capAt
             if capAt <= resets.addingTimeInterval(-600) { warningOn = true }
@@ -615,18 +715,20 @@ final class Meter: ObservableObject {
         return warningOn ? (f.capAt ?? lastCapAt) : nil
     }
 
-    private func cooling(_ now: Date) -> [Cooling] {
-        // Each session's last turn within the hour, and whether it writes the 1-hour cache.
-        var last: [String: Turn] = [:]
-        var hourCache: Set<String> = []
-        for t in turns.reversed() {
-            if t.at < now.addingTimeInterval(-3600) { break }
-            if last[t.session] == nil { last[t.session] = t }
-            if t.write1h > 0 { hourCache.insert(t.session) }
+    private func runaways(_ recent: [String: Recent]) -> [Runaway] {
+        guard let cap = store.state.calibration.cap5h else { return [] }
+        return recent.compactMap { session, r in
+            let pct = r.last30 / cap * 100
+            return pct >= Self.runawayPct ? Runaway(id: session, name: names[session] ?? "…", pct: pct) : nil
         }
+        .sorted { $0.pct > $1.pct }
+    }
+
+    private func cooling(_ recent: [String: Recent], now: Date) -> [Cooling] {
         let cap = store.state.calibration.cap5h
-        return last.compactMap { session, t -> Cooling? in
-            let ttl: TimeInterval = hourCache.contains(session) ? 3600 : 300
+        return recent.compactMap { session, r -> Cooling? in
+            guard let t = r.lastTurn else { return nil }
+            let ttl: TimeInterval = r.hourCache ? 3600 : 300
             let idle = now.timeIntervalSince(t.at)
             guard idle >= Self.burnLookback, idle < ttl, let price = Pricing.price(for: t.model) else { return nil }
             // Cold, the whole prompt is written to cache again instead of read from it.
@@ -662,7 +764,7 @@ final class Meter: ObservableObject {
         var h = History()
         h.calibrated = store.state.calibration.cap5h != nil
         let since = now.addingTimeInterval(-Self.week)
-        let readings = HistoryLog.load(since: since.addingTimeInterval(-Self.fiveHours))
+        let readings = exactHistory(since: since.addingTimeInterval(-Self.fiveHours))
         h.exactSince = readings.first?.at
 
         // Highest exact reading per window, keyed by the minute it resets.
@@ -684,7 +786,8 @@ final class Meter: ObservableObject {
                 var start = turns[i].at
                 var end = start.addingTimeInterval(Self.fiveHours)
                 if let pinned = known.first(where: { $0.addingTimeInterval(-Self.fiveHours) <= start && start < $0 }) {
-                    start = pinned.addingTimeInterval(-Self.fiveHours)
+                    // Never reach back into the window before; its spend is already counted.
+                    start = max(pinned.addingTimeInterval(-Self.fiveHours), anchor)
                     end = pinned
                 }
                 let estimate = cost(from: start, to: min(end, now)) / cap * 100
@@ -700,9 +803,14 @@ final class Meter: ObservableObject {
             h.weekStart = start
             h.weekEnd = resets
             h.weekNow = w.pct
-            h.weekAtReset = w.atReset
+            // Plan decisions ride on the week, so use the 7-day average, not one day's pace.
+            h.weekAtReset = w.averageAtReset ?? w.atReset
             let hoursLeft = resets.timeIntervalSince(now) / 3600
-            if let atReset = w.atReset, hoursLeft > 0 { h.weekRate = (atReset - w.pct) / hoursLeft }
+            if let perDay = w.averagePerDay {
+                h.weekRate = perDay / 24
+            } else if let atReset = w.atReset, hoursLeft > 0 {
+                h.weekRate = (atReset - w.pct) / hoursLeft
+            }
             // Hourly climb from the logs, scaled to end at the week's actual %.
             let logged = cost(from: start, to: now) / cap * 100
             let scale = logged > 0 ? w.pct / logged : 1
@@ -744,7 +852,6 @@ final class Meter: ObservableObject {
         for t in turns[first(atOrAfter: dayStart)...] {
             s.todayCost += t.cost
             s.todayTokens += t.tokens
-            s.todayTurns += 1
             projects[t.project, default: (0, 0)].0 += t.cost
             projects[t.project, default: (0, 0)].1 += t.tokens
             let name = names[t.model] ?? {

@@ -39,13 +39,32 @@ enum Probe {
         let out = Pipe()
         process.standardOutput = out
 
+        // Read as output arrives and stop when claude exits. A blocking read-to-end would wait
+        // on every holder of the pipe, and a child claude left running could hold it forever.
+        let output = Output()
+        out.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty { handle.readabilityHandler = nil } else { output.append(chunk) }
+        }
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+
         do { try process.run() } catch { return .failed("couldn't start Claude Code") }
-        let timeout = DispatchWorkItem { if process.isRunning { process.terminate() } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 60, execute: timeout)
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        timeout.cancel()
-        return parse(data)
+        if exited.wait(timeout: .now() + 60) == .timedOut {
+            process.terminate()
+            _ = exited.wait(timeout: .now() + 5)
+        }
+        Thread.sleep(forTimeInterval: 0.2) // let the last buffered output land
+        out.fileHandleForReading.readabilityHandler = nil
+        return parse(output.data)
+    }
+
+    /// Output collected from the pipe's handler thread.
+    private final class Output: @unchecked Sendable {
+        private let lock = NSLock()
+        private var buffer = Data()
+        func append(_ chunk: Data) { lock.lock(); buffer.append(chunk); lock.unlock() }
+        var data: Data { lock.lock(); defer { lock.unlock() }; return buffer }
     }
 
     static var cliPath: String? { binary()?.path }
