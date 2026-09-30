@@ -37,6 +37,20 @@ struct Turn: Codable {
                             write5m: write5m, write1h: write1h, fast: fast)
     }
 
+    /// The same turn with the larger of each count. Copies written mid-stream carry a partial
+    /// output count; the later ones carry the final one.
+    func merged(with other: Turn) -> Turn {
+        Turn(key: key, at: at, project: project, model: model, session: session,
+             input: max(input, other.input), output: max(output, other.output),
+             cacheRead: max(cacheRead, other.cacheRead), write5m: max(write5m, other.write5m),
+             write1h: max(write1h, other.write1h), fast: fast || other.fast)
+    }
+
+    func grows(_ other: Turn) -> Bool {
+        other.output > output || other.input > input || other.cacheRead > cacheRead
+            || other.write5m > write5m || other.write1h > write1h
+    }
+
     private enum CodingKeys: String, CodingKey {
         case key, at, project, model, session, input, output, cacheRead, write5m, write1h, fast
     }
@@ -57,19 +71,33 @@ struct Turn: Codable {
     }
 }
 
-/// Tails ~/.claude/projects/**/*.jsonl. Keeps a byte offset per file so each refresh
-/// reads only what was appended, and caches what it has read so a relaunch starts warm.
+/// Tails the Claude Code transcripts. Keeps a byte offset per file so each refresh reads only
+/// what was appended, and caches what it has read so a relaunch starts warm.
 /// Only touched from one serial queue.
 final class LogIndex: @unchecked Sendable {
-    private let root = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".claude/projects")
+    /// Claude Code keeps its config in ~/.claude unless CLAUDE_CONFIG_DIR moves it. Resolved,
+    /// because the directory walk returns nothing when the folder itself is a symlink.
+    private let root: URL = {
+        let base = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]
+            .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude")
+        return base.appendingPathComponent("projects").resolvingSymlinksInPath()
+    }()
     /// A weekly window never reaches back further than this.
     private let horizon: TimeInterval = 8 * 86400
     private let activeWindow: TimeInterval = 180
 
-    private var offsets: [String: UInt64] = [:]
-    /// Claude Code writes a turn once per content block, each copy carrying the same usage.
-    private var seen: Set<String> = []
+    /// How far each file has been read, and which file it was: a transcript replaced in place
+    /// has a new inode and is read again from the start.
+    private struct Mark: Codable {
+        var offset: UInt64
+        var inode: UInt64
+    }
+
+    private var marks: [String: Mark] = [:]
+    /// Where each turn sits in `turns`, by key. A turn is written once per content block, so a
+    /// later copy updates the one already held instead of being counted again.
+    private var position: [String: Int] = [:]
     private var projectOfCwd: [String: String] = [:]
     private var projectOfSession: [String: String] = [:]
     private var customTitles: [String: String] = [:]
@@ -107,9 +135,9 @@ final class LogIndex: @unchecked Sendable {
         return names
     }
 
-    /// Reads whatever was appended since the last call. Returns true if new turns arrived.
-    /// Checks only the recent transcripts it knows about; the full tree is walked once a
-    /// minute to find new ones, since walking it is most of what a refresh would cost.
+    /// Reads whatever was appended since the last call. Returns true if turns were added or
+    /// updated. Checks only the recent transcripts it knows about; the full tree is walked
+    /// once a minute to find new ones, since walking it is most of what a refresh would cost.
     @discardableResult
     func refresh() -> Bool {
         let now = Date()
@@ -118,7 +146,7 @@ final class LogIndex: @unchecked Sendable {
             discover(cutoff: cutoff)
             lastDiscovery = now
         }
-        var added = false
+        var changed = false
         var active: Set<String> = []
 
         for path in known {
@@ -131,28 +159,39 @@ final class LogIndex: @unchecked Sendable {
                 active.insert(Self.session(of: url))
             }
             let size = UInt64(info.st_size)
-            var start = offsets[path] ?? 0
-            if size < start { start = 0 } // rewritten; `seen` absorbs the repeats
-            guard size > start else { continue }
-            if read(url, from: start, cutoff: cutoff) { added = true }
+            let inode = UInt64(info.st_ino)
+            var mark = marks[path] ?? Mark(offset: 0, inode: inode)
+            // Replaced (new inode) or rewritten shorter: read it again; `position` absorbs repeats.
+            if mark.inode != inode || size < mark.offset { mark = Mark(offset: 0, inode: inode) }
+            guard size > mark.offset else {
+                marks[path] = mark
+                continue
+            }
+            if read(url, from: mark.offset, inode: inode, cutoff: cutoff) { changed = true }
         }
 
-        if added {
+        if changed {
             let before = turns.count
             turns.removeAll { $0.at < cutoff }
-            if turns.count < before { seen = Set(turns.map(\.key)) }
+            let reorder = unsorted || turns.count < before
             if unsorted {
                 turns.sort { $0.at < $1.at }
                 unsorted = false
             }
+            if reorder { reindex() }
             dirty = true
         }
         activeSessions = active.sorted()
-        return added
+        return changed
+    }
+
+    private func reindex() {
+        position = Dictionary(turns.enumerated().map { ($1.key, $0) }, uniquingKeysWith: { a, _ in a })
     }
 
     /// Transcripts touched within the horizon. Tool-result dumps and memory folders hold
-    /// no transcripts and are most of the tree, so they are skipped whole.
+    /// no transcripts and are most of the tree, so they are skipped whole. Also drops what
+    /// no longer matters: marks for files gone quiet, names for sessions no longer held.
     private func discover(cutoff: Date) {
         let keys: [URLResourceKey] = [.contentModificationDateKey]
         guard let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys) else { return }
@@ -168,15 +207,26 @@ final class LogIndex: @unchecked Sendable {
             found.append(url.path)
         }
         known = found
+
+        let live = Set(found)
+        let sessions = Set(turns.map(\.session)).union(found.map { Self.session(of: URL(fileURLWithPath: $0)) })
+        let before = marks.count + projectOfSession.count + customTitles.count + agentNames.count
+        marks = marks.filter { live.contains($0.key) }
+        projectOfSession = projectOfSession.filter { sessions.contains($0.key) }
+        customTitles = customTitles.filter { sessions.contains($0.key) }
+        agentNames = agentNames.filter { sessions.contains($0.key) }
+        if marks.count + projectOfSession.count + customTitles.count + agentNames.count < before { dirty = true }
+        // Repos come and go (a git init, a deleted checkout); look them up afresh now and then.
+        projectOfCwd.removeAll(keepingCapacity: true)
     }
 
-    private func read(_ url: URL, from start: UInt64, cutoff: Date) -> Bool {
+    private func read(_ url: URL, from start: UInt64, inode: UInt64, cutoff: Date) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
         guard (try? handle.seek(toOffset: start)) != nil else { return false }
 
         // Chunked, so the first scan of a few hundred MB of logs never sits in memory at once.
-        var added = false
+        var changed = false
         var offset = start
         var pending = Data()
         while true {
@@ -189,11 +239,7 @@ final class LogIndex: @unchecked Sendable {
                 lineStart = newline + 1
                 if line.range(of: Self.usageMarker) != nil, line.range(of: Self.assistantMarker) != nil {
                     autoreleasepool {
-                        if let turn = parseTurn(Data(line)), turn.at >= cutoff {
-                            if let last = turns.last, turn.at < last.at { unsorted = true }
-                            turns.append(turn)
-                            added = true
-                        }
+                        if let turn = parseTurn(Data(line)), turn.at >= cutoff, keep(turn) { changed = true }
                     }
                 } else if line.count < 4096,
                           line.range(of: Self.titleMarker) != nil || line.range(of: Self.agentMarker) != nil {
@@ -204,8 +250,21 @@ final class LogIndex: @unchecked Sendable {
             pending = Data(pending[lineStart...])
         }
         // A partial last line is left for the next pass.
-        offsets[url.path] = offset
-        return added
+        marks[url.path] = Mark(offset: offset, inode: inode)
+        return changed
+    }
+
+    /// Adds a new turn, or folds a later copy into the one already held. True if anything changed.
+    private func keep(_ turn: Turn) -> Bool {
+        if let i = position[turn.key], i < turns.count, turns[i].key == turn.key {
+            guard turns[i].grows(turn) else { return false }
+            turns[i] = turns[i].merged(with: turn)
+            return true
+        }
+        if let last = turns.last, turn.at < last.at { unsorted = true }
+        position[turn.key] = turns.count
+        turns.append(turn)
+        return true
     }
 
     private func parseTurn(_ line: Data) -> Turn? {
@@ -217,8 +276,6 @@ final class LogIndex: @unchecked Sendable {
               let at = isoFrac.date(from: stamp) ?? iso.date(from: stamp) else { return nil }
 
         let key = (message.id ?? UUID().uuidString) + "|" + (entry.requestId ?? "")
-        guard seen.insert(key).inserted else { return nil }
-
         let project = project(for: entry.cwd ?? "")
         let session = entry.sessionId ?? "?"
         projectOfSession[session] = project
@@ -245,12 +302,14 @@ final class LogIndex: @unchecked Sendable {
     /// Names a working directory by its repo, so `Surge/web/src` counts as Surge.
     private func project(for cwd: String) -> String {
         if let known = projectOfCwd[cwd] { return known }
-        guard !cwd.isEmpty else { return "unknown" }
+        guard !cwd.isEmpty, cwd != "/" else { return "unknown" }
         var path = cwd
         if let r = path.range(of: "/.claude/worktrees/") { path = String(path[..<r.lowerBound]) }
         var dir = URL(fileURLWithPath: path)
         var name = dir.lastPathComponent
-        while dir.path != "/" && dir.path != NSHomeDirectory() {
+        // Checking for .git on an unreachable network volume can hang the scan; name it by folder.
+        let remote = path.hasPrefix("/Volumes/") || path.hasPrefix("/net/")
+        while !remote && dir.path != "/" && dir.path != NSHomeDirectory() {
             if FileManager.default.fileExists(atPath: dir.appendingPathComponent(".git").path) {
                 name = dir.lastPathComponent
                 break
@@ -261,21 +320,21 @@ final class LogIndex: @unchecked Sendable {
         return name
     }
 
-    /// `<session>.jsonl`, or `<session>/subagents/agent-x.jsonl` for a subagent.
+    /// `<session>.jsonl`, or anything under `<session>/subagents/`: a subagent, or a workflow's
+    /// agents at `<session>/subagents/workflows/wf_…/agent-x.jsonl`.
     private static func session(of url: URL) -> String {
-        let parent = url.deletingLastPathComponent()
-        if parent.lastPathComponent == "subagents" {
-            return parent.deletingLastPathComponent().lastPathComponent
-        }
+        let parts = url.pathComponents
+        if let i = parts.lastIndex(of: "subagents"), i > 0 { return parts[i - 1] }
         return url.deletingPathExtension().lastPathComponent
     }
 
     // MARK: Cache
 
     private struct IndexCache: Codable {
-        static let version = 1
+        /// 2: turns keep their largest copy; files are tracked by inode.
+        static let version = 2
         var version = IndexCache.version
-        var offsets: [String: UInt64]
+        var marks: [String: Mark]
         var turns: [Turn]
         var projectOfSession: [String: String]
         var customTitles: [String: String]
@@ -289,15 +348,15 @@ final class LogIndex: @unchecked Sendable {
         return dir.appendingPathComponent("index.plist")
     }()
 
-    /// Picks up where the last run stopped. A missing or stale cache just means a full scan.
+    /// Picks up where the last run stopped. A missing or older cache just means a full scan.
     func loadCache() {
         guard let data = try? Data(contentsOf: Self.cacheURL),
               let cache = try? PropertyListDecoder().decode(IndexCache.self, from: data),
               cache.version == IndexCache.version else { return }
         let cutoff = Date().addingTimeInterval(-horizon)
-        offsets = cache.offsets
-        turns = cache.turns.filter { $0.at >= cutoff }
-        seen = Set(turns.map(\.key))
+        marks = cache.marks
+        turns = cache.turns.filter { $0.at >= cutoff }.sorted { $0.at < $1.at }
+        reindex()
         projectOfSession = cache.projectOfSession
         customTitles = cache.customTitles
         agentNames = cache.agentNames
@@ -307,7 +366,7 @@ final class LogIndex: @unchecked Sendable {
     /// Writes at most every five minutes unless forced (on quit).
     func saveCache(force: Bool = false) {
         guard dirty || force, force || Date().timeIntervalSince(lastSaved) > 300 else { return }
-        let cache = IndexCache(offsets: offsets, turns: turns, projectOfSession: projectOfSession,
+        let cache = IndexCache(marks: marks, turns: turns, projectOfSession: projectOfSession,
                                customTitles: customTitles, agentNames: agentNames)
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary

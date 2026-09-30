@@ -56,11 +56,14 @@ every 15 minutes while you work and fills the time between from the **local logs
 | Source | What | When |
 |---|---|---|
 | `~/.claude/projects/**/*.jsonl` | every Claude Code turn on this Mac: model, tokens, project | continuously (tailed every 10s) |
-| probe | Claude Code's `rate_limit_event` (exact) | every 15 min while active (5 min past 75% or under a cap warning, 1 min after a reset), only if something was logged since the last reading; **Sync** on demand |
+| probe | Claude Code's `rate_limit_event` (exact) | every 15 min while active (5 min past 75% or under a cap warning, 1 min after the first message past a reset), only if something was logged since the last reading and a window is already open; **Sync** on demand |
 | statusline tap | Claude Code's own `rate_limits` (exact) | whenever a **terminal** `claude` session redraws its statusline |
 | `tap.json` drop-in | any exact reading, from anywhere | when written |
 
-Each turn is weighted by API list price (`Pricing.swift`). An exact reading fixes the
+A turn is logged once per content block, and the first copy can be written mid-stream with a
+partial output count; the meter keeps the largest copy of each. Each turn is weighted by API
+list price (`Pricing.swift`); a model the table doesn't know is priced as the newest of its
+family (Sonnet 5.5, for now, as Sonnet 5). An exact reading fixes the
 $-equivalent that equals 100% of each window (the *cap*); between readings the % moves by
 logged spend ÷ cap. Checked 2026-09-24: estimate 22% vs exact 23% after 12 heavy minutes.
 
@@ -92,14 +95,22 @@ reading, calibrated caps, accuracy).
 ```
 
 Quits the app, removes its login item, the app, its data and cache, its preferences, and the
-statusline entry in `~/.claude/settings.json` (only if it points at the tap).
+statusline entry in `~/.claude/settings.json` (only if it is exactly the tap; a statusline that
+runs something else too is left for you to edit).
 
 ## Probe
 
 One headless Claude Code turn: `claude -p ok --model haiku`, a one-line system prompt, no
-tools, no MCP servers, no saved session, run in an empty folder. Claude Code reports the plan
+tools, no MCP servers, no saved session, none of your settings or hooks
+(`--setting-sources ""`, `disableAllHooks`), run in an empty folder. Claude Code reports the plan
 limits alongside the reply (`rate_limit_event` → `unifiedWindows`, utilization as a fraction).
-About $0.002 of usage per run, so at most ~$0.01/hr while you work and nothing while idle.
+About $0.001 of usage per run, so at most ~$0.01/hr while you work and nothing while idle.
+
+- **It never opens a window.** A probe is a request, and a request opens a 5-hour window if
+  none is open, which would move your reset. So it only runs while the last reading's window is
+  still open, or once you've sent something since it reset; a forced Sync with no window open
+  says so instead.
+- It finds the native installer, Homebrew, npm (with node on its PATH), Volta, Bun and nvm.
 
 - It strips `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` first. The
   desktop app sets the first for everything it launches, and any of them would move the call
@@ -111,7 +122,8 @@ About $0.002 of usage per run, so at most ~$0.01/hr while you work and nothing w
 ## Statusline tap
 
 `claude-meter-tap` (inside the app bundle) is a Claude Code statusline command. It saves the
-exact `rate_limits` block and prints `Opus 5.5 · 5h 23% · 7d 28% · ctx 21%`. Registered in
+exact `rate_limits` block (only when it changes: a redraw of old numbers isn't a new reading, and
+the meter also rejects a % lower than it already has for the same window) and prints `Opus 5.5 · 5h 23% · 7d 28% · ctx 21%`. Registered in
 `~/.claude/settings.json`:
 
 ```json
@@ -128,7 +140,10 @@ Write `~/Library/Application Support/ClaudeMeter/tap.json` (epoch seconds):
                    "seven_day": { "used_percentage": 28, "resets_at": 1790794800 } } }
 ```
 
-State (last exact reading, calibration, notifications sent) is in `state.json` next to it.
+State (last exact reading, calibration, notifications sent) is in `state.json` next to it. A
+state file this version can't read is kept as `state.unreadable-<time>.json`, never overwritten.
+`history.jsonl` keeps five weeks. A reading dated in the future is ignored, and `at` may be in
+seconds or milliseconds.
 
 ## Notifications
 

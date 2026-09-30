@@ -17,7 +17,12 @@ codesign --force --sign - "$APP/Contents/MacOS/claude-meter-tap"
 codesign --force --sign - "$APP"
 
 if [[ "${1:-}" == "--install" ]]; then
+  # The app saves its index on the way out; `open` would otherwise find it still quitting,
+  # hand it the launch, and leave nothing running once it exits.
   pkill -x ClaudeMeter || true
+  for _ in $(seq 50); do pgrep -x ClaudeMeter >/dev/null || break; sleep 0.1; done
+  pkill -9 -x ClaudeMeter || true
+  mkdir -p "$HOME/Applications"
   rm -rf "$HOME/Applications/ClaudeMeter.app"
   cp -R "$APP" "$HOME/Applications/"
   open "$HOME/Applications/ClaudeMeter.app"

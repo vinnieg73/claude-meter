@@ -22,7 +22,10 @@ struct PopoverView: View {
                             HStack {
                                 Text(x.title)
                                 Spacer()
-                                Text(Fmt.pct(x.pct)).monospacedDigit()
+                                // Carried over from an older reading: say how old.
+                                let age = x.asOf.map { Date().timeIntervalSince($0) } ?? 0
+                                Text(Fmt.pct(x.pct) + (age > 3600 ? " · as of \(Fmt.ago(x.asOf!))" : ""))
+                                    .monospacedDigit()
                             }
                             .font(.caption2).foregroundStyle(.secondary)
                         }

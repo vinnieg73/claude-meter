@@ -11,7 +11,9 @@ enum Status {
             Swift.print(await report())
             done.signal()
         }
-        done.wait()
+        if done.wait(timeout: .now() + 10) == .timedOut {
+            Swift.print("timed out waiting for macOS (notification settings)")
+        }
     }
 
     /// For the uninstall script: a login item outlives the app it points at otherwise.
@@ -40,7 +42,7 @@ enum Status {
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             let state: String
             switch settings.authorizationStatus {
-            case .authorized, .provisional, .ephemeral: state = "allowed"
+            case .authorized, .provisional: state = "allowed"
             case .denied: state = "denied (System Settings → Notifications → Claude Meter)"
             case .notDetermined: state = "not asked yet"
             @unknown default: state = "unknown"

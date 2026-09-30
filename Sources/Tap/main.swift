@@ -11,10 +11,18 @@ let limits = state["rate_limits"] as? [String: Any] ?? [:]
 if !limits.isEmpty {
     let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("ClaudeMeter")
+    let file = dir.appendingPathComponent("tap.json")
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    let record: [String: Any] = ["at": Date().timeIntervalSince1970, "rate_limits": limits]
-    if let data = try? JSONSerialization.data(withJSONObject: record) {
-        try? data.write(to: dir.appendingPathComponent("tap.json"), options: .atomic)
+    // The statusline redraws without a new API call (typing, idle refreshes), carrying the last
+    // numbers it had. Stamping those "now" would pass old limits off as a fresh reading, so
+    // only a change is written.
+    let previous = (try? Data(contentsOf: file))
+        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["rate_limits"] as? NSDictionary
+    if previous != (limits as NSDictionary) {
+        let record: [String: Any] = ["at": Date().timeIntervalSince1970, "rate_limits": limits]
+        if let data = try? JSONSerialization.data(withJSONObject: record) {
+            try? data.write(to: file, options: .atomic)
+        }
     }
 }
 

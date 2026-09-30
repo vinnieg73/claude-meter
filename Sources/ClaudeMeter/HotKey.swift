@@ -6,6 +6,8 @@ final class HotKey {
     private var hotKey: EventHotKeyRef?
     private var handler: EventHandlerRef?
     private let action: () -> Void
+    /// False when another app already holds the combination.
+    private(set) var registered = false
 
     /// ⌃⌥⌘U by default: clear of the shortcuts common apps ship with.
     init(keyCode: UInt32 = UInt32(kVK_ANSI_U),
@@ -19,7 +21,7 @@ final class HotKey {
             return noErr
         }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), &handler)
         let id = EventHotKeyID(signature: OSType(0x434D_5452), id: 1) // 'CMTR'
-        RegisterEventHotKey(keyCode, modifiers, id, GetApplicationEventTarget(), 0, &hotKey)
+        registered = RegisterEventHotKey(keyCode, modifiers, id, GetApplicationEventTarget(), 0, &hotKey) == noErr
     }
 
     deinit {

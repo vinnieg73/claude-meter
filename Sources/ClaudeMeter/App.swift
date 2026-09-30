@@ -7,15 +7,34 @@ import SwiftUI
 enum Main {
     static let delegate = AppDelegate()
 
+    static let usage = """
+        usage: ClaudeMeter                      run the menu bar app
+               ClaudeMeter --status             print setup and last known state
+               ClaudeMeter --render out.png [--dark] [--history | --icons]
+               ClaudeMeter --unregister-login
+        """
+
     static func main() {
         let args = CommandLine.arguments
-        if let i = args.firstIndex(of: "--render"), i + 1 < args.count {
+        // A typo shouldn't start a second meter: unknown or incomplete flags print usage.
+        let known: Set = ["--render", "--dark", "--history", "--icons", "--status", "--unregister-login"]
+        if args.dropFirst().contains(where: { $0.hasPrefix("--") && !known.contains($0) }) {
+            return print(usage)
+        }
+        if let i = args.firstIndex(of: "--render") {
+            guard i + 1 < args.count, !args[i + 1].hasPrefix("--") else { return print(usage) }
             if args.contains("--icons") { return Preview.icons(to: args[i + 1]) }
             Preview.render(to: args[i + 1], dark: args.contains("--dark"), history: args.contains("--history"))
             return
         }
         if args.contains("--status") { return Status.print() }
         if args.contains("--unregister-login") { return Status.unregisterLogin() }
+
+        // Two meters would post every alert twice, probe twice, and overwrite each other's state.
+        if let id = Bundle.main.bundleIdentifier,
+           NSRunningApplication.runningApplications(withBundleIdentifier: id).contains(where: { $0 != .current }) {
+            return print("Claude Meter is already running.")
+        }
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory) // menu bar only, no Dock icon
         app.delegate = delegate
@@ -24,7 +43,7 @@ enum Main {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPopoverDelegate {
     private let meter = Meter()
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
@@ -41,13 +60,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem.button?.imagePosition = .imageLeading
 
         popover.behavior = .transient
+        popover.delegate = self
         let host = NSHostingController(rootView: PopoverView(meter: meter) { [weak self] in self?.openHistory() })
         host.sizingOptions = .preferredContentSize // the popover follows the content as sections come and go
         popover.contentViewController = host
 
         meter.$snapshot.sink { [weak self] in self?.render($0) }.store(in: &subscriptions)
         meter.$hotkeyOn.sink { [weak self] on in
-            self?.hotKey = on ? HotKey { [weak self] in self?.toggle() } : nil
+            guard let self else { return }
+            self.hotKey = nil // release the old one first, or the new one can't register the same keys
+            guard on else { return }
+            let key = HotKey { [weak self] in self?.toggle() }
+            self.hotKey = key
+            if !key.registered {
+                self.meter.notice = "⌃⌥⌘U is already taken by another app, so the shortcut isn't working."
+            }
         }.store(in: &subscriptions)
         meter.start()
 
@@ -116,6 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             popover.performClose(nil)
         } else {
             meter.refreshNow()
+            NSApp.unhide(nil) // closing the dropdown hides the app to hand focus back
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
             NSApp.activate()
@@ -174,8 +202,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.center()
             historyWindow = window
         }
+        NSApp.unhide(nil)
         NSApp.activate()
         historyWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Opened from the shortcut, the meter took the focus from whatever you were in; closing
+    /// the dropdown hands it back rather than leaving your keystrokes going nowhere.
+    func popoverDidClose(_ notification: Notification) {
+        if NSApp.isActive, historyWindow?.isVisible != true { NSApp.hide(nil) }
     }
 
     /// Dropped on close, so its view stops recomputing history every tick.

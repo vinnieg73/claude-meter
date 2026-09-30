@@ -1,31 +1,59 @@
 import Foundation
 
 /// Every exact reading, one JSON object per line, so history outlives the 8 days of logs the
-/// meter keeps in memory.
+/// meter keeps in memory. Pruned to the last five weeks.
 enum HistoryLog {
-    private static var url: URL { Paths.support.appendingPathComponent("history.jsonl") }
+    private static let keep: TimeInterval = 35 * 86400
 
+    /// One write with O_APPEND, so a line lands whole and never over another writer's. If the
+    /// file doesn't end in a newline (a write cut short), one goes first so lines don't fuse.
     static func append(_ reading: ExactReading) {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        guard var line = try? encoder.encode(reading) else { return }
+        guard var line = try? JSONCoding.encoder().encode(reading) else { return }
         line.append(0x0A)
-        if let handle = try? FileHandle(forWritingTo: url) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: line)
-        } else {
-            try? line.write(to: url, options: .atomic)
+        let fd = open(Paths.history.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+        guard fd >= 0 else { return }
+        defer { close(fd) }
+        var last: UInt8 = 0x0A
+        let size = lseek(fd, 0, SEEK_END)
+        if size > 0 {
+            let reader = open(Paths.history.path, O_RDONLY)
+            if reader >= 0 {
+                _ = pread(reader, &last, 1, size - 1)
+                close(reader)
+            }
         }
+        if last != 0x0A { line.insert(0x0A, at: 0) }
+        _ = line.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
     }
 
-    static func load(since: Date) -> [ExactReading] {
-        guard let data = try? Data(contentsOf: url) else { return [] }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return data.split(separator: 0x0A)
+    /// Readings from `offset` on, and where the file ended.
+    static func load(from offset: UInt64 = 0) -> (readings: [ExactReading], end: UInt64) {
+        guard let handle = try? FileHandle(forReadingFrom: Paths.history) else { return ([], 0) }
+        defer { try? handle.close() }
+        guard (try? handle.seek(toOffset: offset)) != nil, let data = try? handle.readToEnd() else {
+            return ([], offset)
+        }
+        // Stop at the last newline; a line still being written is read next time.
+        guard let lastNewline = data.lastIndex(of: 0x0A) else { return ([], offset) }
+        let decoder = JSONCoding.decoder()
+        let readings = data[data.startIndex...lastNewline].split(separator: 0x0A)
             .compactMap { try? decoder.decode(ExactReading.self, from: Data($0)) }
-            .filter { $0.at >= since }
+        return (readings, offset + UInt64(lastNewline - data.startIndex + 1))
+    }
+
+    /// Drops lines older than five weeks, once they're there to drop.
+    static func compact() {
+        let (readings, _) = load()
+        let cutoff = Date().addingTimeInterval(-keep)
+        guard let first = readings.first, first.at < cutoff else { return }
+        let encoder = JSONCoding.encoder()
+        var out = Data()
+        for r in readings where r.at >= cutoff {
+            guard let line = try? encoder.encode(r) else { continue }
+            out.append(line)
+            out.append(0x0A)
+        }
+        try? out.write(to: Paths.history, options: .atomic)
     }
 }
 
