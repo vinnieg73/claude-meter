@@ -178,6 +178,9 @@ final class Meter: ObservableObject {
     private static let probeEveryNearCap: TimeInterval = 300
     /// A single session using this much of the 5-hour window within 30 minutes is flagged.
     private static let runawayPct: Double = 20
+    /// Bump when the cost of a turn changes meaning, so calibration relearns instead of drifting.
+    /// 2: the largest copy of each turn counts (0.8).
+    private static let costBasis = 2
     private static let blockedNotice =
         "Notifications are blocked for Claude Meter. Turn them on in the settings pane that just opened."
     private static let noWindowNotice =
@@ -185,11 +188,11 @@ final class Meter: ObservableObject {
 
     func start() {
         _ = notifier // set as the notification delegate before anything is posted
+        // Here rather than on the log queue: readings are appended on the main actor, and one
+        // landing between compact's read and its rename would be lost.
+        HistoryLog.compact()
         let index = self.index
-        queue.async {
-            index.loadCache()
-            HistoryLog.compact()
-        }
+        queue.async { index.loadCache() }
         tick()
         timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
@@ -407,11 +410,12 @@ final class Meter: ObservableObject {
     }
 
     /// Before a new reading replaces the old one, notes what the meter was estimating at
-    /// that moment. Readings less than ten minutes apart say nothing about the estimate, and
-    /// neither does an estimate made before there was a cap to make it with.
+    /// that moment. Readings a few minutes apart say little about the estimate (though near
+    /// the cap they come every five, and those count), and an estimate made before there was
+    /// a cap to make it with says nothing.
     private func recordAccuracy(_ reading: ExactReading, fresh: Set<String>) {
         guard loaded, let last = store.state.lastExact,
-              reading.at.timeIntervalSince(last.at) >= 600 else { return }
+              reading.at.timeIntervalSince(last.at) >= 240 else { return }
         let minutes = reading.at.timeIntervalSince(last.at) / 60
         let cal = store.state.calibration
         var checks = store.state.checks ?? []
@@ -446,16 +450,19 @@ final class Meter: ObservableObject {
     private func calibrate(from r: ExactReading, fresh: Set<String>) {
         guard loaded else { return }
         var c = store.state.calibration
-        if let last = c.updatedAt, r.at > last, r.at.timeIntervalSince(last) < 900 { return }
+        // At most every 15 minutes, and never the same reading twice (a relaunch replays it).
+        if let last = c.updatedAt, r.at.timeIntervalSince(last) < 900 { return }
         var changed = false
         if fresh.contains("5h"), let w = r.fiveHour,
            let cap = impliedCap(w, span: Self.fiveHours, at: w.at ?? r.at, minPct: 10, minSpend: 0.5) {
-            c.cap5h = blend(c.cap5h, cap, pct: w.pct)
+            c.cap5h = blend(c.basis5h == Self.costBasis ? c.cap5h : nil, cap, pct: w.pct)
+            c.basis5h = Self.costBasis
             changed = true
         }
         if fresh.contains("week"), let w = r.weekly,
            let cap = impliedCap(w, span: Self.week, at: w.at ?? r.at, minPct: 5, minSpend: 2) {
-            c.capWeek = blend(c.capWeek, cap, pct: w.pct)
+            c.capWeek = blend(c.basisWeek == Self.costBasis ? c.capWeek : nil, cap, pct: w.pct)
+            c.basisWeek = Self.costBasis
             changed = true
         }
         if changed {

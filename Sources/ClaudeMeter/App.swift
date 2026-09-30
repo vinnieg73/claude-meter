@@ -68,13 +68,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         meter.$snapshot.sink { [weak self] in self?.render($0) }.store(in: &subscriptions)
         meter.$hotkeyOn.sink { [weak self] on in
             guard let self else { return }
+            let taken = "⌃⌥⌘U is already taken by another app, so the shortcut isn't working."
             self.hotKey = nil // release the old one first, or the new one can't register the same keys
-            guard on else { return }
-            let key = HotKey { [weak self] in self?.toggle() }
-            self.hotKey = key
-            if !key.registered {
-                self.meter.notice = "⌃⌥⌘U is already taken by another app, so the shortcut isn't working."
+            if on {
+                let key = HotKey { [weak self] in self?.toggle() }
+                self.hotKey = key
+                if !key.registered { return self.meter.notice = taken }
             }
+            if self.meter.notice == taken { self.meter.notice = nil }
         }.store(in: &subscriptions)
         meter.start()
 

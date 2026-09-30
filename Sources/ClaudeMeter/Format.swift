@@ -30,9 +30,12 @@ enum Fmt {
         return "\(m / 1440)d \(m % 1440 / 60)h"
     }
 
-    /// Localized templates, so a 24-hour clock setting is honoured.
+    /// Localized templates, so a 24-hour clock setting is honoured, and time zone and locale
+    /// that follow the system: the app runs for days, across trips and DST.
     private static func formatter(_ template: String) -> DateFormatter {
         let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
+        f.timeZone = .autoupdatingCurrent
         f.setLocalizedDateFormatFromTemplate(template)
         return f
     }

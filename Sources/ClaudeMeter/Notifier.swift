@@ -57,19 +57,17 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         refreshAuthorization()
         let send = post && authorized
 
-        if let f = s.fiveHour, let resets = f.resetsAt {
-            if !Window.same(resets, currentReset) {
-                if send, let previous = currentReset, now >= previous, peak >= thresholds[0] {
-                    deliver(title: "Claude 5-hour window reset", body: "You're back to a full window.")
-                }
-                currentReset = resets
-                peak = f.pct
-            } else {
-                peak = max(peak, f.pct)
+        // A new window, or none open (it lapsed while you were away): announce the reset of
+        // one that ran hot either way.
+        let resets = s.fiveHour?.resetsAt
+        if !Window.same(resets, currentReset) {
+            if send, let previous = currentReset, now >= previous, peak >= thresholds[0] {
+                deliver(title: "Claude 5-hour window reset", body: "You're back to a full window.")
             }
-        } else {
-            currentReset = nil
-            peak = 0
+            currentReset = resets
+            peak = s.fiveHour?.pct ?? 0
+        } else if let f = s.fiveHour {
+            peak = max(peak, f.pct)
         }
         guard send else { return }
 

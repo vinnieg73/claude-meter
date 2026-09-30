@@ -55,6 +55,10 @@ struct Calibration: Codable {
     var cap5h: Double?
     var capWeek: Double?
     var updatedAt: Date?
+    /// How turns were costed when each cap was learned (`Meter.costBasis`). A cap learned
+    /// under older costing is replaced, not blended, by the next reading.
+    var basis5h: Int?
+    var basisWeek: Int?
 }
 
 /// What the meter was showing when an exact reading arrived.

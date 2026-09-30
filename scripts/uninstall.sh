@@ -2,11 +2,14 @@
 # Removes Claude Meter and everything it put on this Mac: the app, its login item, its data
 # and cache, its preferences, and the statusline entry it added to ~/.claude/settings.json.
 set -euo pipefail
+# The running app is the bare binary; `ClaudeMeter --status` or `--render` runs carry flags
+# and are left alone.
+RUNNING='ClaudeMeter\.app/Contents/MacOS/ClaudeMeter$'
 
 APP="$HOME/Applications/ClaudeMeter.app"
 
-pkill -x ClaudeMeter || true
-for _ in $(seq 50); do pgrep -x ClaudeMeter >/dev/null || break; sleep 0.1; done
+pkill -f "$RUNNING" || true
+for _ in $(seq 50); do pgrep -f "$RUNNING" >/dev/null || break; sleep 0.1; done
 if [[ -x "$APP/Contents/MacOS/ClaudeMeter" ]]; then
   "$APP/Contents/MacOS/ClaudeMeter" --unregister-login
 fi
