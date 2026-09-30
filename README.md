@@ -63,7 +63,7 @@ every 15 minutes while you work and fills the time between from the **local logs
 A turn is logged once per content block, and the first copy can be written mid-stream with a
 partial output count; the meter keeps the largest copy of each. Each turn is weighted by API
 list price (`Pricing.swift`); a model the table doesn't know is priced as the newest of its
-family (Sonnet 5.5, for now, as Sonnet 5). An exact reading fixes the
+family. An exact reading fixes the
 $-equivalent that equals 100% of each window (the *cap*); between readings the % moves by
 logged spend ÷ cap. Checked 2026-09-24: estimate 22% vs exact 23% after 12 heavy minutes.
 

@@ -25,6 +25,7 @@ enum Pricing {
         ("claude-opus-4-5", Price(input: 5, output: 25, cacheRead: 0.50)),
         ("claude-opus-4-1", Price(input: 15, output: 75, cacheRead: 1.50)),
         ("claude-opus-4", Price(input: 15, output: 75, cacheRead: 1.50)),
+        ("claude-sonnet-5-5", Price(input: 2, output: 10, cacheRead: 0.20)),
         ("claude-sonnet-5", Price(input: 2, output: 10, cacheRead: 0.20)),
         ("claude-sonnet-4-6", Price(input: 3, output: 15, cacheRead: 0.30)),
         ("claude-sonnet-4-5", Price(input: 3, output: 15, cacheRead: 0.30)),
