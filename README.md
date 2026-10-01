@@ -88,6 +88,28 @@ reading, calibrated caps, accuracy).
 
 `swift scripts/make-icon.swift` redraws `Resources/AppIcon.icns`.
 
+## Replay test
+
+```bash
+./scripts/replay.sh
+```
+
+Builds the working tree and steps the real meter code through this Mac's history log and
+transcripts with a moving clock, from a blank state (calibration learned along the way). Reads,
+never writes; exits non-zero on a failure. It checks:
+
+1. **Window openings**: after each reset, the estimate of the next window's reset, made from what
+   was known at the reset, matches the real one within a minute.
+2. **Probe gate**: between a reset and the next message a probe would not run (it would open a
+   window); right after that message it would.
+3. **Alerts**: none goes out twice for the same window (alerts go to a recorder, not macOS).
+4. **Accuracy**: estimates made just before each exact reading, typically within ±1.5 points
+   (5-hour) and ±1.0 (weekly).
+
+Checks 1 and 2 judge from the state at the reset, so readings the pre-0.8 probe took seconds
+after a reset (which opened those windows itself) don't count against today's code. Each check
+was confirmed to fail when the fix it guards is removed.
+
 ## Uninstall
 
 ```bash

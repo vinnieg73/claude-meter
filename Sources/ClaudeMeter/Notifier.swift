@@ -16,11 +16,14 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     private var authorizationCheckedAt = Date.distantPast
     /// Alerts handed to macOS but not yet confirmed, so the next tick doesn't send them again.
     private var pending: Set<String> = []
+    /// For the replay test: each alert's key goes here instead of to macOS.
+    private let sink: ((String) -> Void)?
 
-    init(store: StateStore) {
+    init(store: StateStore, sink: ((String) -> Void)? = nil) {
         self.store = store
+        self.sink = sink
         // UNUserNotificationCenter traps outside an app bundle (e.g. `swift run`).
-        center = Bundle.main.bundleIdentifier == nil ? nil : UNUserNotificationCenter.current()
+        center = sink != nil || Bundle.main.bundleIdentifier == nil ? nil : UNUserNotificationCenter.current()
         super.init()
         center?.delegate = self
         center?.requestAuthorization(options: [.alert, .sound]) { [weak self] _, _ in
@@ -53,16 +56,17 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     /// Follows the 5-hour window every time, so switching alerts back on doesn't announce a
     /// reset from hours ago; posts only when `post` (the Notifications setting) is on.
     func check(_ s: Snapshot, now: Date, post: Bool) {
-        guard center != nil, s.loaded else { return }
+        guard center != nil || sink != nil, s.loaded else { return }
         refreshAuthorization()
-        let send = post && authorized
+        let send = post && (authorized || sink != nil)
 
         // A new window, or none open (it lapsed while you were away): announce the reset of
         // one that ran hot either way.
         let resets = s.fiveHour?.resetsAt
         if !Window.same(resets, currentReset) {
             if send, let previous = currentReset, now >= previous, peak >= thresholds[0] {
-                deliver(title: "Claude 5-hour window reset", body: "You're back to a full window.")
+                deliver(key: "reset|\(Int(previous.timeIntervalSince1970))|0",
+                        title: "Claude 5-hour window reset", body: "You're back to a full window.")
             }
             currentReset = resets
             peak = s.fiveHour?.pct ?? 0
@@ -112,7 +116,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         }
         guard !sent, !pending.contains(key) else { return }
         pending.insert(key)
-        deliver(title: title, body: body) { [weak self] ok in
+        deliver(key: key, title: title, body: body) { [weak self] ok in
             guard let self else { return }
             self.pending.remove(key)
             guard ok else { return }
@@ -143,11 +147,16 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     private func finishTest(_ allowed: Bool, _ done: @MainActor (Bool) -> Void) {
         authorized = allowed
         authorizationCheckedAt = Date()
-        if allowed { deliver(title: "Claude Meter", body: "Notifications are working. You'll hear from it at 80% and 95%.") }
+        if allowed { deliver(key: "test", title: "Claude Meter", body: "Notifications are working. You'll hear from it at 80% and 95%.") }
         done(allowed)
     }
 
-    private func deliver(title: String, body: String, done: (@MainActor (Bool) -> Void)? = nil) {
+    private func deliver(key: String, title: String, body: String, done: (@MainActor (Bool) -> Void)? = nil) {
+        if let sink {
+            sink(key)
+            done?(true)
+            return
+        }
         guard let center else { done?(false); return }
         let content = UNMutableNotificationContent()
         content.title = title

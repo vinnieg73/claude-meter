@@ -12,12 +12,13 @@ enum Main {
                ClaudeMeter --status             print setup and last known state
                ClaudeMeter --render out.png [--dark] [--history | --icons]
                ClaudeMeter --unregister-login
+               ClaudeMeter --replay             replay this Mac's history through the meter and check it
         """
 
     static func main() {
         let args = CommandLine.arguments
         // A typo shouldn't start a second meter: unknown or incomplete flags print usage.
-        let known: Set = ["--render", "--dark", "--history", "--icons", "--status", "--unregister-login"]
+        let known: Set = ["--render", "--dark", "--history", "--icons", "--status", "--unregister-login", "--replay"]
         if args.dropFirst().contains(where: { $0.hasPrefix("--") && !known.contains($0) }) {
             return print(usage)
         }
@@ -28,6 +29,7 @@ enum Main {
             return
         }
         if args.contains("--status") { return Status.print() }
+        if args.contains("--replay") { exit(Replay.run()) }
         if args.contains("--unregister-login") { return Status.unregisterLogin() }
 
         // Two meters would post every alert twice, probe twice, and overwrite each other's state.

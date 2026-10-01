@@ -147,10 +147,13 @@ final class Meter: ObservableObject {
 
     private let index = LogIndex()
     private let queue = DispatchQueue(label: "claude-meter.logs", qos: .utility)
-    private let store = StateStore()
+    /// What time it is. Only the replay test sets it, to step the meter through the past.
+    var clock: () -> Date = Date.init
+    // Internal rather than private where the replay test (Replay.swift) drives the meter.
+    let store = StateStore()
     private lazy var notifier = Notifier(store: store)
     /// Sorted by time. `spent[i]` is the cost of `turns[..<i]`, so any range costs two lookups.
-    private var turns: [Turn] = [] {
+    var turns: [Turn] = [] {
         didSet {
             var running = 0.0
             spent = [0] + turns.map { running += $0.cost; return running }
@@ -159,12 +162,12 @@ final class Meter: ObservableObject {
     private var spent: [Double] = [0]
     private var active: [String] = []
     private var names: [String: String] = [:]
-    private var loaded = false
+    var loaded = false
     private var scanning = false
     private var tapMTime: Date?
     private var probing = false
     private var timer: Timer?
-    private var quiet = false
+    var quiet = false
     /// Cap warning, with some hysteresis so a wobbling pace doesn't flip the menu bar every tick.
     private var warningOn = false
     private var warningWindow: Date?
@@ -323,7 +326,7 @@ final class Meter: ObservableObject {
     /// A failure waits 30 minutes before trying again.
     func sync(force: Bool) {
         guard !probing, !quiet else { return }
-        let now = Date()
+        let now = clock()
         // Before the first scan there's no telling whether a window is open.
         guard loaded else {
             if force { notice = Self.loadingNotice }
@@ -351,7 +354,7 @@ final class Meter: ObservableObject {
         Task {
             let outcome = await Probe.run()
             probing = false
-            lastProbe = Date()
+            lastProbe = clock()
             switch outcome {
             case .reading(let reading):
                 store.state.probeError = nil
@@ -360,7 +363,7 @@ final class Meter: ObservableObject {
                 absorb(reading)
             case .failed(let reason):
                 store.state.probeError = reason
-                store.state.probeRetryAt = Date().addingTimeInterval(1800)
+                store.state.probeRetryAt = clock().addingTimeInterval(1800)
             }
             store.save()
             recompute()
@@ -371,7 +374,7 @@ final class Meter: ObservableObject {
     /// reset. So only probe while this Mac's own activity shows a window is already open: the
     /// last reading's window hasn't reset, or a message went out after it did. With no reading
     /// to go on, only right after a message.
-    private func windowOpen(_ now: Date) -> Bool {
+    func windowOpen(_ now: Date) -> Bool {
         guard let latest = turns.last?.at else { return false }
         if let resets = store.state.lastExact?.fiveHour?.resetsAt {
             // A message after the reset opened a window, but that one ends too.
@@ -402,8 +405,8 @@ final class Meter: ObservableObject {
         return Self.probeEvery
     }
 
-    private func absorb(_ incoming: ExactReading) {
-        let now = Date()
+    func absorb(_ incoming: ExactReading) {
+        let now = clock()
         // A reading dated in the future (a clock ahead, a drop-in in milliseconds) would block
         // every later one.
         guard incoming.at <= now.addingTimeInterval(60) else { return }
@@ -517,7 +520,7 @@ final class Meter: ObservableObject {
         var c = store.state.calibration
         // At most every 15 minutes, and never the same reading twice (a relaunch replays it),
         // unless the last update is in the future: the clock has been set back since.
-        if let last = c.updatedAt, last <= Date().addingTimeInterval(60), r.at.timeIntervalSince(last) < 900 { return }
+        if let last = c.updatedAt, last <= clock().addingTimeInterval(60), r.at.timeIntervalSince(last) < 900 { return }
         var changed = false
         if fresh.contains("5h"), let w = r.fiveHour,
            let cap = impliedCap(w, span: Self.fiveHours, at: w.at ?? r.at, minPct: 10, minSpend: 0.5) {
@@ -543,7 +546,7 @@ final class Meter: ObservableObject {
     /// enough that whole-percent rounding doesn't dominate it. Not at the cap: a reading held at
     /// 100% while spend goes on (extra usage) would make the cap look bigger than it is.
     private func impliedCap(_ w: Window, span: TimeInterval, at: Date, minPct: Double, minSpend: Double) -> Double? {
-        let now = Date()
+        let now = clock()
         let start = w.resetsAt.addingTimeInterval(-span)
         guard w.pct >= minPct, w.pct < 99, now.timeIntervalSince(at) < 3600, at > start, at < w.resetsAt,
               start > now.addingTimeInterval(-Self.logSpan + 3600) else { return nil }
@@ -564,7 +567,7 @@ final class Meter: ObservableObject {
     // MARK: Snapshot
 
     func recompute() {
-        let now = Date()
+        let now = clock()
         var s = Snapshot()
         s.loaded = loaded
         s.calibrated = store.state.calibration.cap5h != nil
@@ -640,7 +643,7 @@ final class Meter: ObservableObject {
         return low
     }
 
-    private func fiveHour(_ now: Date) -> WindowView? {
+    func fiveHour(_ now: Date) -> WindowView? {
         let last = store.state.lastExact
         let cap = store.state.calibration.cap5h
         var v: WindowView
@@ -783,10 +786,10 @@ final class Meter: ObservableObject {
             let (new, end) = HistoryLog.load(from: historyEnd)
             historyReadings += new
             historyEnd = end
-            let horizon = Date().addingTimeInterval(-Self.logSpan)
+            let horizon = clock().addingTimeInterval(-Self.logSpan)
             historyReadings.removeAll { $0.at < horizon }
         }
-        return historyReadings.filter { $0.at >= since }
+        return historyReadings.filter { $0.at >= since && $0.at <= clock() }
     }
 
     /// Per-model weekly buckets are only known from exact readings; shown as of then.
@@ -955,7 +958,7 @@ final class Meter: ObservableObject {
     /// The last seven days of 5-hour windows, this week's climb, and how each plan would have
     /// fared. Exact readings where the history log has them, estimates from the logs otherwise.
     func history() -> History {
-        let now = Date()
+        let now = clock()
         var h = History()
         h.calibrated = store.state.calibration.cap5h != nil
         let since = now.addingTimeInterval(-Self.week)
