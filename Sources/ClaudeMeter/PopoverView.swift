@@ -32,7 +32,8 @@ struct PopoverView: View {
                     }
                 }
                 if s.fiveHour == nil {
-                    Text("No limit reading yet. Press Sync to take one.")
+                    Text(s.hasReading ? "Waiting for a 5-hour reading; one comes with your next message."
+                                      : "No limit reading yet. Press Sync to take one.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 if !s.burning.isEmpty {

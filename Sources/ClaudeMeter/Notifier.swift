@@ -116,6 +116,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             guard let self else { return }
             self.pending.remove(key)
             guard ok else { return }
+            self.store.pruneNotified() // the app runs for weeks; keys for old windows go as new ones come
             self.store.state.notified.append(key)
             self.store.save()
         }

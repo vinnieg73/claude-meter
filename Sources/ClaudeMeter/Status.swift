@@ -69,11 +69,11 @@ enum Status {
         let caps = [("5h", state.calibration.cap5h), ("week", state.calibration.capWeek)]
             .compactMap { name, cap in cap.map { "\(name) \(Fmt.dollars($0))" } }
         lines.append("calibrated caps: " + (caps.isEmpty ? "none yet" : caps.joined(separator: ", ")))
-        let checks = state.checks ?? []
-        if !checks.isEmpty {
-            let typical = checks.suffix(20).map { abs($0.estimated - $0.exact) }.reduce(0, +)
-                / Double(min(checks.count, 20))
-            lines.append(String(format: "accuracy: ±%.1f pts over the last %d checks", typical, min(checks.count, 20)))
+        for (window, name) in [("5h", "5h"), ("week", "weekly")] {
+            let recent = (state.checks ?? []).filter { $0.window == window }.suffix(20)
+            guard !recent.isEmpty else { continue }
+            let typical = recent.map { abs($0.estimated - $0.exact) }.reduce(0, +) / Double(recent.count)
+            lines.append(String(format: "accuracy, %@: ±%.1f pts over the last %d checks", name, typical, recent.count))
         }
         return lines.joined(separator: "\n")
     }

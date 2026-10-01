@@ -47,6 +47,7 @@ struct HistoryView: View {
                 }
             }
             .chartXScale(domain: Date().addingTimeInterval(-7 * 86400)...Date().addingTimeInterval(3600))
+            .chartPlotStyle { $0.clipped() } // a window straddling the 7-day mark starts off the chart
             .chartXAxis {
                 AxisMarks(values: .stride(by: .day)) { _ in
                     AxisGridLine()

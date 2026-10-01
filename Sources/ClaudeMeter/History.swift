@@ -28,7 +28,8 @@ enum HistoryLog {
 
     /// Readings from `offset` on, and where the file ended.
     static func load(from offset: UInt64 = 0) -> (readings: [ExactReading], end: UInt64) {
-        guard let handle = try? FileHandle(forReadingFrom: Paths.history) else { return ([], 0) }
+        // A failed open keeps the place: reporting 0 would read the whole file again next time.
+        guard let handle = try? FileHandle(forReadingFrom: Paths.history) else { return ([], offset) }
         defer { try? handle.close() }
         guard (try? handle.seek(toOffset: offset)) != nil, let data = try? handle.readToEnd() else {
             return ([], offset)

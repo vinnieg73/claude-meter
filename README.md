@@ -55,7 +55,7 @@ every 15 minutes while you work and fills the time between from the **local logs
 
 | Source | What | When |
 |---|---|---|
-| `~/.claude/projects/**/*.jsonl` | every Claude Code turn on this Mac: model, tokens, project | continuously (tailed every 10s) |
+| `~/.claude/projects/**/*.jsonl` | every Claude Code turn on this Mac: model, tokens, project | continuously (tailed every 10s); `CLAUDE_CONFIG_DIR` is honoured, read from your login shell since apps don't inherit it, and symlinked project folders are followed |
 | probe | Claude Code's `rate_limit_event` (exact) | every 15 min while active (5 min past 75% or under a cap warning, 1 min after the first message past a reset), only if something was logged since the last reading and a window is already open; **Sync** on demand |
 | statusline tap | Claude Code's own `rate_limits` (exact) | whenever a **terminal** `claude` session redraws its statusline |
 | `tap.json` drop-in | any exact reading, from anywhere | when written |
@@ -122,8 +122,10 @@ About $0.001 of usage per run, so at most ~$0.01/hr while you work and nothing w
 ## Statusline tap
 
 `claude-meter-tap` (inside the app bundle) is a Claude Code statusline command. It saves the
-exact `rate_limits` block (only when it changes: a redraw of old numbers isn't a new reading, and
-the meter also rejects a % lower than it already has for the same window) and prints `Opus 5.5 · 5h 23% · 7d 28% · ctx 21%`. Registered in
+exact `rate_limits` block (only when it changes). The statusline redraws without new API calls
+and stamps the time it drew, so from it only a higher % than the meter already has counts as a
+new reading, and a window it leaves out (it drops one the moment it resets) is kept as the reset
+to walk on from. and prints `Opus 5.5 · 5h 23% · 7d 28% · ctx 21%`. Registered in
 `~/.claude/settings.json`:
 
 ```json

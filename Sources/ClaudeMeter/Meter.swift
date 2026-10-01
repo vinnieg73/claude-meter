@@ -114,6 +114,8 @@ struct Snapshot {
     var probing = false
     var probeStatus: String?
     var tapSeen: Date?
+    /// Any exact reading at all, so the empty 5-hour card doesn't read like a first install.
+    var hasReading = false
     var menuTitle = "Claude"
     var menuPct: Double = 0
     var level: Level = .normal
@@ -169,6 +171,10 @@ final class Meter: ObservableObject {
     /// The history log, read incrementally: readings so far, and how far the file was read.
     private var historyReadings: [ExactReading] = []
     private var historyEnd: UInt64 = 0
+    /// Uptime of the last history compaction: at launch, then daily, since the app runs for weeks.
+    private var compactedAt: TimeInterval = 0
+    /// When the last probe finished, whatever it found.
+    private var lastProbe: Date?
 
     private static let fiveHours: TimeInterval = 5 * 3600
     private static let week: TimeInterval = 7 * 86400
@@ -189,6 +195,7 @@ final class Meter: ObservableObject {
     }
     private static let blockedNotice =
         "Notifications are blocked for Claude Meter. Turn them on in the settings pane that just opened."
+    private static let loadingNotice = "Still reading your Claude Code logs. Try Sync again in a moment."
     private static let noWindowNotice =
         "No 5-hour window is open, and a probe would start one. It will sync after your next message."
 
@@ -197,6 +204,7 @@ final class Meter: ObservableObject {
         // Here rather than on the log queue: readings are appended on the main actor, and one
         // landing between compact's read and its rename would be lost.
         HistoryLog.compact()
+        compactedAt = ProcessInfo.processInfo.systemUptime
         let index = self.index
         queue.async { index.loadCache() }
         tick()
@@ -232,6 +240,11 @@ final class Meter: ObservableObject {
     }
 
     private func tick() {
+        let uptime = ProcessInfo.processInfo.systemUptime
+        if uptime - compactedAt > 86400 {
+            HistoryLog.compact()
+            compactedAt = uptime
+        }
         scan()
         if loaded {
             readTap()
@@ -275,8 +288,9 @@ final class Meter: ObservableObject {
                 self.names = names
                 if !self.loaded {
                     self.loaded = true
+                    if self.notice == Self.loadingNotice { self.notice = nil }
                     // A reading saved before the logs were read has not calibrated anything yet.
-                    if let r = self.store.state.lastExact { self.calibrate(from: r, fresh: ["5h", "week"]) }
+                    if let r = self.store.state.lastExact { self.calibrate(from: r, fresh: Self.measured(by: r)) }
                     self.readTap()
                     self.sync(force: false)
                 }
@@ -310,15 +324,26 @@ final class Meter: ObservableObject {
     func sync(force: Bool) {
         guard !probing, !quiet else { return }
         let now = Date()
+        // Before the first scan there's no telling whether a window is open.
+        guard loaded else {
+            if force { notice = Self.loadingNotice }
+            return
+        }
         guard windowOpen(now) else {
             if force { notice = Self.noWindowNotice }
             return
         }
         if !force {
-            if let retry = store.state.probeRetryAt, now < retry { return }
+            // A retry time far ahead was set under a clock that has since been put back.
+            if let retry = store.state.probeRetryAt, now < retry, retry < now.addingTimeInterval(3600) { return }
             if let last = store.state.lastExact {
-                guard now.timeIntervalSince(last.at) >= probeInterval(now, last: last),
-                      let latest = turns.last, latest.at > last.at else { return }
+                // Timed from the last reading or the last probe, whichever is later: a probe whose
+                // answer added nothing would otherwise run again on the next tick. A clock set
+                // back since the reading counts as due.
+                let clockWentBack = last.at > now.addingTimeInterval(60)
+                let since = clockWentBack ? .distantPast : max(last.at, lastProbe ?? .distantPast)
+                guard now.timeIntervalSince(since) >= probeInterval(now, last: last),
+                      let latest = turns.last?.at, clockWentBack || latest > last.at else { return }
             }
         }
         probing = true
@@ -326,6 +351,7 @@ final class Meter: ObservableObject {
         Task {
             let outcome = await Probe.run()
             probing = false
+            lastProbe = Date()
             switch outcome {
             case .reading(let reading):
                 store.state.probeError = nil
@@ -348,9 +374,24 @@ final class Meter: ObservableObject {
     private func windowOpen(_ now: Date) -> Bool {
         guard let latest = turns.last?.at else { return false }
         if let resets = store.state.lastExact?.fiveHour?.resetsAt {
-            return now < resets || latest > resets
+            // A message after the reset opened a window, but that one ends too.
+            return now < resets || openWindow(after: resets, now: now) != nil
         }
         return now.timeIntervalSince(latest) < 600
+    }
+
+    /// When the 5-hour window open at `now` opened, walking forward from a reset: each window
+    /// opens at the first message after the last one closed. Nil when none is open.
+    private func openWindow(after anchor: Date, now: Date) -> Date? {
+        var anchor = anchor
+        while true {
+            let i = first(atOrAfter: anchor)
+            guard i < turns.count, turns[i].at <= now else { return nil }
+            let opened = Self.windowOpening(turns[i].at)
+            let end = opened.addingTimeInterval(Self.fiveHours)
+            if end > now { return opened }
+            anchor = end
+        }
     }
 
     /// Every 15 minutes normally; every 5 near the cap, where accuracy matters most; and within
@@ -378,13 +419,15 @@ final class Meter: ObservableObject {
 
         var fresh: Set<String> = []
         if let last = store.state.lastExact {
-            guard reading.at > last.at else { return }
+            // Newer than what's held, unless the clock was set back since that was taken.
+            guard reading.at > last.at || last.at > now.addingTimeInterval(60) else { return }
             // Windows saved before they carried their own time were measured with their reading.
             func dated(_ w: Window?) -> Window? { w.map { var d = $0; d.at = d.at ?? last.at; return d } }
             var isFresh = false
-            (reading.fiveHour, isFresh) = pick(reading.fiveHour, over: dated(last.fiveHour), now: now)
+            let measuredNow = reading.source != "tap"
+            (reading.fiveHour, isFresh) = pick(reading.fiveHour, over: dated(last.fiveHour), trustsEqual: measuredNow)
             if isFresh { fresh.insert("5h") }
-            (reading.weekly, isFresh) = pick(reading.weekly, over: dated(last.weekly), now: now)
+            (reading.weekly, isFresh) = pick(reading.weekly, over: dated(last.weekly), trustsEqual: measuredNow)
             if isFresh { fresh.insert("week") }
             // The tap reports no per-model buckets; keep the last ones known until they reset.
             if reading.extras.isEmpty { reading.extras = last.extras.filter { now < $0.value.resetsAt } }
@@ -403,15 +446,31 @@ final class Meter: ObservableObject {
         recompute()
     }
 
+    /// The windows a reading measured itself, not ones it carried over from an earlier reading.
+    private static func measured(by r: ExactReading) -> Set<String> {
+        var own: Set<String> = []
+        if let w = r.fiveHour, abs((w.at ?? r.at).timeIntervalSince(r.at)) < 1 { own.insert("5h") }
+        if let w = r.weekly, abs((w.at ?? r.at).timeIntervalSince(r.at)) < 1 { own.insert("week") }
+        return own
+    }
+
     /// The newer of two measurements of a window, and whether it's the new one. Within a
     /// window usage only climbs, so a clearly lower % for the same window is an old number
     /// re-sent. A window the new reading lacks carries over while it hasn't reset.
-    private func pick(_ new: Window?, over old: Window?, now: Date) -> (Window?, Bool) {
-        guard let new else {
-            if let old, now < old.resetsAt { return (old, false) }
-            return (nil, false)
+    private func pick(_ new: Window?, over old: Window?, trustsEqual: Bool) -> (Window?, Bool) {
+        // A window the new reading lacks is kept, reset or not: still running, or the last known
+        // reset to walk on from. (The statusline drops a window the moment it resets.)
+        guard let new else { return (old, false) }
+        if let old {
+            // A window that reset before the one already held is an old number re-sent.
+            if new.resetsAt < old.resetsAt.addingTimeInterval(-900) { return (old, false) }
+            if Window.same(old.resetsAt, new.resetsAt) {
+                if new.pct < old.pct - 0.5 { return (old, false) }
+                // The statusline stamps when it redraws, not when its number was measured, so
+                // from it an unchanged number is just the old one again.
+                if !trustsEqual, new.pct <= old.pct + 0.5 { return (old, false) }
+            }
         }
-        if let old, Window.same(old.resetsAt, new.resetsAt), new.pct < old.pct - 0.5 { return (old, false) }
         return (new, true)
     }
 
@@ -456,8 +515,9 @@ final class Meter: ObservableObject {
     private func calibrate(from r: ExactReading, fresh: Set<String>) {
         guard loaded else { return }
         var c = store.state.calibration
-        // At most every 15 minutes, and never the same reading twice (a relaunch replays it).
-        if let last = c.updatedAt, r.at.timeIntervalSince(last) < 900 { return }
+        // At most every 15 minutes, and never the same reading twice (a relaunch replays it),
+        // unless the last update is in the future: the clock has been set back since.
+        if let last = c.updatedAt, last <= Date().addingTimeInterval(60), r.at.timeIntervalSince(last) < 900 { return }
         var changed = false
         if fresh.contains("5h"), let w = r.fiveHour,
            let cap = impliedCap(w, span: Self.fiveHours, at: w.at ?? r.at, minPct: 10, minSpend: 0.5) {
@@ -510,10 +570,13 @@ final class Meter: ObservableObject {
         s.calibrated = store.state.calibration.cap5h != nil
         s.probing = probing
         if let error = store.state.probeError {
-            let retry = store.state.probeRetryAt.map { " · retry \(Fmt.when($0))" } ?? ""
+            let retry = store.state.probeRetryAt.map {
+                $0 > now ? " · retry \(Fmt.when($0))" : " · retries with your next message"
+            } ?? ""
             s.probeStatus = "Probe failed: \(error)\(retry)"
         }
         s.tapSeen = store.state.tapSeen
+        s.hasReading = store.state.lastExact != nil
         s.activeCount = active.count
         if loaded {
             s.fiveHour = fiveHour(now)
@@ -589,25 +652,17 @@ final class Meter: ObservableObject {
             v = WindowView(title: "5-hour window", pct: w.pct + added, resetsAt: w.resetsAt,
                            exact: exact, asOf: measured)
         } else if let cap {
-            // The window has lapsed. The next opens with the first message after it closed,
-            // so walk forward window by window from the last known reset.
-            var anchor = last?.fiveHour?.resetsAt ?? turns.first?.at ?? now
-            while true {
-                let i = first(atOrAfter: anchor)
-                guard i < turns.count, turns[i].at <= now else {
-                    return WindowView(title: "5-hour window", pct: 0, exact: false,
-                                      asOf: last?.at, idle: true)
-                }
-                let opened = Self.windowOpening(turns[i].at)
-                let end = opened.addingTimeInterval(Self.fiveHours)
-                if end > now {
-                    v = WindowView(title: "5-hour window", pct: cost(from: opened, to: now) / cap * 100,
-                                   resetsAt: end, exact: false, asOf: last?.at)
-                    break
-                }
-                anchor = end
+            // The window has lapsed; find the one open now, walking from the last known reset.
+            guard let opened = openWindow(after: last?.fiveHour?.resetsAt ?? turns.first?.at ?? now, now: now) else {
+                return WindowView(title: "5-hour window", pct: 0, exact: false, asOf: last?.at, idle: true)
             }
+            v = WindowView(title: "5-hour window", pct: cost(from: opened, to: now) / cap * 100,
+                           resetsAt: opened.addingTimeInterval(Self.fiveHours), exact: false, asOf: last?.at)
         } else {
+            // No cap yet to estimate with, but whether any window is open is still known.
+            if let resets = last?.fiveHour?.resetsAt, now >= resets, openWindow(after: resets, now: now) == nil {
+                return WindowView(title: "5-hour window", pct: 0, exact: false, asOf: last?.at, idle: true)
+            }
             return nil
         }
 
@@ -679,8 +734,17 @@ final class Meter: ObservableObject {
     /// log-based average unreliable. Uses the history log's increments over the last 7 days
     /// once it covers 3+ days; before that, this week's own average once it is a day old.
     private func averagePerDay(now: Date, pct: Double, resets: Date) -> (Double, String, String)? {
-        let readings = exactHistory(since: now.addingTimeInterval(-Self.week))
-            .compactMap { r in r.weekly.map { (at: $0.at ?? r.at, window: $0) } }
+        // Old numbers re-sent (an earlier week, or a lower % for the same week) say nothing new
+        // and would count as resets or climbs that never happened.
+        var readings: [(at: Date, window: Window)] = []
+        for r in exactHistory(since: now.addingTimeInterval(-Self.week)) {
+            guard let w = r.weekly else { continue }
+            if let held = readings.last?.window {
+                if w.resetsAt < held.resetsAt.addingTimeInterval(-900) { continue }
+                if Window.same(held.resetsAt, w.resetsAt), w.pct < held.pct - 0.5 { continue }
+            }
+            readings.append((at: w.at ?? r.at, window: w))
+        }
         if let first = readings.first, now.timeIntervalSince(first.at) >= 3 * 86400 {
             let cap = store.state.calibration.capWeek
             // What a week used after its last reading, up to its reset, from the logs.
@@ -690,9 +754,11 @@ final class Meter: ObservableObject {
             }
             var used = 0.0
             for (a, b) in zip(readings, readings.dropFirst()) {
-                used += Window.same(a.window.resetsAt, b.window.resetsAt)
-                    ? max(0, b.window.pct - a.window.pct)
-                    : tail(a) + b.window.pct // a reset between them
+                if Window.same(a.window.resetsAt, b.window.resetsAt) {
+                    used += max(0, b.window.pct - a.window.pct)
+                } else if b.window.resetsAt > a.window.resetsAt {
+                    used += tail(a) + b.window.pct // a reset between them
+                }
             }
             if let last = readings.last {
                 used += Window.same(last.window.resetsAt, resets)
@@ -896,21 +962,31 @@ final class Meter: ObservableObject {
         let readings = exactHistory(since: since.addingTimeInterval(-Self.fiveHours))
         h.exactSince = readings.first?.at
 
-        // Highest exact reading per window, keyed by the minute it resets.
-        var exactPeak: [Int: Double] = [:]
+        // The latest exact reading of each window, keyed by the minute it resets.
+        func key(_ d: Date) -> Int { Int((d.timeIntervalSince1970 / 60).rounded()) }
+        var latestExact: [Int: (pct: Double, at: Date)] = [:]
         for r in readings {
             guard let w = r.fiveHour else { continue }
-            let key = Int((w.resetsAt.timeIntervalSince1970 / 60).rounded())
-            exactPeak[key] = max(exactPeak[key] ?? 0, w.pct)
+            let at = w.at ?? r.at
+            if let held = latestExact[key(w.resetsAt)], held.at >= at { continue }
+            latestExact[key(w.resetsAt)] = (w.pct, at)
         }
-        let known = exactPeak.keys.map { Date(timeIntervalSince1970: Double($0) * 60) }.sorted()
+        let known = latestExact.keys.map { Date(timeIntervalSince1970: Double($0) * 60) }.sorted()
         let knownStarts = known.map { $0.addingTimeInterval(-Self.fiveHours) }
 
         if let cap = store.state.calibration.cap5h {
-            // Walk the windows forward: each opens with the first message after the last closed,
-            // snapped to the real window where an exact reading pins one down. Starting a window
-            // early catches one already running at the 7-day mark.
-            var anchor = since.addingTimeInterval(-Self.fiveHours)
+            // How high a window got: its last exact reading plus what was logged after it, as
+            // the live estimate works; the logs alone where no reading covers it.
+            func peak(_ start: Date, _ end: Date) -> (Double, Bool) {
+                if let e = latestExact[key(end)] {
+                    return (e.pct + cost(from: e.at, to: min(end, now)) / cap * 100, true)
+                }
+                return (cost(from: start, to: min(end, now)) / cap * 100, false)
+            }
+            // Walk the windows forward from the start of the logs, so their edges are the real
+            // ones (each opens at the first message after the last closed, rounded down to 10
+            // minutes), snapped to the real window where an exact reading pins one down.
+            var anchor = turns.first.map { Self.windowOpening($0.at) } ?? since
             while true {
                 let i = first(atOrAfter: anchor)
                 guard i < turns.count, turns[i].at <= now else { break }
@@ -923,14 +999,19 @@ final class Meter: ObservableObject {
                 } else if let next = knownStarts.first(where: { $0 > start && $0 < end }) {
                     end = next // a known window starts inside this one, so this one ended by then
                 }
-                let estimate = cost(from: start, to: min(end, now)) / cap * 100
-                let exact = exactPeak[Int((end.timeIntervalSince1970 / 60).rounded())]
                 if end > since {
-                    h.windows.append(HistoryWindow(start: start, end: end, peak: max(exact ?? 0, estimate),
-                                                   exact: exact != nil, open: end > now))
+                    let (height, exact) = peak(start, end)
+                    h.windows.append(HistoryWindow(start: start, end: end, peak: height, exact: exact, open: end > now))
                 }
                 anchor = end
             }
+            // A window with a reading but nothing logged here (all chat, say) still happened.
+            for end in known where end > since && !h.windows.contains(where: { Window.same($0.end, end) }) {
+                let (height, _) = peak(end.addingTimeInterval(-Self.fiveHours), end)
+                h.windows.append(HistoryWindow(start: end.addingTimeInterval(-Self.fiveHours), end: end,
+                                               peak: height, exact: true, open: end > now))
+            }
+            h.windows.sort { $0.start < $1.start }
         }
 
         if let w = weekly(now), let resets = w.resetsAt, let cap = store.state.calibration.capWeek {

@@ -166,8 +166,13 @@ final class StateStore {
         // A reading dated in the future would block every later one; drop it and take a new one.
         if let at = state.lastExact?.at, at > now.addingTimeInterval(60) { state.lastExact = nil }
         if let at = state.calibration.updatedAt, at > now.addingTimeInterval(60) { state.calibration.updatedAt = nil }
-        // Notification keys carry the window's reset epoch; old windows can go.
-        let cutoff = now.addingTimeInterval(-8 * 86400).timeIntervalSince1970
+        if let at = state.probeRetryAt, at > now.addingTimeInterval(3600) { state.probeRetryAt = nil }
+        pruneNotified()
+    }
+
+    /// Notification keys carry the window's reset epoch; old windows can go.
+    func pruneNotified() {
+        let cutoff = Date().addingTimeInterval(-8 * 86400).timeIntervalSince1970
         state.notified.removeAll { key in
             let parts = key.split(separator: "|")
             return parts.count > 1 && (Double(parts[1]) ?? 0) < cutoff
@@ -195,7 +200,9 @@ enum TapFile {
               let rawAt = (obj["at"] as? NSNumber)?.doubleValue,
               let limits = obj["rate_limits"] as? [String: Any] else { return nil }
 
-        func seconds(_ value: Double) -> Double { value > 1e11 ? value / 1000 : value } // allow milliseconds
+        // Seconds or milliseconds, kept to the millisecond as state is saved: finer than that,
+        // the same reading would look newer than its saved copy after every relaunch.
+        func seconds(_ value: Double) -> Double { ((value > 1e11 ? value / 1000 : value) * 1000).rounded(.down) / 1000 }
         func window(_ key: String) -> Window? {
             guard let w = limits[key] as? [String: Any],
                   let pct = (w["used_percentage"] as? NSNumber)?.doubleValue,

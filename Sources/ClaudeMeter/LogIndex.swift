@@ -78,7 +78,7 @@ final class LogIndex: @unchecked Sendable {
     /// Claude Code keeps its config in ~/.claude unless CLAUDE_CONFIG_DIR moves it. Resolved,
     /// because the directory walk returns nothing when the folder itself is a symlink.
     private let root: URL = {
-        let base = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]
+        let base = ShellEnv.claudeConfigDir
             .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude")
         return base.appendingPathComponent("projects").resolvingSymlinksInPath()
@@ -92,6 +92,15 @@ final class LogIndex: @unchecked Sendable {
     private struct Mark: Codable {
         var offset: UInt64
         var inode: UInt64
+        /// The file's first bytes when last read: a file rewritten in place keeps its inode,
+        /// and may have regrown past the offset before the next look.
+        var head: Data?
+    }
+
+    private static func head(of path: String) -> Data? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        return try? handle.read(upToCount: 64)
     }
 
     private var marks: [String: Mark] = [:]
@@ -102,10 +111,11 @@ final class LogIndex: @unchecked Sendable {
     private var projectOfSession: [String: String] = [:]
     private var customTitles: [String: String] = [:]
     private var agentNames: [String: String] = [:]
-    private var lastSaved = Date.distantPast
+    /// Uptime, not the wall clock: setting the clock back would otherwise pause these.
+    private var lastSaved: TimeInterval = -.infinity
     /// Recent transcripts, refound once a minute.
     private var known: [String] = []
-    private var lastDiscovery = Date.distantPast
+    private var lastDiscovery: TimeInterval = -.infinity
     private static let skipped: Set<String> = ["tool-results", "memory"]
     /// Set when a turn arrives earlier than the one before it (files are read in no set order).
     private var unsorted = false
@@ -142,9 +152,10 @@ final class LogIndex: @unchecked Sendable {
     func refresh() -> Bool {
         let now = Date()
         let cutoff = now.addingTimeInterval(-horizon)
-        if now.timeIntervalSince(lastDiscovery) > 60 {
+        let uptime = ProcessInfo.processInfo.systemUptime
+        if uptime - lastDiscovery > 60 {
             discover(cutoff: cutoff)
-            lastDiscovery = now
+            lastDiscovery = uptime
         }
         var changed = false
         var active: Set<String> = []
@@ -161,13 +172,17 @@ final class LogIndex: @unchecked Sendable {
             let size = UInt64(info.st_size)
             let inode = UInt64(info.st_ino)
             var mark = marks[path] ?? Mark(offset: 0, inode: inode)
-            // Replaced (new inode) or rewritten shorter: read it again; `position` absorbs repeats.
+            // Replaced (new inode), rewritten shorter, or rewritten in place (a different start):
+            // read it again from the top; `position` absorbs the repeats.
             if mark.inode != inode || size < mark.offset { mark = Mark(offset: 0, inode: inode) }
             guard size > mark.offset else {
                 marks[path] = mark
                 continue
             }
-            if read(url, from: mark.offset, inode: inode, cutoff: cutoff) { changed = true }
+            if mark.offset > 0, let seen = mark.head, Self.head(of: path) != seen {
+                mark = Mark(offset: 0, inode: inode)
+            }
+            if read(url, from: mark.offset, inode: inode, cutoff: cutoff, now: now) { changed = true }
         }
 
         if changed {
@@ -193,20 +208,35 @@ final class LogIndex: @unchecked Sendable {
     /// no transcripts and are most of the tree, so they are skipped whole. Also drops what
     /// no longer matters: marks for files gone quiet, names for sessions no longer held.
     private func discover(cutoff: Date) {
-        let keys: [URLResourceKey] = [.contentModificationDateKey]
-        guard let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys) else { return }
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .isSymbolicLinkKey]
         var found: [String] = []
-        for case let url as URL in files {
-            if Self.skipped.contains(url.lastPathComponent) {
-                files.skipDescendants()
-                continue
+        // The walk doesn't follow symlinks, so a symlinked project folder is walked on its own;
+        // `visited` stops a link that points back into the tree from looping.
+        var pending = [root]
+        var visited: Set<String> = []
+        while let top = pending.popLast() {
+            guard visited.insert(top.path).inserted,
+                  let files = FileManager.default.enumerator(at: top, includingPropertiesForKeys: keys) else { continue }
+            for case let url as URL in files {
+                if Self.skipped.contains(url.lastPathComponent) {
+                    files.skipDescendants()
+                    continue
+                }
+                let values = try? url.resourceValues(forKeys: Set(keys))
+                if values?.isSymbolicLink == true {
+                    let target = url.resolvingSymlinksInPath()
+                    var isDir: ObjCBool = false
+                    if FileManager.default.fileExists(atPath: target.path, isDirectory: &isDir), isDir.boolValue {
+                        pending.append(target)
+                        continue
+                    }
+                }
+                guard url.pathExtension == "jsonl", let mtime = values?.contentModificationDate,
+                      mtime > cutoff else { continue }
+                found.append(url.resolvingSymlinksInPath().path)
             }
-            guard url.pathExtension == "jsonl",
-                  let mtime = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
-                  mtime > cutoff else { continue }
-            found.append(url.path)
         }
-        known = found
+        known = Array(Set(found))
 
         let live = Set(found)
         let sessions = Set(turns.map(\.session)).union(found.map { Self.session(of: URL(fileURLWithPath: $0)) })
@@ -220,7 +250,7 @@ final class LogIndex: @unchecked Sendable {
         projectOfCwd.removeAll(keepingCapacity: true)
     }
 
-    private func read(_ url: URL, from start: UInt64, inode: UInt64, cutoff: Date) -> Bool {
+    private func read(_ url: URL, from start: UInt64, inode: UInt64, cutoff: Date, now: Date) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
         guard (try? handle.seek(toOffset: start)) != nil else { return false }
@@ -239,7 +269,7 @@ final class LogIndex: @unchecked Sendable {
                 lineStart = newline + 1
                 if line.range(of: Self.usageMarker) != nil, line.range(of: Self.assistantMarker) != nil {
                     autoreleasepool {
-                        if let turn = parseTurn(Data(line)), turn.at >= cutoff, keep(turn) { changed = true }
+                        if let turn = parseTurn(Data(line), now: now), turn.at >= cutoff, keep(turn) { changed = true }
                     }
                 } else if line.count < 4096,
                           line.range(of: Self.titleMarker) != nil || line.range(of: Self.agentMarker) != nil {
@@ -250,7 +280,7 @@ final class LogIndex: @unchecked Sendable {
             pending = Data(pending[lineStart...])
         }
         // A partial last line is left for the next pass.
-        marks[url.path] = Mark(offset: offset, inode: inode)
+        marks[url.path] = Mark(offset: offset, inode: inode, head: Self.head(of: url.path))
         return changed
     }
 
@@ -267,15 +297,22 @@ final class LogIndex: @unchecked Sendable {
         return true
     }
 
-    private func parseTurn(_ line: Data) -> Turn? {
+    private func parseTurn(_ line: Data, now: Date) -> Turn? {
         guard let entry = try? decoder.decode(LogLine.self, from: line),
               entry.type == "assistant",
-              let message = entry.message, let usage = message.usage,
+              let message = entry.message, var usage = message.usage,
               let model = message.model, model != "<synthetic>",
               let stamp = entry.timestamp,
-              let at = isoFrac.date(from: stamp) ?? iso.date(from: stamp) else { return nil }
+              let stamped = isoFrac.date(from: stamp) ?? iso.date(from: stamp) else { return nil }
+        // A clock that ran ahead leaves lines dated in the future; they happened by now at the latest.
+        let at = min(stamped, now)
+        // Some versions logged the counts only per iteration, leaving the totals at zero.
+        if usage.isEmpty, let iterations = usage.iterations, !iterations.isEmpty {
+            usage = iterations.reduce(into: LogLine.Usage()) { $0.add($1) }
+        }
 
-        let key = (message.id ?? UUID().uuidString) + "|" + (entry.requestId ?? "")
+        // Without a message id, the request id and time stand in, so a re-read can't count it twice.
+        let key = (message.id ?? "t:\(stamp)|\(entry.sessionId ?? "")") + "|" + (entry.requestId ?? "")
         let project = project(for: entry.cwd ?? "")
         let session = entry.sessionId ?? "?"
         projectOfSession[session] = project
@@ -354,25 +391,26 @@ final class LogIndex: @unchecked Sendable {
               let cache = try? PropertyListDecoder().decode(IndexCache.self, from: data),
               cache.version == IndexCache.version else { return }
         let cutoff = Date().addingTimeInterval(-horizon)
-        marks = cache.marks
+        marks = cache.marks // marks from before `head` existed read with none, and are re-checked on the next read
         turns = cache.turns.filter { $0.at >= cutoff }.sorted { $0.at < $1.at }
         reindex()
         projectOfSession = cache.projectOfSession
         customTitles = cache.customTitles
         agentNames = cache.agentNames
-        lastSaved = Date()
+        lastSaved = ProcessInfo.processInfo.systemUptime
     }
 
     /// Writes at most every five minutes unless forced (on quit).
     func saveCache(force: Bool = false) {
-        guard dirty || force, force || Date().timeIntervalSince(lastSaved) > 300 else { return }
+        let uptime = ProcessInfo.processInfo.systemUptime
+        guard dirty || force, force || uptime - lastSaved > 300 else { return }
         let cache = IndexCache(marks: marks, turns: turns, projectOfSession: projectOfSession,
                                customTitles: customTitles, agentNames: agentNames)
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary
         if let data = try? encoder.encode(cache) {
             try? data.write(to: Self.cacheURL, options: .atomic)
-            lastSaved = Date()
+            lastSaved = uptime
             dirty = false
         }
     }
@@ -394,17 +432,35 @@ private struct LogLine: Decodable {
     }
 
     struct Usage: Decodable {
-        let input_tokens: Int?
-        let output_tokens: Int?
-        let cache_read_input_tokens: Int?
-        let cache_creation_input_tokens: Int?
-        let cache_creation: CacheCreation?
-        let speed: String?
+        var input_tokens: Int?
+        var output_tokens: Int?
+        var cache_read_input_tokens: Int?
+        var cache_creation_input_tokens: Int?
+        var cache_creation: CacheCreation?
+        var speed: String?
+        var iterations: [Usage]?
+
+        var isEmpty: Bool {
+            (input_tokens ?? 0) + (output_tokens ?? 0) + (cache_read_input_tokens ?? 0)
+                + (cache_creation_input_tokens ?? 0) == 0
+        }
+
+        mutating func add(_ other: Usage) {
+            input_tokens = (input_tokens ?? 0) + (other.input_tokens ?? 0)
+            output_tokens = (output_tokens ?? 0) + (other.output_tokens ?? 0)
+            cache_read_input_tokens = (cache_read_input_tokens ?? 0) + (other.cache_read_input_tokens ?? 0)
+            cache_creation_input_tokens = (cache_creation_input_tokens ?? 0) + (other.cache_creation_input_tokens ?? 0)
+            var cc = cache_creation ?? CacheCreation()
+            cc.ephemeral_5m_input_tokens = (cc.ephemeral_5m_input_tokens ?? 0) + (other.cache_creation?.ephemeral_5m_input_tokens ?? 0)
+            cc.ephemeral_1h_input_tokens = (cc.ephemeral_1h_input_tokens ?? 0) + (other.cache_creation?.ephemeral_1h_input_tokens ?? 0)
+            cache_creation = cc
+            if other.speed == "fast" { speed = "fast" }
+        }
     }
 
     struct CacheCreation: Decodable {
-        let ephemeral_5m_input_tokens: Int?
-        let ephemeral_1h_input_tokens: Int?
+        var ephemeral_5m_input_tokens: Int?
+        var ephemeral_1h_input_tokens: Int?
     }
 }
 

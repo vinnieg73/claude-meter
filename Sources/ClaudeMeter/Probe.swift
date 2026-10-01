@@ -35,6 +35,7 @@ enum Probe {
         var env = ProcessInfo.processInfo.environment
         // Any of these would move the call off the subscription (the desktop app sets the first).
         for key in ["ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] { env[key] = nil }
+        if let dir = ShellEnv.claudeConfigDir { env["CLAUDE_CONFIG_DIR"] = dir }
         // Apps launched from Finder or at login get a bare PATH; an npm-installed claude is a
         // node script and needs node on it.
         env["PATH"] = (searchDirs() + [env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"]).joined(separator: ":")
@@ -65,18 +66,26 @@ enum Probe {
         process.terminationHandler = { _ in exited.signal() }
 
         do { try process.run() } catch { return .failed("couldn't start Claude Code") }
-        if exited.wait(timeout: .now() + 60) == .timedOut {
+        let timedOut = exited.wait(timeout: .now() + 60) == .timedOut
+        if timedOut {
+            // Its children too, found now: once claude dies they belong to launchd.
+            let children = descendants(of: process.processIdentifier)
             process.terminate()
+            children.forEach { kill($0, SIGTERM) }
             if exited.wait(timeout: .now() + 5) == .timedOut {
                 kill(process.processIdentifier, SIGKILL)
                 _ = exited.wait(timeout: .now() + 2)
             }
+            children.forEach { kill($0, SIGKILL) }
         }
         _ = finished.wait(timeout: .now() + 2)
         out.fileHandleForReading.readabilityHandler = nil
         err.fileHandleForReading.readabilityHandler = nil
 
-        let outcome = parse(output.data)
+        var outcome = parse(output.data)
+        if timedOut, case .failed(let reason) = outcome, reason == Self.silent {
+            outcome = .failed("Claude Code didn't answer within a minute (offline?)")
+        }
         // Nothing usable and nothing said why: pass on what claude wrote to stderr.
         if case .failed(let reason) = outcome, reason == Self.silent,
            let line = String(decoding: errors.data, as: UTF8.self)
@@ -84,6 +93,20 @@ enum Probe {
             return .failed(String(line.prefix(100)))
         }
         return outcome
+    }
+
+    /// Every process under `pid`, children first found, then theirs.
+    private static func descendants(of pid: pid_t) -> [pid_t] {
+        var found: [pid_t] = []
+        var pending = [pid]
+        while let parent = pending.popLast() {
+            var buffer = [pid_t](repeating: 0, count: 256)
+            guard proc_listchildpids(parent, &buffer, Int32(buffer.count * MemoryLayout<pid_t>.size)) > 0 else { continue }
+            let children = buffer.filter { $0 > 0 }
+            found += children
+            pending += children
+        }
+        return found
     }
 
     /// Output collected from a pipe's handler thread.
