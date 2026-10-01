@@ -181,6 +181,12 @@ final class Meter: ObservableObject {
     /// Bump when the cost of a turn changes meaning, so calibration relearns instead of drifting.
     /// 2: the largest copy of each turn counts (0.8).
     private static let costBasis = 2
+
+    /// A 5-hour window opens at its first message rounded down to the 10-minute mark (every
+    /// window in the history log starts on :x0:00, 0-9 minutes before its first message).
+    private static func windowOpening(_ firstMessage: Date) -> Date {
+        Date(timeIntervalSince1970: (firstMessage.timeIntervalSince1970 / 600).rounded(.down) * 600)
+    }
     private static let blockedNotice =
         "Notifications are blocked for Claude Meter. Turn them on in the settings pane that just opened."
     private static let noWindowNotice =
@@ -474,11 +480,12 @@ final class Meter: ObservableObject {
 
     /// The cap a measurement implies, when it can support one: taken within the last hour and
     /// inside its own window, with the logs reaching back over the window's start, and a % high
-    /// enough that whole-percent rounding doesn't dominate it.
+    /// enough that whole-percent rounding doesn't dominate it. Not at the cap: a reading held at
+    /// 100% while spend goes on (extra usage) would make the cap look bigger than it is.
     private func impliedCap(_ w: Window, span: TimeInterval, at: Date, minPct: Double, minSpend: Double) -> Double? {
         let now = Date()
         let start = w.resetsAt.addingTimeInterval(-span)
-        guard w.pct >= minPct, now.timeIntervalSince(at) < 3600, at > start, at < w.resetsAt,
+        guard w.pct >= minPct, w.pct < 99, now.timeIntervalSince(at) < 3600, at > start, at < w.resetsAt,
               start > now.addingTimeInterval(-Self.logSpan + 3600) else { return nil }
         let spent = cost(from: start, to: at)
         return spent > minSpend ? spent / (w.pct / 100) : nil
@@ -591,7 +598,7 @@ final class Meter: ObservableObject {
                     return WindowView(title: "5-hour window", pct: 0, exact: false,
                                       asOf: last?.at, idle: true)
                 }
-                let opened = turns[i].at
+                let opened = Self.windowOpening(turns[i].at)
                 let end = opened.addingTimeInterval(Self.fiveHours)
                 if end > now {
                     v = WindowView(title: "5-hour window", pct: cost(from: opened, to: now) / cap * 100,
@@ -907,7 +914,7 @@ final class Meter: ObservableObject {
             while true {
                 let i = first(atOrAfter: anchor)
                 guard i < turns.count, turns[i].at <= now else { break }
-                var start = turns[i].at
+                var start = max(Self.windowOpening(turns[i].at), anchor)
                 var end = start.addingTimeInterval(Self.fiveHours)
                 if let pinned = known.first(where: { $0.addingTimeInterval(-Self.fiveHours) <= start && start < $0 }) {
                     // Never reach back into the window before; its spend is already counted.
