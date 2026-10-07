@@ -65,7 +65,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         statusItem.button?.target = self
         statusItem.button?.action = #selector(clicked)
         statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
-        statusItem.button?.imagePosition = .imageLeading
 
         popover.behavior = .transient
         popover.delegate = self
@@ -101,8 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
     private func render(_ s: Snapshot) {
         guard let button = statusItem.button else { return }
-        button.image = MenuBar.ring(s.menuPct)
-        button.attributedTitle = MenuBar.title(s)
+        MenuBar.apply(s, to: button)
     }
 
     @objc private func clicked() {
@@ -125,32 +123,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     private func showMenu() {
         popover.performClose(nil)
         let menu = NSMenu()
-        menu.addItem(menuItem("Sync now", #selector(syncNow)))
-        menu.addItem(menuItem("History…", #selector(showHistory)))
+        // The symbols are all 14 to 17pt wide. The image column is as wide as the widest one, so a
+        // wide glyph (a laptop is 22pt) would push every title along.
+        menu.addItem(menuItem("Sync now", "arrow.clockwise", #selector(syncNow)))
+        menu.addItem(menuItem("History…", "chart.xyaxis.line", #selector(showHistory)))
         menu.addItem(.separator())
-        menu.addItem(menuItem("Open at login", #selector(toggleLogin), on: meter.launchAtLogin))
-        menu.addItem(menuItem("Weekly % in menu bar", #selector(toggleWeekly), on: meter.showWeeklyInTitle))
-        menu.addItem(menuItem("Notifications", #selector(toggleNotifications), on: meter.notificationsOn))
-        menu.addItem(menuItem("Send test notification", #selector(testNotification)))
-        menu.addItem(menuItem("Shortcut ⌃⌥⌘U", #selector(toggleHotkey), on: meter.hotkeyOn))
+        menu.addItem(menuItem("Open at login", "arrow.up.forward.app", #selector(toggleLogin), on: meter.launchAtLogin))
+        menu.addItem(menuItem("Weekly % in menu bar", "calendar", #selector(toggleWeekly), on: meter.showWeeklyInTitle))
+        menu.addItem(menuItem("Notifications", "bell", #selector(toggleNotifications), on: meter.notificationsOn))
+        menu.addItem(menuItem("Send test notification", "bell.badge", #selector(testNotification)))
+        menu.addItem(menuItem("Shortcut ⌃⌥⌘U", "command", #selector(toggleHotkey), on: meter.hotkeyOn))
         menu.addItem(.separator())
-        let version = NSMenuItem(title: "Claude Meter \(Meter.version)", action: nil, keyEquivalent: "")
-        version.isEnabled = false
-        menu.addItem(version)
-        menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Quit Claude Meter", action: #selector(NSApplication.terminate(_:)),
-                                keyEquivalent: "q"))
+        // The version is a label, not an item that happens to be greyed out.
+        menu.addItem(.sectionHeader(title: "Claude Meter \(Meter.version)"))
+        // No target: the quit action goes down the responder chain to the application.
+        let quit = NSMenuItem(title: "Quit Claude Meter", action: #selector(NSApplication.terminate(_:)),
+                              keyEquivalent: "q")
+        setSymbol("power", on: quit)
+        menu.addItem(quit)
         // A status item shows its menu on click only while it has one; attach it for this click.
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
     }
 
-    private func menuItem(_ title: String, _ action: Selector, on: Bool? = nil) -> NSMenuItem {
+    private func menuItem(_ title: String, _ symbol: String, _ action: Selector, on: Bool? = nil) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
+        setSymbol(symbol, on: item)
         if let on { item.state = on ? .on : .off }
         return item
+    }
+
+    /// A menu item's SF Symbol. Decorative, so it has no description for VoiceOver to read. macOS 27
+    /// usually hides item images unless the item asks for them.
+    private func setSymbol(_ name: String, on item: NSMenuItem) {
+        item.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
+        if #available(macOS 27.0, *) { item.preferredImageVisibility = .visible }
     }
 
     @objc private func syncNow() { meter.sync(force: true) }

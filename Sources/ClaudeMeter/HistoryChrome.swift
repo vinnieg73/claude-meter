@@ -10,6 +10,12 @@ enum HistoryChrome {
         let window = NSWindow(contentViewController: host)
         window.title = "Claude Meter · History"
         window.styleMask = [.titled, .closable, .miniaturizable]
+        // One flat surface: the titlebar shows the window's own background, with no bar or hairline
+        // above the modules. The content stays below the titlebar (no full-size content view), so
+        // nothing has to be inset for the traffic lights and the window sizes from the content as before.
+        window.backgroundColor = .windowBackgroundColor
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
         window.isReleasedWhenClosed = false
         window.delegate = delegate
         window.center()

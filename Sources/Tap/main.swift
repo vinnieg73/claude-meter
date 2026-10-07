@@ -26,14 +26,24 @@ if !limits.isEmpty {
     }
 }
 
-func pct(_ block: Any?) -> String? {
+// Colour: a percentage turns yellow from 70 and red from 90, the app's warn and critical
+// (`WindowView.level` in Meter.swift, which this can't import), judged on the exact number like the
+// dropdown does. These are the terminal's own colours, so they suit any theme. Only the foreground
+// is set and then reset with 39, never a full reset, so whatever style Claude Code draws the line
+// in (dimmed, say) carries on after it. NO_COLOR (no-color.org: set, and not empty) turns it off.
+let useColor = (ProcessInfo.processInfo.environment["NO_COLOR"] ?? "").isEmpty
+
+/// "5h 23%", coloured by how high it is.
+func segment(_ label: String, _ block: Any?) -> String? {
     guard let used = (block as? [String: Any])?["used_percentage"] as? Double else { return nil }
-    return "\(Int(used.rounded()))%"
+    let text = "\(label) \(Int(used.rounded()))%"
+    guard useColor, used >= 70 else { return text }
+    return "\u{1B}[\(used >= 90 ? 31 : 33)m\(text)\u{1B}[39m"
 }
 
 var parts: [String] = []
 if let model = (state["model"] as? [String: Any])?["display_name"] as? String { parts.append(model) }
-if let five = pct(limits["five_hour"]) { parts.append("5h \(five)") }
-if let week = pct(limits["seven_day"]) { parts.append("7d \(week)") }
-if let context = pct(state["context_window"]) { parts.append("ctx \(context)") }
+if let five = segment("5h", limits["five_hour"]) { parts.append(five) }
+if let week = segment("7d", limits["seven_day"]) { parts.append(week) }
+if let context = segment("ctx", state["context_window"]) { parts.append(context) }
 print(parts.joined(separator: " · "))

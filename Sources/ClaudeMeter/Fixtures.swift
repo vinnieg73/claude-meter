@@ -80,14 +80,16 @@ enum Fixtures {
         return w
     }
 
-    private static func weekly(_ pct: Double, left: TimeInterval, exact: Bool = false, projection: String,
-                               projectionWarn: Bool = false, budget: String, budgetWarn: Bool = false) -> WindowView {
+    private static func weekly(_ pct: Double, left: TimeInterval, exact: Bool = false, landing: Double,
+                               projection: String, projectionWarn: Bool = false, budget: String,
+                               budgetWarn: Bool = false) -> WindowView {
         var w = WindowView(title: "Weekly · all models", pct: pct, resetsAt: now.addingTimeInterval(left),
                            exact: exact, asOf: now.addingTimeInterval(exact ? -120 : -180))
         if !exact {
             w.accuracy = "±0.3"
             w.accuracyDetail = "Estimates have been within ±0.3 pts over 20 checks."
         }
+        w.averageAtReset = landing
         w.projection = projection
         w.projectionWarn = projectionWarn
         w.budget = budget
@@ -119,7 +121,7 @@ enum Fixtures {
     private static var calm: Popover {
         var s = base(.normal, title: "34% · 2h50m", pct: 34)
         s.fiveHour = fiveHour(34, left: 2.83 * 3600, exact: true, landing: 48)
-        s.weekly = weekly(41, left: 3.2 * 86400, projection: "7-day pace: ~78% at reset · today's: ~70%",
+        s.weekly = weekly(41, left: 3.2 * 86400, landing: 78, projection: "7-day pace: ~78% at reset · today's: ~70%",
                           budget: "Budget ~18%/day to the reset · 7-day average 11%/day")
         s.burning = [Burn(id: "a", name: "Claude Meter", model: "Opus 5.5", perHour: 4.12, pctPerHour: 2.5)]
         s.activeCount = 1
@@ -136,7 +138,7 @@ enum Fixtures {
     private static var warn: Popover {
         var s = base(.warn, title: "~78% · 1h10m", pct: 78)
         s.fiveHour = fiveHour(78, left: 70 * 60, landing: 96)
-        s.weekly = weekly(73, left: 16.3 * 3600, projection: "7-day pace: ~80% at reset · today's: ~84%",
+        s.weekly = weekly(73, left: 16.3 * 3600, landing: 80, projection: "7-day pace: ~80% at reset · today's: ~84%",
                           budget: "Budget ~40%/day to the reset · 7-day average 11%/day")
         s.burning = [
             Burn(id: "a", name: "Pocket Saloon", model: "Opus 5.5", perHour: 8.71, pctPerHour: 5.3),
@@ -163,7 +165,7 @@ enum Fixtures {
         var s = base(.critical, title: "~94% · cap \(Fmt.when(Date().addingTimeInterval(14 * 60)))", pct: 94)
         s.fiveHour = fiveHour(94, left: 55 * 60, capIn: 14 * 60)
         s.capWarning = now.addingTimeInterval(14 * 60)
-        s.weekly = weekly(91, left: 1.6 * 86400,
+        s.weekly = weekly(91, left: 1.6 * 86400, landing: 112,
                           projection: "7-day pace: out \(Fmt.when(Date().addingTimeInterval(20 * 3600))) · today's: out \(Fmt.when(Date().addingTimeInterval(6 * 3600)))",
                           projectionWarn: true,
                           budget: "Budget ~5.6%/day to the reset · 7-day average 13%/day", budgetWarn: true)
@@ -201,7 +203,7 @@ enum Fixtures {
         var s = base(.normal, title: "Idle", pct: 0)
         s.fiveHour = WindowView(title: "5-hour window", pct: 0, exact: false, asOf: now.addingTimeInterval(-6 * 3600),
                                 idle: true)
-        s.weekly = weekly(22, left: 5.1 * 86400, exact: true, projection: "7-day pace: ~51% at reset",
+        s.weekly = weekly(22, left: 5.1 * 86400, exact: true, landing: 51, projection: "7-day pace: ~51% at reset",
                           budget: "Budget ~15%/day to the reset · 7-day average 6.4%/day")
         s.todayCost = 3.1
         s.todayTokens = 6_200_000
@@ -229,7 +231,7 @@ enum Fixtures {
         s.calibrated = false
         s.tapSeen = nil
         s.probeStatus = "Probe failed: Claude Code is signed out (run claude, then /login) · retry \(Fmt.when(Date().addingTimeInterval(30 * 60)))"
-        var w = weekly(55, left: 2.4 * 86400, projection: "7-day pace: ~84% at reset",
+        var w = weekly(55, left: 2.4 * 86400, landing: 84, projection: "7-day pace: ~84% at reset",
                        budget: "Budget ~19%/day to the reset · this week's average 12%/day")
         w.accuracy = nil
         w.accuracyDetail = nil

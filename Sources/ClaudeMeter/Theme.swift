@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The shared look of the dropdown and the History window: spacing, type, surfaces, and the few
@@ -20,6 +21,34 @@ enum Theme {
     static let hairline = Color.primary.opacity(0.07)
     static let track = Color.primary.opacity(0.08)
     static let quiet = Color.primary.opacity(0.16)
+
+    /// Orange and cyan for small text. The system colours are too pale to read at 9–11pt on a light
+    /// surface (about 2:1), so the light appearance gets a deeper shade of the same hue (about 3.3:1
+    /// for orange, 5:1 for cyan); dark keeps the system colour. Resolved per appearance, so they
+    /// follow Increase Contrast like the system colours do.
+    static let warnText = Color(nsColor: NSColor(name: nil) { appearance in
+        var resolved = NSColor.systemOrange
+        appearance.performAsCurrentDrawingAppearance {
+            guard appearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua,
+                  let c = NSColor.systemOrange.usingColorSpace(.sRGB) else { return }
+            resolved = NSColor(hue: c.hueComponent, saturation: min(1, c.saturationComponent + 0.12),
+                               brightness: c.brightnessComponent * 0.76, alpha: 1)
+        }
+        return resolved
+    })
+    static let coldText = Color(nsColor: NSColor(name: nil) { appearance in
+        var resolved = NSColor.systemCyan
+        appearance.performAsCurrentDrawingAppearance {
+            guard appearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua else { return }
+            resolved = NSColor.systemCyan.blended(withFraction: 0.45, of: .black) ?? .systemCyan
+        }
+        return resolved
+    })
+
+    /// Text in a tint: the deeper shades for orange and cyan, any other tint as it is.
+    static func text(_ tint: Color) -> Color {
+        tint == .orange ? warnText : tint == .cyan ? coldText : tint
+    }
 
     static func color(_ level: Level) -> Color {
         switch level {
@@ -78,7 +107,7 @@ struct Chip: View {
         }
         .font(Theme.chip)
         .monospacedDigit()
-        .foregroundStyle(tint)
+        .foregroundStyle(Theme.text(tint))
         .padding(.horizontal, 5)
         .padding(.vertical, 1.5)
         .background(Capsule().fill(tint == .secondary ? Theme.track : tint.opacity(0.14)))

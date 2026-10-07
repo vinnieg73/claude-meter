@@ -7,15 +7,19 @@ struct HistoryView: View {
     /// For `--render --fixture`: shown instead of the meter's own history.
     var fixture: History? = nil
 
+    /// Window edge, and the gap between modules: roomier than the dropdown's, for 560pt.
+    private static let edge: CGFloat = 16
+    private static let gap: CGFloat = 12
+
     var body: some View {
         let h = fixture ?? meter.history()
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Self.gap) {
             Module { HistoryWindowsChart(h: h) }
             Module { HistoryWeekChart(h: h) }
             Module { PlanFitSection(h: h, plan: $meter.plan) }
             HistoryFootnote(h: h)
         }
-        .padding(16)
+        .padding(Self.edge)
         .frame(width: 560)
     }
 

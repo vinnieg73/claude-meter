@@ -88,7 +88,8 @@ renders every state, light and dark, plus History and the menu bar ring.
 set up (open at login, notification permission, CLI found) and what it last knew (last exact
 reading, calibrated caps, accuracy).
 
-`swift scripts/make-icon.swift` redraws `Resources/AppIcon.icns`.
+`swift scripts/make-icon.swift [previewDir]` redraws `Resources/AppIcon.icns` (and, given a folder,
+writes a 1024px PNG and a contact sheet of every size there).
 
 ## Replay test
 
@@ -149,7 +150,8 @@ About $0.001 of usage per run, so at most ~$0.01/hr while you work and nothing w
 exact `rate_limits` block (only when it changes). The statusline redraws without new API calls
 and stamps the time it drew, so from it only a higher % than the meter already has counts as a
 new reading, and a window it leaves out (it drops one the moment it resets) is kept as the reset
-to walk on from. and prints `Opus 5.5 · 5h 23% · 7d 28% · ctx 21%`. Registered in
+to walk on from. It prints `Opus 5.5 · 5h 23% · 7d 28% · ctx 21%`, the limits in yellow from 70%
+and red from 90% (plain when `NO_COLOR` is set). Registered in
 `~/.claude/settings.json`:
 
 ```json
