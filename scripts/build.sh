@@ -1,5 +1,6 @@
 #!/bin/bash
-# Builds ClaudeMeter.app. With --install, replaces ~/Applications/ClaudeMeter.app and launches it.
+# Builds build/ClaudeMeter.app. With --install, moves it to ~/Applications (replacing the old one)
+# and launches it.
 set -euo pipefail
 # The running app is the bare binary; `ClaudeMeter --status` or `--render` runs carry flags
 # and are left alone.
@@ -25,9 +26,22 @@ if [[ "${1:-}" == "--install" ]]; then
   pkill -f "$RUNNING" || true
   for _ in $(seq 50); do pgrep -f "$RUNNING" >/dev/null || break; sleep 0.1; done
   pkill -9 -f "$RUNNING" || true
+  # Notification Center draws the icon it cached for the bundle id, not the app's current one, so
+  # note whether this install changes it.
+  NEW_ICON=1
+  cmp -s "$HOME/Applications/ClaudeMeter.app/Contents/Resources/AppIcon.icns" Resources/AppIcon.icns && NEW_ICON=0
   mkdir -p "$HOME/Applications"
   rm -rf "$HOME/Applications/ClaudeMeter.app"
   cp -R "$APP" "$HOME/Applications/"
+  # One app per bundle id: with the build copy around too, macOS registers it (on its own, moments
+  # after it appears) and picks between them. Installed, it has no further use. Then have macOS
+  # re-read the installed one.
+  LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+  "$LSREGISTER" -u "$APP" 2>/dev/null || true
+  rm -rf "$APP"
+  "$LSREGISTER" -f "$HOME/Applications/ClaudeMeter.app" || true
+  # Restarted (it relaunches by itself), Notification Center looks the icon up again.
+  if [[ $NEW_ICON == 1 ]]; then killall NotificationCenter 2>/dev/null || true; fi
   open "$HOME/Applications/ClaudeMeter.app"
   echo "Installed to ~/Applications/ClaudeMeter.app"
 fi
