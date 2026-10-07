@@ -450,7 +450,7 @@ final class Meter: ObservableObject {
     }
 
     /// The windows a reading measured itself, not ones it carried over from an earlier reading.
-    private static func measured(by r: ExactReading) -> Set<String> {
+    static func measured(by r: ExactReading) -> Set<String> {
         var own: Set<String> = []
         if let w = r.fiveHour, abs((w.at ?? r.at).timeIntervalSince(r.at)) < 1 { own.insert("5h") }
         if let w = r.weekly, abs((w.at ?? r.at).timeIntervalSince(r.at)) < 1 { own.insert("week") }

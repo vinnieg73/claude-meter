@@ -102,14 +102,18 @@ transcripts with a moving clock, from a blank state (calibration learned along t
 never writes; exits non-zero on a failure. It checks:
 
 1. **Window openings**: after each reset, the estimate of the next window's reset, made from what
-   was known at the reset, matches the real one within a minute.
+   was known at the reset, matches the real one within a minute. A transcript line is written when
+   the reply arrives, so a first message logged within a minute of a 10-minute mark may have opened
+   the slot before; there either slot passes (the probe a minute later reads the real reset).
 2. **Probe gate**: between a reset and the next message a probe would not run (it would open a
    window); right after that message it would.
 3. **Alerts**: none goes out twice for the same window (alerts go to a recorder, not macOS).
 4. **Accuracy**: estimates made just before each exact reading, typically within ±1.5 points
    (5-hour) and ±1.0 (weekly).
 
-Checks 1 and 2 judge from the state at the reset, so readings the pre-0.8 probe took seconds
+Each reading is replayed with only the windows it measured: the history log also keeps windows
+carried over from earlier readings (past the 5-hour cap the probe stopped reporting the weekly), and
+those aren't new measurements. Checks 1 and 2 judge from the state at the reset, so readings the pre-0.8 probe took seconds
 after a reset (which opened those windows itself) don't count against today's code. Each check
 was confirmed to fail when the fix it guards is removed.
 

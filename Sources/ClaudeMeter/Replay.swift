@@ -5,11 +5,13 @@ import Foundation
 /// and checks what has to hold. Reads, never writes. Exits non-zero on any failure.
 ///
 /// 1. Window openings: after each reset, the meter's estimate of the next window's reset
-///    matches the real one (from the history log) within a minute.
+///    matches the real one (from the history log) within a minute, or is one 10-minute slot late
+///    when the first message was logged within a minute of a mark (the logs can't tell which).
 /// 2. Probe gate: between a reset and the next message, a probe would not run (it would open
 ///    a window); right after that message it would.
 /// 3. Alerts: none goes out twice for the same window.
 /// 4. Accuracy: estimates made just before each exact reading are within the bar.
+/// Each reading is replayed with only the windows it measured, not ones carried over.
 @MainActor
 enum Replay {
     /// Typical (mean absolute) error allowed, in points.
@@ -56,10 +58,11 @@ extension Meter {
             report.failures.append("no Claude Code transcripts to replay")
             return report
         }
-        // Only readings whose windows the logs cover.
+        // Only readings whose windows the logs cover, and of each only what it measured itself.
         let readings = HistoryLog.load().readings
             .filter { $0.at > firstTurn.addingTimeInterval(5 * 3600) }
             .sorted { $0.at < $1.at }
+            .map(Self.measuredOnly)
         guard let start = readings.first?.at, let end = readings.last?.at, readings.count >= 2 else {
             report.failures.append("not enough history to replay (need 2+ exact readings within the logs)")
             return report
@@ -106,7 +109,7 @@ extension Meter {
 
         var alerts: [(at: Date, key: String)] = []
         let notifier = Notifier(store: store) { [unowned self] key in alerts.append((self.clock(), key)) }
-        var gateChecks = 0, openingChecks = 0, openingSkipped = 0
+        var gateChecks = 0, openingChecks = 0, openingSkipped = 0, openingSlotBefore = 0
         var next = 0
         loaded = true
         for t in times.sorted() {
@@ -152,7 +155,15 @@ extension Meter {
                         continue
                     }
                     openingChecks += 1
-                    if abs(estimate.timeIntervalSince(o.realReset)) > 60 {
+                    let off = estimate.timeIntervalSince(o.realReset)
+                    // A line is written when the reply arrives, so a message logged within a minute
+                    // of a 10-minute mark may have reached Anthropic before it, and opened the window
+                    // in the slot before. The logs can't tell which (it has gone both ways); the probe
+                    // a minute later reads the real reset.
+                    let nearMark = o.firstMessage.timeIntervalSince1970.truncatingRemainder(dividingBy: 600) < 60
+                    if nearMark, abs(off - 600) <= 60 {
+                        openingSlotBefore += 1
+                    } else if abs(off) > 60 {
                         report.failures.append("window opened by the message at \(o.firstMessage): "
                                                + "estimated reset \(estimate), real \(o.realReset)")
                     }
@@ -176,7 +187,8 @@ extension Meter {
 
         let span = String(format: "%.1f", end.timeIntervalSince(start) / 86400)
         report.lines.append("Replayed \(readings.count) exact readings over \(span) days, \(all.count) logged turns, \(times.count) steps.")
-        report.lines.append("1. Window openings: \(openingChecks) checked, \(openingSkipped) skipped before calibration.")
+        report.lines.append("1. Window openings: \(openingChecks) checked (\(openingSlotBefore) opened the slot before, "
+                            + "message logged just past a mark), \(openingSkipped) skipped before calibration.")
         report.lines.append("2. Probe gate: \(gateChecks) points checked.")
         report.lines.append("3. Alerts: \(alerts.count) sent, \(duplicates) duplicate.")
         let checks = store.state.checks ?? []
@@ -196,5 +208,18 @@ extension Meter {
             }
         }
         return report
+    }
+
+    /// The history log saves each reading as the meter held it, windows carried over from earlier
+    /// readings included (a probe can leave one out: past the 5-hour cap it stopped reporting the
+    /// weekly). Replayed as they are, those would count as new measurements of a stale number.
+    private static func measuredOnly(_ r: ExactReading) -> ExactReading {
+        var r = r
+        let own = Meter.measured(by: r)
+        if !own.contains("5h") { r.fiveHour = nil }
+        if !own.contains("week") { r.weekly = nil }
+        let at = r.at
+        r.extras = r.extras.filter { abs(($0.value.at ?? at).timeIntervalSince(at)) < 1 }
+        return r
     }
 }
