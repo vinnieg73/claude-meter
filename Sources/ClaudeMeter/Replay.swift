@@ -108,6 +108,8 @@ extension Meter {
         }
 
         var alerts: [(at: Date, key: String)] = []
+        // When Anthropic reset a window early, which re-arms its alerts.
+        var restarts: [(at: Date, window: String)] = []
         let notifier = Notifier(store: store) { [unowned self] key in alerts.append((self.clock(), key)) }
         var gateChecks = 0, openingChecks = 0, openingSkipped = 0, openingSlotBefore = 0
         var next = 0
@@ -116,7 +118,11 @@ extension Meter {
             clock = { t }
             turns = Array(all[..<upTo(t)])
             while next < readings.count, readings[next].at <= t {
+                let before = store.state.lastExact
                 absorb(readings[next])
+                let after = store.state.lastExact
+                if let r = after?.fiveHour?.restartedAt, r != before?.fiveHour?.restartedAt { restarts.append((t, "5h")) }
+                if let r = after?.weekly?.restartedAt, r != before?.weekly?.restartedAt { restarts.append((t, "week")) }
                 next += 1
             }
             recompute()
@@ -171,18 +177,24 @@ extension Meter {
             }
         }
 
-        // Alerts: the same kind and threshold twice for one window is a duplicate.
-        var sent: [String: [Double]] = [:]
+        // Alerts: the same kind and threshold twice for one window is a duplicate, unless Anthropic
+        // reset the window early in between, which re-arms them.
+        func window(of kind: Substring) -> String? {
+            kind == Meter.weeklyTitle ? "week" : kind == Meter.fiveHourTitle || kind == "pace" ? "5h" : nil
+        }
+        var sent: [String: [(epoch: Double, at: Date)]] = [:]
         var duplicates = 0
         for a in alerts {
             let parts = a.key.split(separator: "|")
             guard parts.count == 3, let epoch = Double(parts[1]) else { continue }
             let kind = "\(parts[0])|\(parts[2])"
-            if sent[kind, default: []].contains(where: { abs($0 - epoch) < 900 }) {
+            let w = window(of: parts[0])
+            if let prior = sent[kind, default: []].last(where: { abs($0.epoch - epoch) < 900 }),
+               !restarts.contains(where: { $0.window == w && $0.at > prior.at && $0.at <= a.at }) {
                 duplicates += 1
                 report.failures.append("alert \(a.key) sent twice (again at \(a.at))")
             }
-            sent[kind, default: []].append(epoch)
+            sent[kind, default: []].append((epoch, a.at))
         }
 
         let span = String(format: "%.1f", end.timeIntervalSince(start) / 86400)
@@ -190,7 +202,8 @@ extension Meter {
         report.lines.append("1. Window openings: \(openingChecks) checked (\(openingSlotBefore) opened the slot before, "
                             + "message logged just past a mark), \(openingSkipped) skipped before calibration.")
         report.lines.append("2. Probe gate: \(gateChecks) points checked.")
-        report.lines.append("3. Alerts: \(alerts.count) sent, \(duplicates) duplicate.")
+        report.lines.append("3. Alerts: \(alerts.count) sent, \(duplicates) duplicate"
+                            + (restarts.isEmpty ? "." : ", across \(restarts.count) early reset\(restarts.count == 1 ? "" : "s") (\(restarts.map(\.window).joined(separator: ", "))) that re-arm them."))
         let checks = store.state.checks ?? []
         for (window, name, bar) in [("5h", "5-hour", Replay.accuracyBar.fiveHour), ("week", "weekly", Replay.accuracyBar.weekly)] {
             let errors = checks.filter { $0.window == window }.map { $0.estimated - $0.exact }

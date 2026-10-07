@@ -7,6 +7,10 @@ struct Window: Codable {
     /// When this window's % was measured. A reading can carry a window forward from an
     /// earlier one, so the reading's own time isn't always this window's.
     var at: Date?
+    /// When Anthropic reset this window's usage before its reset time (it did on Oct 7: the weekly
+    /// went from 87% to 0 with the same Wednesday reset), as near as the readings can tell: the last
+    /// higher measurement. From then its % no longer counts from the window's start.
+    var restartedAt: Date?
 
     /// Sources disagree by seconds on the same reset (18:59:59.5 vs 19:00:00), and an estimated
     /// window by a few minutes, so two resets this close are the same window.
@@ -18,7 +22,7 @@ struct Window: Codable {
     /// The reset on the minute it means.
     var normalized: Window {
         Window(pct: pct, resetsAt: Date(timeIntervalSince1970: (resetsAt.timeIntervalSince1970 / 60).rounded() * 60),
-               at: at)
+               at: at, restartedAt: restartedAt)
     }
 }
 

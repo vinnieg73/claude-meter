@@ -51,12 +51,12 @@ login, weekly % in the title, notifications, the shortcut.
 ## Where the numbers come from
 
 Anthropic's limits are exact only on Anthropic's side. The meter takes an **exact reading**
-every 15 minutes while you work and fills the time between from the **local logs**:
+within a minute of any new activity and fills the time between from the **local logs**:
 
 | Source | What | When |
 |---|---|---|
 | `~/.claude/projects/**/*.jsonl` | every Claude Code turn on this Mac: model, tokens, project | continuously (tailed every 10s); `CLAUDE_CONFIG_DIR` is honoured, read from your login shell since apps don't inherit it, and symlinked project folders are followed |
-| probe | Claude Code's `rate_limit_event` (exact) | every 15 min while active (5 min past 75% or under a cap warning, 1 min after the first message past a reset), only if something was logged since the last reading and a window is already open; **Sync** on demand |
+| probe | Claude Code's `rate_limit_event` (exact) | at most once a minute, only if something was logged since the last reading and a window is already open; **Sync** on demand |
 | statusline tap | Claude Code's own `rate_limits` (exact) | whenever a **terminal** `claude` session redraws its statusline |
 | `tap.json` drop-in | any exact reading, from anywhere | when written |
 
@@ -69,6 +69,12 @@ logged spend ÷ cap. Checked 2026-09-24: estimate 22% vs exact 23% after 12 heav
 
 What the estimate cannot see: claude.ai chat, the phone, other machines. Those are corrected
 at the next exact reading, and they push the cap estimate low, so the meter errs high.
+
+**Early resets.** Anthropic sometimes resets a window's usage before its reset time (Oct 7: the
+weekly went from 87% to 0 mid-week, same Wednesday reset). A probe reporting a lower % for the same
+window is taken as that: the window counts from then, it isn't used to calibrate until it resets on
+time, its 80%/95% alerts can go out again, and History's week drops to 0 there. From the statusline
+a lower % is still an old number re-sent.
 
 ## Build
 
@@ -133,7 +139,8 @@ One headless Claude Code turn: `claude -p ok --model haiku`, a one-line system p
 tools, no MCP servers, no saved session, none of your settings or hooks
 (`--setting-sources ""`, `disableAllHooks`), run in an empty folder. Claude Code reports the plan
 limits alongside the reply (`rate_limit_event` → `unifiedWindows`, utilization as a fraction).
-About $0.001 of usage per run, so at most ~$0.01/hr while you work and nothing while idle.
+About $0.001 of usage per run, so at most ~$0.06/hr while you work (about 0.03 points of the
+5-hour window per hour) and nothing while idle.
 
 - **It never opens a window.** A probe is a request, and a request opens a 5-hour window if
   none is open, which would move your reset. So it only runs while the last reading's window is

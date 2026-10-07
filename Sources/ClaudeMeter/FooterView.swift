@@ -57,7 +57,7 @@ struct FooterView: View {
         var status: [String] = []
         if let tap = s.tapSeen { status.append("statusline \(Fmt.ago(tap))") }
         if !s.calibrated { status.append("not calibrated yet") }
-        return (["Exact every 15 min while you work · ~ = estimated in between"]
+        return (["Exact within a minute of activity · ~ = estimated in between"]
                 + (status.isEmpty ? [] : [status.joined(separator: " · ")])).joined(separator: "\n")
     }
 
