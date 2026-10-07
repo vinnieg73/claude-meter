@@ -79,8 +79,10 @@ at the next exact reading, and they push the cap estimate low, so the meter errs
 The log index is cached at `~/Library/Caches/ClaudeMeter/index.plist` (a warm launch reads
 it in about a second instead of scanning every transcript; delete it to force a full scan).
 
-`ClaudeMeter --render out.png [--dark]` draws the popover offscreen and prints the menu bar
-title, for checking the UI without screen-recording access.
+`ClaudeMeter --render out.png [--dark] [--history]` draws the popover (or History) offscreen and
+prints the menu bar title, for checking the UI without screen-recording access. `--fixture <name>`
+draws a made-up state instead of the live one (`Fixtures.swift`), and `scripts/render-all.sh <dir>`
+renders every state, light and dark, plus History and the menu bar ring.
 
 `~/Applications/ClaudeMeter.app/Contents/MacOS/ClaudeMeter --status` prints how the app is
 set up (open at login, notification permission, CLI found) and what it last knew (last exact

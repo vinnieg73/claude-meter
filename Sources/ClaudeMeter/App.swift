@@ -10,7 +10,7 @@ enum Main {
     static let usage = """
         usage: ClaudeMeter                      run the menu bar app
                ClaudeMeter --status             print setup and last known state
-               ClaudeMeter --render out.png [--dark] [--history | --icons]
+               ClaudeMeter --render out.png [--dark] [--history | --icons] [--fixture name]
                ClaudeMeter --unregister-login
                ClaudeMeter --replay             replay this Mac's history through the meter and check it
         """
@@ -18,14 +18,20 @@ enum Main {
     static func main() {
         let args = CommandLine.arguments
         // A typo shouldn't start a second meter: unknown or incomplete flags print usage.
-        let known: Set = ["--render", "--dark", "--history", "--icons", "--status", "--unregister-login", "--replay"]
+        let known: Set = ["--render", "--dark", "--history", "--icons", "--fixture", "--status", "--unregister-login", "--replay"]
         if args.dropFirst().contains(where: { $0.hasPrefix("--") && !known.contains($0) }) {
             return print(usage)
         }
         if let i = args.firstIndex(of: "--render") {
             guard i + 1 < args.count, !args[i + 1].hasPrefix("--") else { return print(usage) }
-            if args.contains("--icons") { return Preview.icons(to: args[i + 1]) }
-            Preview.render(to: args[i + 1], dark: args.contains("--dark"), history: args.contains("--history"))
+            if args.contains("--icons") { return MenuBar.renderIcons(to: args[i + 1]) }
+            var fixture: String?
+            if let f = args.firstIndex(of: "--fixture") {
+                guard f + 1 < args.count, !args[f + 1].hasPrefix("--") else { return print(usage) }
+                fixture = args[f + 1]
+            }
+            Preview.render(to: args[i + 1], dark: args.contains("--dark"), history: args.contains("--history"),
+                           fixture: fixture)
             return
         }
         if args.contains("--status") { return Status.print() }
@@ -95,45 +101,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
     private func render(_ s: Snapshot) {
         guard let button = statusItem.button else { return }
-        button.image = Self.ring(s.menuPct)
-
-        var attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
-        ]
-        switch s.level {
-        case .critical: attrs[.foregroundColor] = NSColor.systemRed
-        case .warn: attrs[.foregroundColor] = NSColor.systemOrange
-        case .normal: break
-        }
-        button.attributedTitle = NSAttributedString(string: " " + s.menuTitle, attributes: attrs)
-    }
-
-    /// A progress ring filled to the 5-hour window's %, clockwise from 12 o'clock. A template
-    /// image, so the menu bar tints it for light and dark.
-    static func ring(_ pct: Double) -> NSImage {
-        let image = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
-            let center = NSPoint(x: rect.midX, y: rect.midY)
-            let radius = rect.width / 2 - 2
-            let track = NSBezierPath()
-            track.appendArc(withCenter: center, radius: radius, startAngle: 0, endAngle: 360)
-            track.lineWidth = 2.2
-            NSColor.black.withAlphaComponent(0.3).setStroke()
-            track.stroke()
-            let used = min(max(pct, 0), 100) / 100
-            if used > 0 {
-                let arc = NSBezierPath()
-                arc.appendArc(withCenter: center, radius: radius, startAngle: 90,
-                              endAngle: 90 - 360 * used, clockwise: true)
-                arc.lineWidth = 2.2
-                arc.lineCapStyle = .round
-                NSColor.black.setStroke()
-                arc.stroke()
-            }
-            return true
-        }
-        image.isTemplate = true
-        image.accessibilityDescription = "Claude usage \(Int(pct.rounded()))%"
-        return image
+        button.image = MenuBar.ring(s.menuPct)
+        button.attributedTitle = MenuBar.title(s)
     }
 
     @objc private func clicked() {
@@ -195,15 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     private func openHistory() {
         popover.performClose(nil)
         if historyWindow == nil {
-            let host = NSHostingController(rootView: HistoryView(meter: meter))
-            host.sizingOptions = .preferredContentSize
-            let window = NSWindow(contentViewController: host)
-            window.title = "Claude Meter · History"
-            window.styleMask = [.titled, .closable, .miniaturizable]
-            window.isReleasedWhenClosed = false
-            window.delegate = self
-            window.center()
-            historyWindow = window
+            historyWindow = HistoryChrome.makeWindow(meter: meter, delegate: self)
         }
         NSApp.unhide(nil)
         NSApp.activate()
