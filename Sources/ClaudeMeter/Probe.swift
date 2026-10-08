@@ -9,6 +9,16 @@ enum Probe {
         case failed(String)
     }
 
+    private static let signedOut = "Claude Code is signed out; run claude /login"
+    private static let notFound = "Claude Code CLI not found"
+    private static let couldntStart = "couldn't start Claude Code"
+
+    /// A failure that waiting won't fix: nothing is signed in, or there is no CLI to run. Anything
+    /// else (offline, a slow machine, a token refreshing) is worth trying again soon.
+    static func needsYou(_ reason: String) -> Bool {
+        reason == signedOut || reason == notFound || reason == couldntStart
+    }
+
     static func run() async -> Outcome {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async { continuation.resume(returning: runNow()) }
@@ -16,7 +26,7 @@ enum Probe {
     }
 
     private static func runNow() -> Outcome {
-        guard let claude = binary() else { return .failed("Claude Code CLI not found") }
+        guard let claude = binary() else { return .failed(notFound) }
         // An empty folder, so no CLAUDE.md or project settings load.
         let dir = Paths.support.appendingPathComponent("probe")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -65,7 +75,7 @@ enum Probe {
         let exited = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in exited.signal() }
 
-        do { try process.run() } catch { return .failed("couldn't start Claude Code") }
+        do { try process.run() } catch { return .failed(couldntStart) }
         let timedOut = exited.wait(timeout: .now() + 60) == .timedOut
         if timedOut {
             // Its children too, found now: once claude dies they belong to launchd.
@@ -176,7 +186,7 @@ enum Probe {
         if let error {
             let lower = error.lowercased()
             if lower.contains("login") || lower.contains("authenticat") {
-                return .failed("Claude Code is signed out; run claude /login")
+                return .failed(signedOut)
             }
             return .failed(String(error.prefix(80)))
         }

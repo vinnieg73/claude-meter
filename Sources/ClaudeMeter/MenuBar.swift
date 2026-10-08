@@ -8,9 +8,27 @@ enum MenuBar {
     /// be drawn at, for the preview to say; the app leaves it to the button's own screen.
     static func apply(_ s: Snapshot, to button: NSStatusBarButton, scale: CGFloat? = nil) {
         button.attributedTitle = title(s)
+        button.setAccessibilityLabel(spoken(s))
         button.imagePosition = .imageLeading
         let center = ringCenter(in: button, scale: scale ?? button.window?.backingScaleFactor ?? 2)
         button.image = ring(s.menuPct, level: s.level, centerY: center)
+    }
+
+    /// What VoiceOver says for the status item: the title as shown, said as words ("about 62%,
+    /// 1h05m"), not the ring's percent, which stays 0 when there is no 5-hour card.
+    static func spoken(_ s: Snapshot) -> String {
+        var text = "Claude usage"
+        if s.menuTitle != "Claude" { // while loading the title is just the name
+            text += ", " + s.menuTitle.replacingOccurrences(of: "~", with: "about ")
+                .replacingOccurrences(of: "  wk ", with: ", weekly ")
+                .replacingOccurrences(of: " · ", with: ", ")
+        }
+        switch s.level {
+        case .critical: text += ", critical"
+        case .warn: text += ", warning"
+        case .normal: break
+        }
+        return text
     }
 
     // MARK: - Title
@@ -50,7 +68,8 @@ enum MenuBar {
     /// the title's colour and stops being one. `centerY` is where its centre goes, in points up
     /// from the image's bottom.
     static func ring(_ pct: Double, level: Level, centerY: CGFloat) -> NSImage {
-        let image = NSImage(size: NSSize(width: imageSize, height: imageSize), flipped: false) { rect in
+        // @Sendable: AppKit may draw it on any thread, and the drawing touches nothing of the app's.
+        let image = NSImage(size: NSSize(width: imageSize, height: imageSize), flipped: false) { @Sendable rect in
             drawRing(pct, level: level, centerY: centerY, in: rect)
             return true
         }
@@ -143,7 +162,9 @@ enum MenuBar {
     /// the dropdown): first at the sheet's 4x, then as a Retina display draws them and as a plain
     /// one does, each device pixel enlarged to a block so the edges can be judged. Below, ring and
     /// title for the states the menu bar can show.
-    static func renderIcons(to path: String) {
+    /// False if the sheet could not be drawn or written.
+    @discardableResult
+    static func renderIcons(to path: String) -> Bool {
         _ = NSApplication.shared
         let rings: [Double] = [0, 3, 25, 50, 75, 90, 95, 100]
         let titles: [(text: String, pct: Double, level: Level)] = [
@@ -250,12 +271,17 @@ enum MenuBar {
             rep.draw(in: frame)
         }
         NSGraphicsContext.restoreGraphicsState()
-        guard let png = sheet.representation(using: .png, properties: [:]) else { return print("could not encode the sheet") }
+        guard let png = sheet.representation(using: .png, properties: [:]) else {
+            print("could not encode the sheet")
+            return false
+        }
         do {
             try png.write(to: URL(fileURLWithPath: path))
             print("wrote \(path)")
+            return true
         } catch {
             print("could not write \(path): \(error.localizedDescription)")
+            return false
         }
     }
 }

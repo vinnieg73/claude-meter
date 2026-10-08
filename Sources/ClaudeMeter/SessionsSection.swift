@@ -144,9 +144,10 @@ private struct SessionRow: View {
                     .frame(width: Self.warningWidth)
                     .accessibilityHidden(true)
             }
-            // The name gives way last; an odd model id is cut short instead.
+            // The name gives way to the model, which is short and shown whole; only an absurd id
+            // (nothing real is near 24 characters) is cut, so it can't push the name out.
             Text(name).lineLimit(1).truncationMode(.tail).layoutPriority(1)
-            Text(model.count > 12 ? String(model.prefix(11)) + "…" : model)
+            Text(model.count > 24 ? String(model.prefix(23)) + "…" : model)
                 .font(Theme.meta).foregroundStyle(.secondary)
                 .lineLimit(1).fixedSize()
                 .padding(.leading, 2)

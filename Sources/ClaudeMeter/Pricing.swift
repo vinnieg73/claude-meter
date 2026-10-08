@@ -7,9 +7,14 @@ struct Price {
     let input: Double
     let output: Double
     let cacheRead: Double
+    /// A second rate card for a prompt past `Pricing.longPrompt` tokens (Haiku 5.5 only).
+    var long: (input: Double, output: Double, cacheRead: Double)? = nil
 }
 
 enum Pricing {
+    /// Prompt length (input, cache reads and writes) past which a model's `long` rates apply.
+    static let longPrompt = 100_000
+
     /// A prefix covers the model and its dated snapshots ("claude-opus-4" covers
     /// "claude-opus-4-20250514"), never another version ("claude-opus-4-1" is its own row).
     static let table: [(prefix: String, price: Price)] = [
@@ -30,8 +35,12 @@ enum Pricing {
         ("claude-sonnet-4-6", Price(input: 3, output: 15, cacheRead: 0.30)),
         ("claude-sonnet-4-5", Price(input: 3, output: 15, cacheRead: 0.30)),
         ("claude-sonnet-4", Price(input: 3, output: 15, cacheRead: 0.30)),
+        ("claude-haiku-5-5", haiku55),
         ("claude-haiku-4-5", Price(input: 1, output: 5, cacheRead: 0.10)),
     ]
+
+    /// Haiku 5.5: $0.10 / $0.50 for a prompt up to 100K tokens, $0.50 / $2.50 beyond; cache reads 0.1x input.
+    private static let haiku55 = Price(input: 0.10, output: 0.50, cacheRead: 0.01, long: (0.50, 2.50, 0.05))
 
     /// The newest price in each family, for a model the table doesn't know yet: a release
     /// after this was written shouldn't count as free, or as its predecessor's price.
@@ -40,7 +49,7 @@ enum Pricing {
         ("mythos", Price(input: 10, output: 50, cacheRead: 0.25)),
         ("opus", Price(input: 4, output: 20, cacheRead: 0.20)),
         ("sonnet", Price(input: 2, output: 10, cacheRead: 0.20)),
-        ("haiku", Price(input: 1, output: 5, cacheRead: 0.10)),
+        ("haiku", haiku55),
     ]
 
     static func price(for model: String) -> Price? {
@@ -64,11 +73,13 @@ enum Pricing {
     static func cost(model: String, input: Int, output: Int, cacheRead: Int,
                      write5m: Int, write1h: Int, fast: Bool) -> Double {
         guard let p = price(for: model) else { return 0 }
-        let dollars = Double(input) * p.input
-            + Double(output) * p.output
-            + Double(cacheRead) * p.cacheRead
-            + Double(write5m) * p.input * 1.25
-            + Double(write1h) * p.input * 2
+        var rate = (input: p.input, output: p.output, cacheRead: p.cacheRead)
+        if let long = p.long, input + cacheRead + write5m + write1h > longPrompt { rate = long }
+        let dollars = Double(input) * rate.input
+            + Double(output) * rate.output
+            + Double(cacheRead) * rate.cacheRead
+            + Double(write5m) * rate.input * 1.25
+            + Double(write1h) * rate.input * 2
         return dollars / 1_000_000 * (fast ? 2 : 1)
     }
 }

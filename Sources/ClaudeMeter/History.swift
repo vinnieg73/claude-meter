@@ -42,11 +42,24 @@ enum HistoryLog {
         return (readings, offset + UInt64(lastNewline - data.startIndex + 1))
     }
 
+    /// The first line's reading: the oldest, which is all compaction needs to know whether it has
+    /// anything to do (every day, nearly always nothing).
+    private static func firstReading() -> ExactReading? {
+        guard let handle = try? FileHandle(forReadingFrom: Paths.history) else { return nil }
+        defer { try? handle.close() }
+        guard let chunk = try? handle.read(upToCount: 65536), let end = chunk.firstIndex(of: 0x0A) else { return nil }
+        return try? JSONCoding.decoder().decode(ExactReading.self, from: chunk[chunk.startIndex..<end])
+    }
+
     /// Drops lines older than five weeks, once they're there to drop.
     static func compact() {
-        let (readings, _) = load()
         let cutoff = Date().addingTimeInterval(-keep)
-        guard let first = readings.first, first.at < cutoff else { return }
+        // A first line that won't read (a write cut short) can't say, so go by the first that does,
+        // or the log would never be pruned.
+        var everything: [ExactReading]?
+        if firstReading() == nil { everything = load().readings }
+        guard let first = firstReading() ?? everything?.first, first.at < cutoff else { return }
+        let readings = everything ?? load().readings
         let encoder = JSONCoding.encoder()
         var out = Data()
         for r in readings where r.at >= cutoff {

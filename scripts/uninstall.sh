@@ -10,6 +10,8 @@ APP="$HOME/Applications/ClaudeMeter.app"
 
 pkill -f "$RUNNING" || true
 for _ in $(seq 50); do pgrep -f "$RUNNING" >/dev/null || break; sleep 0.1; done
+# One that hangs past five seconds would recreate its data folder after it is removed.
+pkill -9 -f "$RUNNING" || true
 if [[ -x "$APP/Contents/MacOS/ClaudeMeter" ]]; then
   "$APP/Contents/MacOS/ClaudeMeter" --unregister-login
 fi
@@ -17,15 +19,18 @@ fi
 # Only a statusline that is exactly the tap; one that also runs something else is left for
 # you to edit. Written to a temp file and renamed, so Claude Code never sees half a file.
 python3 - <<'EOF' || echo "statusline entry: couldn't update ~/.claude/settings.json; remove it by hand"
-import json, os, tempfile
-path = os.path.expanduser("~/.claude/settings.json")
+import json, os, stat, tempfile
+# Through a symlink (a dotfiles repo, say): the real file is rewritten and the link stays a link.
+path = os.path.realpath(os.path.expanduser("~/.claude/settings.json"))
 if os.path.exists(path):
     with open(path) as f:
         settings = json.load(f)
     command = str((settings.get("statusLine") or {}).get("command", "")).strip().strip('"').strip("'")
     if command.endswith("/claude-meter-tap"):
         del settings["statusLine"]
+        mode = stat.S_IMODE(os.stat(path).st_mode)
         fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
+        os.chmod(tmp, mode)
         with os.fdopen(fd, "w") as f:
             json.dump(settings, f, indent=2)
             f.write("\n")

@@ -181,7 +181,13 @@ final class Meter: ObservableObject {
     /// Uptime of the last history compaction: at launch, then daily, since the app runs for weeks.
     private var compactedAt: TimeInterval = 0
     /// When the last probe finished, whatever it found.
+    /// When the last probe was launched, whatever it came to. New activity has to be after this to
+    /// call for another, or an answer that was turned away would be asked for again every minute.
     private var lastProbe: Date?
+    /// Probes that failed in a row, for the retry wait.
+    private var probeFailures = 0
+    /// What takes a reading; swapped for a fake where the probe can't be run.
+    var probe: () async -> Probe.Outcome = { await Probe.run() }
 
     private static let fiveHours: TimeInterval = 5 * 3600
     private static let week: TimeInterval = 7 * 86400
@@ -263,8 +269,13 @@ final class Meter: ObservableObject {
     }
 
     /// Called when the dropdown opens, so it never shows data up to a tick old.
-    func refreshNow() {
+    /// Open at login can change under us (System Settings > Login Items), so the menu asks first.
+    func refreshLaunchAtLogin() {
         launchAtLogin = SMAppService.mainApp.status == .enabled
+    }
+
+    func refreshNow() {
+        refreshLaunchAtLogin()
         recompute()
         scan()
     }
@@ -333,7 +344,8 @@ final class Meter: ObservableObject {
     /// Runs the probe when there's something new to measure: the last exact reading is a minute
     /// or more old and something has been logged since. Idle time changes nothing, so it costs nothing.
     /// Forced (Sync) runs regardless of timing. Either way, never when it would open a window.
-    /// A failure waits 30 minutes before trying again.
+    /// A failure waits before trying again: a minute, doubling to half an hour, or half an hour at
+    /// once when only you can fix it (signed out).
     func sync(force: Bool) {
         guard !probing, !quiet else { return }
         let now = clock()
@@ -356,24 +368,34 @@ final class Meter: ObservableObject {
                 let clockWentBack = last.at > now.addingTimeInterval(60)
                 let since = clockWentBack ? .distantPast : max(last.at, lastProbe ?? .distantPast)
                 guard now.timeIntervalSince(since) >= Self.probeEvery,
-                      let latest = turns.last?.at, clockWentBack || latest > last.at else { return }
+                      let latest = turns.last?.at, clockWentBack || latest > since else { return }
             }
         }
+        // Stamped at launch, not when it answers: a turn logged while it runs is after the reading, so
+        // the estimate carries it and the next probe is called for by it, rather than it falling
+        // between the two.
+        let launched = clock()
+        lastProbe = launched
         probing = true
         recompute()
         Task {
-            let outcome = await Probe.run()
+            let outcome = await probe()
             probing = false
-            lastProbe = clock()
             switch outcome {
-            case .reading(let reading):
+            case .reading(var reading):
+                reading.at = launched
+                probeFailures = 0
                 store.state.probeError = nil
                 store.state.probeRetryAt = nil
                 if notice == Self.noWindowNotice { notice = nil }
                 absorb(reading)
             case .failed(let reason):
+                // A minute at first, doubling to half an hour; a failure that waiting won't fix
+                // (signed out, no CLI) goes straight to the half hour.
+                probeFailures += 1
+                let wait = Probe.needsYou(reason) ? 1800 : min(1800, 60 * pow(2, Double(probeFailures - 1)))
                 store.state.probeError = reason
-                store.state.probeRetryAt = clock().addingTimeInterval(1800)
+                store.state.probeRetryAt = clock().addingTimeInterval(wait)
             }
             store.save()
             recompute()
@@ -488,10 +510,15 @@ final class Meter: ObservableObject {
                 // The statusline stamps when it redraws, not when its number was measured, so
                 // from it an unchanged number, or a lower one, is an old one again.
                 if !measuredNow, new.pct <= old.pct + 0.5 { return (old, false) }
-                // Measured now, a lower number is Anthropic resetting the window's usage before
-                // its time; it happened after the last higher measurement. Otherwise the window
-                // keeps any such reset it had.
-                if new.pct < old.pct - 0.5 {
+                // And once Anthropic has reset a window early it may redraw numbers from before,
+                // higher than the window now is, which would read as a climb; the probe a minute
+                // apart has the window instead.
+                if !measuredNow, old.restartedAt != nil { return (old, false) }
+                // Measured now, a drop of a few points is Anthropic resetting the window's usage
+                // before its time; it happened after the last higher measurement. A smaller one is
+                // an old number re-sent. Otherwise the window keeps any such reset it had.
+                if measuredNow, new.pct < old.pct - 0.5, new.pct >= old.pct - Self.restartDrop { return (old, false) }
+                if new.pct < old.pct - Self.restartDrop {
                     Self.markRestart(&new, after: old)
                 } else {
                     new.restartedAt = old.restartedAt
@@ -618,6 +645,9 @@ final class Meter: ObservableObject {
             store.save()
         }
     }
+
+    /// How far a window's % must fall, measured, to be Anthropic resetting it early (they fall by tens).
+    static let restartDrop = 3.0
 
     /// The cap a measurement implies, when it can support one: taken within the last hour and
     /// inside its own window, with the logs reaching back over the window's start (where it began,
@@ -869,12 +899,41 @@ final class Meter: ObservableObject {
         }
         if size > historyEnd {
             let (new, end) = HistoryLog.load(from: historyEnd)
+            // Kept in time order, so the range asked for below is found rather than filtered out of
+            // every reading on every call. Appended in order nearly always; a clock set back or a
+            // drop-in out of order is sorted in.
+            let inOrder = (new.first.map { first in historyReadings.last.map { first.at >= $0.at } ?? true } ?? true)
+                && zip(new, new.dropFirst()).allSatisfy { $0.at <= $1.at }
             historyReadings += new
+            if !inOrder { historyReadings.sort { $0.at < $1.at } }
             historyEnd = end
             let horizon = clock().addingTimeInterval(-Self.logSpan)
-            historyReadings.removeAll { $0.at < horizon }
+            let keep = historyIndex(historyReadings, firstAtOrAfter: horizon)
+            if keep > 0 { historyReadings.removeFirst(keep) }
         }
-        return historyReadings.filter { $0.at >= since && $0.at <= clock() }
+        let low = historyIndex(historyReadings, firstAtOrAfter: since)
+        let high = historyIndex(historyReadings, firstAfter: clock())
+        return low < high ? Array(historyReadings[low..<high]) : []
+    }
+
+    /// Index of the first reading at or after `date` (binary search over readings in time order).
+    private func historyIndex(_ readings: [ExactReading], firstAtOrAfter date: Date) -> Int {
+        var low = 0, high = readings.count
+        while low < high {
+            let mid = (low + high) / 2
+            if readings[mid].at < date { low = mid + 1 } else { high = mid }
+        }
+        return low
+    }
+
+    /// Index of the first reading after `date`.
+    private func historyIndex(_ readings: [ExactReading], firstAfter date: Date) -> Int {
+        var low = 0, high = readings.count
+        while low < high {
+            let mid = (low + high) / 2
+            if readings[mid].at <= date { low = mid + 1 } else { high = mid }
+        }
+        return low
     }
 
     /// Per-model weekly buckets are only known from exact readings; shown as of then.
@@ -1063,6 +1122,20 @@ final class Meter: ObservableObject {
         }
         let known = latestExact.keys.map { Date(timeIntervalSince1970: Double($0) * 60) }.sorted()
         let knownStarts = known.map { $0.addingTimeInterval(-Self.fiveHours) }
+        // Each known window's span: its 5 hours, except that where the next one began before this one
+        // was due, Anthropic ended this one early, at the last time it was measured, and the next
+        // is counted from there. (A window opens at or after the last one's reset, so overlap is this.)
+        var spans: [(reset: Date, start: Date, end: Date)] = []
+        for reset in known {
+            var start = reset.addingTimeInterval(-Self.fiveHours)
+            if var previous = spans.last, start < previous.end.addingTimeInterval(-900) {
+                let seen = latestExact[key(previous.reset)]?.at ?? previous.start
+                previous.end = min(previous.end, max(previous.start, seen))
+                spans[spans.count - 1] = previous
+                start = max(start, previous.end)
+            }
+            spans.append((reset, start, reset))
+        }
 
         if let cap = store.state.calibration.cap5h {
             // How high a window got: its last exact reading plus what was logged after it, as
@@ -1086,16 +1159,11 @@ final class Meter: ObservableObject {
                 var start = max(Self.windowOpening(turns[i].at), anchor)
                 var end = start.addingTimeInterval(Self.fiveHours)
                 var reset = end
-                if let pinned = known.first(where: { $0.addingTimeInterval(-Self.fiveHours) <= start && start < $0 }) {
+                if let span = spans.first(where: { $0.start <= start && start < $0.end }) {
                     // Never reach back into the window before; its spend is already counted.
-                    start = max(pinned.addingTimeInterval(-Self.fiveHours), anchor)
-                    end = pinned
-                    reset = pinned
-                    // Another window began inside this one, so Anthropic ended this one early: at the
-                    // last time it was measured, the next being counted from there.
-                    if knownStarts.contains(where: { $0 > start && $0 < pinned }), let e = latestExact[key(pinned)] {
-                        end = min(pinned, max(start, e.at))
-                    }
+                    start = max(span.start, anchor)
+                    end = span.end
+                    reset = span.reset
                 } else if let next = knownStarts.first(where: { $0 > start && $0 < end }) {
                     end = next // a known window starts inside this one, so this one ended by then
                     reset = next
@@ -1110,7 +1178,7 @@ final class Meter: ObservableObject {
             // A window with a reading but nothing logged here (all chat, say) still happened.
             for end in known where end > since && !drawn.contains(where: { Window.same($0, end) }) {
                 // Not back over a window already drawn, one an early reset ended inside this one's span.
-                var start = end.addingTimeInterval(-Self.fiveHours)
+                var start = spans.first { $0.reset == end }?.start ?? end.addingTimeInterval(-Self.fiveHours)
                 if let before = h.windows.map(\.end).filter({ $0 <= end }).max(), before > start { start = before }
                 let (height, _) = peak(start, end, reset: end)
                 h.windows.append(HistoryWindow(start: start, end: end, peak: height, exact: true, open: end > now))

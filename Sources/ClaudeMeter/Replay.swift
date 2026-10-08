@@ -124,7 +124,7 @@ extension Meter {
                 if let held = heldWindow[name] {
                     if w.resetsAt < held.resetsAt.addingTimeInterval(-900) { continue }
                     if Window.same(held.resetsAt, w.resetsAt) {
-                        if w.pct < held.pct - 0.5 { shown.append((r.at, name)) }
+                        if w.pct < held.pct - Meter.restartDrop { shown.append((r.at, name)) }
                     } else if w.resetsAt.addingTimeInterval(-span) < held.resetsAt.addingTimeInterval(-60) {
                         shown.append((r.at, name)) // a later window that began before the held one was due
                     }
@@ -335,6 +335,13 @@ extension Meter {
         }
         // A drawn window holds only readings of its own 5 hours: one that has another window's
         // readings inside it (an early reset it wasn't cut at) is drawn too long.
+        // One exact-backed window for each group of readings, no more: the early reset's window is its
+        // own, not pinned to the one it cut short (which would draw a third, and count a cap twice).
+        let groupsDrawn = groups.filter { $0.reset > drawnSince.addingTimeInterval(6 * 3600) }.count
+        let exactDrawn = h.windows.filter { $0.exact && $0.end > drawnSince.addingTimeInterval(6 * 3600) }.count
+        if exactDrawn != groupsDrawn {
+            report.failures.append("History draws \(exactDrawn) windows backed by readings; the readings are of \(groupsDrawn)")
+        }
         var strangers = 0
         for x in h.windows {
             for r in readings {

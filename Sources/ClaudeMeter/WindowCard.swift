@@ -34,6 +34,7 @@ struct WindowCard: View {
                           projectedColor: w.projectionWarn && w.level == .normal ? .orange : color)
                     // The chart carries its own air above its plot; the bar gets it here.
                     .padding(.top, 2)
+                    .accessibilityHidden(w.idle) // the title row already says it is idle
             }
 
             if w.idle || w.resetsAt != nil || status != nil { resetLine }
@@ -66,7 +67,7 @@ struct WindowCard: View {
         .padding(.bottom, 1)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(w.title)
-        .accessibilityValue(WindowHero.spoken(pct: w.pct, exact: w.exact))
+        .accessibilityValue(WindowHero.spoken(pct: w.pct, exact: w.exact, idle: w.idle))
     }
 
     /// When it resets with a secondary countdown, or the idle note; the status chip at the end.
@@ -129,8 +130,9 @@ private struct WindowHero: View {
     /// The same rounding as everywhere else, minus the `%` that gets its own, smaller, type.
     private var digits: String { String(Fmt.pct(pct).dropLast()) }
 
-    static func spoken(pct: Double, exact: Bool) -> String {
-        (exact ? "" : "about ") + "\(Fmt.pct(pct).dropLast()) percent"
+    static func spoken(pct: Double, exact: Bool, idle: Bool) -> String {
+        if idle { return "idle, no window open" } // the screen says so; "about 0 percent" would not
+        return (exact ? "" : "about ") + "\(Fmt.pct(pct).dropLast()) percent"
     }
 
     var body: some View {

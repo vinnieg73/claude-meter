@@ -73,7 +73,8 @@ private struct PopoverHeader: View {
     }
 
     private var ringLabel: String {
-        "5-hour window, \(s.fiveHour?.exact == false ? "about " : "")\(Fmt.pct(s.menuPct)) used"
+        if s.fiveHour?.idle == true { return "5-hour window, idle, no window open" }
+        return "5-hour window, \(s.fiveHour?.exact == false ? "about " : "")\(Fmt.pct(s.menuPct)) used"
     }
 }
 

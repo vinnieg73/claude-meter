@@ -14,7 +14,7 @@ for f in live calm warn critical idle empty loading trouble week long; do
     args=(--render "$OUT/popover-$f-$look.png")
     [[ $f == live ]] || args+=(--fixture "$f")
     [[ $look == dark ]] && args+=(--dark)
-    "$BIN" "${args[@]}" >/dev/null
+    "$BIN" "${args[@]}" >/dev/null || { echo "render failed: ${args[*]}"; exit 1; }
   done
 done
 for f in live fits uncalibrated; do
@@ -22,8 +22,8 @@ for f in live fits uncalibrated; do
     args=(--render "$OUT/history-$f-$look.png" --history)
     [[ $f == live ]] || args+=(--fixture "$f")
     [[ $look == dark ]] && args+=(--dark)
-    "$BIN" "${args[@]}" >/dev/null
+    "$BIN" "${args[@]}" >/dev/null || { echo "render failed: ${args[*]}"; exit 1; }
   done
 done
-"$BIN" --render "$OUT/icons.png" --icons >/dev/null
+"$BIN" --render "$OUT/icons.png" --icons >/dev/null || { echo "render failed: icons"; exit 1; }
 echo "rendered to $OUT"

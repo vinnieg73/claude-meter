@@ -37,7 +37,7 @@ if [[ "${1:-}" == "--install" ]]; then
   # after it appears) and picks between them. Installed, it has no further use. Then have macOS
   # re-read the installed one.
   LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
-  "$LSREGISTER" -u "$APP" 2>/dev/null || true
+  "$LSREGISTER" -u "$PWD/$APP" 2>/dev/null || true
   rm -rf "$APP"
   "$LSREGISTER" -f "$HOME/Applications/ClaudeMeter.app" || true
   # Restarted (it relaunches by itself), Notification Center looks the icon up again.

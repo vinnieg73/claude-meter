@@ -200,7 +200,7 @@ enum Fixtures {
     }
 
     private static var idle: Popover {
-        var s = base(.normal, title: "Idle", pct: 0)
+        var s = base(.normal, title: "~0%", pct: 0) // an estimated 0%: no window is open
         s.fiveHour = WindowView(title: "5-hour window", pct: 0, exact: false, asOf: now.addingTimeInterval(-6 * 3600),
                                 idle: true)
         s.weekly = weekly(22, left: 5.1 * 86400, exact: true, landing: 51, projection: "7-day pace: ~51% at reset",
@@ -227,7 +227,7 @@ enum Fixtures {
     }
 
     private static var trouble: Popover {
-        var s = base(.normal, title: "~55%", pct: 0)
+        var s = base(.normal, title: "$17.80 today", pct: 0) // no 5-hour card, so the day's spend
         s.calibrated = false
         s.tapSeen = nil
         s.probeStatus = "Probe failed: Claude Code is signed out (run claude, then /login) · retry \(Fmt.when(Date().addingTimeInterval(30 * 60)))"

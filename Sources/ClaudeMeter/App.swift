@@ -24,15 +24,15 @@ enum Main {
         }
         if let i = args.firstIndex(of: "--render") {
             guard i + 1 < args.count, !args[i + 1].hasPrefix("--") else { return print(usage) }
-            if args.contains("--icons") { return MenuBar.renderIcons(to: args[i + 1]) }
+            if args.contains("--icons") { exit(MenuBar.renderIcons(to: args[i + 1]) ? 0 : 1) }
             var fixture: String?
             if let f = args.firstIndex(of: "--fixture") {
                 guard f + 1 < args.count, !args[f + 1].hasPrefix("--") else { return print(usage) }
                 fixture = args[f + 1]
             }
-            Preview.render(to: args[i + 1], dark: args.contains("--dark"), history: args.contains("--history"),
-                           fixture: fixture)
-            return
+            // A picture that wasn't drawn or written is a failure: scripts go by the exit code.
+            exit(Preview.render(to: args[i + 1], dark: args.contains("--dark"), history: args.contains("--history"),
+                                fixture: fixture) ? 0 : 1)
         }
         if args.contains("--status") { return Status.print() }
         if args.contains("--replay") { exit(Replay.run()) }
@@ -122,7 +122,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
     private func showMenu() {
         popover.performClose(nil)
+        meter.refreshLaunchAtLogin()
         let menu = NSMenu()
+        // The version heads the menu as a label, not an item that happens to be greyed out.
+        menu.addItem(.sectionHeader(title: "Claude Meter \(Meter.version)"))
         // The symbols are all 14 to 17pt wide. The image column is as wide as the widest one, so a
         // wide glyph (a laptop is 22pt) would push every title along.
         menu.addItem(menuItem("Sync now", "arrow.clockwise", #selector(syncNow)))
@@ -134,8 +137,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         menu.addItem(menuItem("Send test notification", "bell.badge", #selector(testNotification)))
         menu.addItem(menuItem("Shortcut ⌃⌥⌘U", "command", #selector(toggleHotkey), on: meter.hotkeyOn))
         menu.addItem(.separator())
-        // The version is a label, not an item that happens to be greyed out.
-        menu.addItem(.sectionHeader(title: "Claude Meter \(Meter.version)"))
         // No target: the quit action goes down the responder chain to the application.
         let quit = NSMenuItem(title: "Quit Claude Meter", action: #selector(NSApplication.terminate(_:)),
                               keyEquivalent: "q")

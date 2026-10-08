@@ -19,9 +19,11 @@ The ring fills to the exact 5-hour %.
   plus a **budget**: what's left per day to last to the reset, against what you average.
   A log-based average isn't used because the logs price each model differently, and a model
   change inside the span (Opus 5 to 5.5, Sep 22) skews it.
-- **Accuracy**: every exact reading is compared with what the meter was estimating at that
-  moment (`checks` in `state.json`); the dropdown shows the typical error. Exact readings from
-  the desktop app are whole percents, so ±0.5 is the floor.
+- **Accuracy**: an exact reading is compared with what the meter would have shown for that
+  moment knowing only a reading 15 to 60 minutes older (the estimate you'd see if readings
+  stalled), at most one check per window per 15 minutes (`checks` in `state.json`); the dropdown
+  shows the typical error. Readings come about once a minute while you work, so comparing with the
+  previous one would measure almost nothing. Whole percents make ±0.5 the floor.
 - **Burning now**: each session that spent in the last 15 minutes, by title, with $/hr and
   points of the 5-hour window per hour. Titles come from the transcripts' `custom-title` /
   `agent-name` lines.
@@ -51,7 +53,7 @@ login, weekly % in the title, notifications, the shortcut.
 ## Where the numbers come from
 
 Anthropic's limits are exact only on Anthropic's side. The meter takes an **exact reading**
-within a minute of any new activity and fills the time between from the **local logs**:
+about once a minute while you work and fills the time between from the **local logs**:
 
 | Source | What | When |
 |---|---|---|
@@ -71,10 +73,15 @@ What the estimate cannot see: claude.ai chat, the phone, other machines. Those a
 at the next exact reading, and they push the cap estimate low, so the meter errs high.
 
 **Early resets.** Anthropic sometimes resets a window's usage before its reset time (Oct 7: the
-weekly went from 87% to 0 mid-week, same Wednesday reset). A probe reporting a lower % for the same
-window is taken as that: the window counts from then, it isn't used to calibrate until it resets on
-time, its 80%/95% alerts can go out again, and History's week drops to 0 there. From the statusline
-a lower % is still an old number re-sent.
+weekly went from 87% to 0 mid-week, same Wednesday reset; the 5-hour window moved to a new one
+that began before the old one was due). A probe reporting a drop of 3+ points for the same window,
+or a 5-hour window that began before the held one was due, is taken as that: the window counts
+from the last time the old one was measured (`restartedAt`), its 80%/95% alerts can go out again,
+"This week" and the weekly pace count from there, and History's week drops to 0 and cuts the old
+window short. It calibrates from there too, unless the reset was noticed more than 30 minutes
+after the last measurement (nothing was measuring, so the moment is unknown). A smaller drop from
+a probe, and any lower or unchanged % from the statusline, is an old number re-sent; once a window
+has been reset early the statusline is ignored for it, since it may redraw numbers from before.
 
 ## Build
 
@@ -88,7 +95,8 @@ it in about a second instead of scanning every transcript; delete it to force a 
 `ClaudeMeter --render out.png [--dark] [--history]` draws the popover (or History) offscreen and
 prints the menu bar title, for checking the UI without screen-recording access. `--fixture <name>`
 draws a made-up state instead of the live one (`Fixtures.swift`), and `scripts/render-all.sh <dir>`
-renders every state, light and dark, plus History and the menu bar ring.
+renders every state, light and dark, plus History and the menu bar ring. A render that couldn't be
+drawn or written exits non-zero.
 
 `~/Applications/ClaudeMeter.app/Contents/MacOS/ClaudeMeter --status` prints how the app is
 set up (open at login, notification permission, CLI found) and what it last knew (last exact
@@ -105,7 +113,9 @@ writes a 1024px PNG and a contact sheet of every size there).
 
 Builds the working tree and steps the real meter code through this Mac's history log and
 transcripts with a moving clock, from a blank state (calibration learned along the way). Reads,
-never writes; exits non-zero on a failure. It checks:
+never writes (the store is read-only, so not even a harness can add to the history log), apart
+from starting your login shell once to find `CLAUDE_CONFIG_DIR` when it isn't set; exits non-zero
+on a failure. It checks:
 
 1. **Window openings**: after each reset, the estimate of the next window's reset, made from what
    was known at the reset, matches the real one within a minute. A transcript line is written when
@@ -113,15 +123,32 @@ never writes; exits non-zero on a failure. It checks:
    the slot before; there either slot passes (the probe a minute later reads the real reset).
 2. **Probe gate**: between a reset and the next message a probe would not run (it would open a
    window); right after that message it would.
-3. **Alerts**: none goes out twice for the same window (alerts go to a recorder, not macOS).
-4. **Accuracy**: estimates made just before each exact reading, typically within ±1.5 points
-   (5-hour) and ±1.0 (weekly).
+3. **Alerts**: none goes out twice for the same window unless Anthropic reset it early in between,
+   and every threshold, cap warning and runaway the dropdown called for was sent (alerts go to a
+   recorder, not macOS).
+4. **Accuracy**: estimates 15 to 60 minutes after a reading, typically within ±1.5 points
+   (5-hour) and ±1.0 (weekly), and growing as much as the readings say (1.00 ± 0.12, which
+   catches a wrong cap that the typical error is too coarse to see).
+5. **Consistency**: the early resets the meter recorded are the ones the readings show; the
+   "This week" shares never add up to more than the weekly card; History's windows don't overlap,
+   don't hold another window's readings, there is one window for each group of readings (an early
+   reset's is its own, not stuck on the one it cut short), and an uncapped one doesn't peak above
+   its readings.
+
+It also fails when it ran too little to mean anything (fewer than 8 openings, 15 gate points or
+30 accuracy checks).
 
 Each reading is replayed with only the windows it measured: the history log also keeps windows
 carried over from earlier readings (past the 5-hour cap the probe stopped reporting the weekly), and
 those aren't new measurements. Checks 1 and 2 judge from the state at the reset, so readings the pre-0.8 probe took seconds
-after a reset (which opened those windows itself) don't count against today's code. Each check
-was confirmed to fail when the fix it guards is removed.
+after a reset (which opened those windows itself) don't count against today's code. Openings that
+an early reset moved, or that were opened away from this Mac, are skipped. Each check was
+confirmed to fail when the fix it guards is removed.
+
+What it doesn't cover: `sync()` (the once-a-minute cadence, the retry backoff, stamping at launch
+and the rule that a rejected answer isn't asked for again while idle), the statusline tap, and
+early resets beyond the ones in the data (it can only replay what the history log holds, and the
+log keeps five weeks).
 
 ## Uninstall
 
@@ -153,7 +180,11 @@ About $0.001 of usage per run, so at most ~$0.06/hr while you work (about 0.03 p
   off the subscription onto API billing.
 - It needs the Claude Code CLI signed in to the subscription (`claude` → `/login` → Claude
   account). The meter never reads the token; Claude Code refreshes it itself. If the CLI is
-  signed out, the footer says so and the probe retries every 30 minutes.
+  signed out (or missing), the footer says so and the probe retries every 30 minutes; any other
+  failure (offline, a slow machine) retries after a minute, doubling up to 30 minutes.
+- Each reading is stamped when its probe starts, not when it answers, and a probe is called for
+  only by activity logged after the last one started, so a turn logged while it ran is not lost
+  and an answer that was turned away is not asked for again while you're idle.
 
 ## Statusline tap
 
@@ -161,8 +192,9 @@ About $0.001 of usage per run, so at most ~$0.06/hr while you work (about 0.03 p
 exact `rate_limits` block (only when it changes). The statusline redraws without new API calls
 and stamps the time it drew, so from it only a higher % than the meter already has counts as a
 new reading, and a window it leaves out (it drops one the moment it resets) is kept as the reset
-to walk on from. It prints `Opus 5.5 · 5h 23% · 7d 28% · ctx 21%`, the limits in yellow from 70%
-and red from 90% (plain when `NO_COLOR` is set). Registered in
+to walk on from. It prints `Opus 5.5 · 5h 23% · 7d 28% · ctx 21%`, each percentage (the limits
+and the context) in yellow from 70% and red from 90%, plain when `NO_COLOR` is set and not empty
+(no-color.org). Registered in
 `~/.claude/settings.json`:
 
 ```json
@@ -181,8 +213,8 @@ Write `~/Library/Application Support/ClaudeMeter/tap.json` (epoch seconds):
 
 State (last exact reading, calibration, notifications sent) is in `state.json` next to it. A
 state file this version can't read is kept as `state.unreadable-<time>.json`, never overwritten.
-`history.jsonl` keeps five weeks. A reading dated in the future is ignored, and `at` may be in
-seconds or milliseconds.
+`history.jsonl` keeps five weeks, a line per reading (about one a minute while you work, a few MB
+at the most). A reading dated in the future is ignored, and `at` may be in seconds or milliseconds.
 
 ## Notifications
 

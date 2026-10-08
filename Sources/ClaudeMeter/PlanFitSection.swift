@@ -38,7 +38,9 @@ struct PlanFitSection: View {
     /// What happened on the current plan, and the smallest plan that would have covered it.
     private var verdict: Verdict? {
         guard let current = h.plans.first(where: \.current) else { return nil }
-        let tone: Verdict.Tone = !judged ? .neutral : current.fits ? .fits : .trouble
+        // Nothing measured, so every plan "covers" an empty week: say nothing of the sort.
+        if !judged { return Verdict(text: "Nothing is measured yet, so no plan can be judged.", tone: .neutral) }
+        let tone: Verdict.Tone = current.fits ? .fits : .trouble
         if current.fits {
             let smaller = h.plans.filter { $0.plan.multiplier < current.plan.multiplier && $0.fits }
                 .max { $0.plan.multiplier < $1.plan.multiplier }

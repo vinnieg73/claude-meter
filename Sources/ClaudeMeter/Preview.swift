@@ -7,7 +7,9 @@ import SwiftUI
 /// timers, notifications, or network.
 @MainActor
 enum Preview {
-    static func render(to path: String, dark: Bool, history: Bool = false, fixture name: String? = nil) {
+    /// False if there was nothing to draw, or the picture could not be written.
+    @discardableResult
+    static func render(to path: String, dark: Bool, history: Bool = false, fixture name: String? = nil) -> Bool {
         _ = NSApplication.shared
         let meter = Meter()
         let content: AnyView
@@ -15,12 +17,14 @@ enum Preview {
             // A made-up state: no logs read.
             if history {
                 guard let h = Fixtures.history(name) else {
-                    return print("unknown History fixture \(name); one of: \(Fixtures.history.joined(separator: ", "))")
+                    print("unknown History fixture \(name); one of: \(Fixtures.history.joined(separator: ", "))")
+                    return false
                 }
                 content = AnyView(HistoryView(meter: meter, fixture: h))
             } else {
                 guard let f = Fixtures.popover(name) else {
-                    return print("unknown fixture \(name); one of: \(Fixtures.popover.joined(separator: ", "))")
+                    print("unknown fixture \(name); one of: \(Fixtures.popover.joined(separator: ", "))")
+                    return false
                 }
                 // The argument domain is never saved, so the real setting is left alone.
                 UserDefaults.standard.setVolatileDomain(["weekScope": f.weekScope], forName: UserDefaults.argumentDomain)
@@ -42,9 +46,22 @@ enum Preview {
         window.setContentSize(host.fittingSize)
         RunLoop.main.run(until: Date().addingTimeInterval(0.5)) // let SwiftUI lay out and draw
 
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+            print("could not draw the view")
+            return false
+        }
         host.cacheDisplay(in: host.bounds, to: rep)
-        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        guard let png = rep.representation(using: .png, properties: [:]) else {
+            print("could not encode the picture")
+            return false
+        }
+        do {
+            try png.write(to: URL(fileURLWithPath: path))
+        } catch {
+            print("could not write \(path): \(error.localizedDescription)")
+            return false
+        }
         print("wrote \(path)")
+        return true
     }
 }

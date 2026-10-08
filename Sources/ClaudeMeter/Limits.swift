@@ -131,12 +131,64 @@ enum JSONCoding {
         d.dateDecodingStrategy = .custom { decoder in
             let c = try decoder.singleValueContainer()
             let s = try c.decode(String.self)
-            guard let date = frac.date(from: s) ?? whole.date(from: s) else {
+            guard let date = parseDate(s) else {
                 throw DecodingError.dataCorruptedError(in: c, debugDescription: "not an ISO 8601 date: \(s)")
             }
             return date
         }
         return d
+    }
+
+    static func parseDate(_ s: String) -> Date? {
+        fastDate(s) ?? frac.date(from: s) ?? whole.date(from: s)
+    }
+
+    /// "2026-10-07T04:28:09.123Z" (the fraction optional), the one form this app writes. By hand
+    /// because the formatter takes ~50 us a date, a row of the history log has five, and a month
+    /// of readings is tens of thousands of rows. Anything else (an offset, a malformed date)
+    /// returns nil and goes to the formatters.
+    static func fastDate(_ s: String) -> Date? {
+        var s = s
+        return s.withUTF8 { u -> Date? in
+            guard u.count >= 20, u[4] == 45, u[7] == 45, u[10] == 84, u[13] == 58, u[16] == 58 else { return nil }
+            func digits(_ at: Int, _ n: Int) -> Int? {
+                var v = 0
+                for i in at..<(at + n) {
+                    let d = Int(u[i]) - 48
+                    guard (0...9).contains(d) else { return nil }
+                    v = v * 10 + d
+                }
+                return v
+            }
+            guard let year = digits(0, 4), let month = digits(5, 2), let day = digits(8, 2),
+                  let hour = digits(11, 2), let minute = digits(14, 2), let second = digits(17, 2),
+                  (1...12).contains(month), hour < 24, minute < 60, second < 60 else { return nil }
+            var i = 19
+            var millis = 0
+            if u[i] == 46 {
+                i += 1
+                var places = 0
+                while i < u.count, u[i] >= 48, u[i] <= 57 {
+                    if places < 3 { millis = millis * 10 + Int(u[i]) - 48; places += 1 }
+                    i += 1
+                }
+                guard places > 0 else { return nil }
+                while places < 3 { millis *= 10; places += 1 }
+            }
+            guard i == u.count - 1, u[i] == 90 else { return nil }
+            let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+            let lengths = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+            guard (1...lengths[month - 1]).contains(day) else { return nil }
+            // Days since 1970-01-01 (Howard Hinnant's days_from_civil).
+            let y = month <= 2 ? year - 1 : year
+            let era = (y >= 0 ? y : y - 399) / 400
+            let yoe = y - era * 400
+            let doy = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1
+            let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+            let days = era * 146097 + doe - 719468
+            let whole = days * 86400 + hour * 3600 + minute * 60 + second
+            return Date(timeIntervalSince1970: Double(whole) + Double(millis) / 1000)
+        }
     }
 }
 
