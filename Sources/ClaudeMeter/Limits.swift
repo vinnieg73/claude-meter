@@ -11,6 +11,9 @@ struct Window: Codable {
     /// went from 87% to 0 with the same Wednesday reset), as near as the readings can tell: the last
     /// higher measurement. From then its % no longer counts from the window's start.
     var restartedAt: Date?
+    /// The reset wasn't noticed until long after (nothing was measuring in between), so
+    /// `restartedAt` is when it was seen, not when it happened, and the window can't teach a cap.
+    var restartedLate: Bool?
 
     /// Sources disagree by seconds on the same reset (18:59:59.5 vs 19:00:00), and an estimated
     /// window by a few minutes, so two resets this close are the same window.
@@ -22,7 +25,7 @@ struct Window: Codable {
     /// The reset on the minute it means.
     var normalized: Window {
         Window(pct: pct, resetsAt: Date(timeIntervalSince1970: (resetsAt.timeIntervalSince1970 / 60).rounded() * 60),
-               at: at, restartedAt: restartedAt)
+               at: at, restartedAt: restartedAt, restartedLate: restartedLate)
     }
 }
 
@@ -73,6 +76,8 @@ struct Check: Codable {
     var estimated: Double
     var exact: Double
     var minutesSinceExact: Double
+    /// The reading the estimate was made from (a state file from before this has none).
+    var anchor: Double?
 }
 
 /// Every field optional on the way in, so a state file from an older or newer version still
@@ -175,8 +180,8 @@ final class StateStore {
     }
 
     /// Notification keys carry the window's reset epoch; old windows can go.
-    func pruneNotified() {
-        let cutoff = Date().addingTimeInterval(-8 * 86400).timeIntervalSince1970
+    func pruneNotified(now: Date = Date()) {
+        let cutoff = now.addingTimeInterval(-8 * 86400).timeIntervalSince1970
         state.notified.removeAll { key in
             let parts = key.split(separator: "|")
             return parts.count > 1 && (Double(parts[1]) ?? 0) < cutoff

@@ -9,6 +9,8 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     private let thresholds: [Double] = [80, 95]
     private var currentReset: Date?
     private var peak = 0.0
+    /// The restart the peak was last set for: Anthropic resetting a window's usage early starts it again.
+    private var restartSeen: Date?
     /// Whether macOS lets this app notify, refreshed once a minute. Nothing is posted, or
     /// counted as sent, until it does, so an alert due while the permission prompt is still
     /// up goes out once it's answered.
@@ -70,15 +72,21 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             }
             currentReset = resets
             peak = s.fiveHour?.pct ?? 0
+            restartSeen = s.fiveHour?.restartedAt
         } else if let f = s.fiveHour {
-            peak = max(peak, f.pct)
+            if f.restartedAt != restartSeen {
+                restartSeen = f.restartedAt
+                peak = f.pct // used up again from here: not a hot window for the reset alert
+            } else {
+                peak = max(peak, f.pct)
+            }
         }
         guard send else { return }
 
         for w in [s.fiveHour, s.weekly].compactMap({ $0 }) where !w.idle {
             guard let resets = w.resetsAt else { continue }
             for t in thresholds where w.pct >= t {
-                once(w.title, resets, "\(Int(t))",
+                once(w.title, resets, "\(Int(t))", now: now,
                      title: "Claude \(w.title.lowercased()) at \(Fmt.pct(w.pct))",
                      body: "Resets \(Fmt.when(resets)), in \(Fmt.duration(resets.timeIntervalSince(now))).")
             }
@@ -88,7 +96,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         if let f = s.fiveHour, let capAt = f.capAt, s.capWarning != nil, let resets = f.resetsAt {
             let lead = capAt.timeIntervalSince(now)
             if lead > 0, lead <= 1800 {
-                once("pace", resets, "0",
+                once("pace", resets, "0", now: now,
                      title: "Claude 5-hour cap in ~\(Fmt.duration(lead))",
                      body: "At this pace you hit it at \(Fmt.when(capAt)). The window resets \(Fmt.when(resets)).")
             }
@@ -97,7 +105,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         // A session eating the window fast enough to look like a loop: once per session per window.
         if let resets = s.fiveHour?.resetsAt {
             for r in s.runaways {
-                once("runaway:\(r.id)", resets, "0",
+                once("runaway:\(r.id)", resets, "0", now: now,
                      title: "\(r.name) is burning fast",
                      body: "It used \(Fmt.pct(r.pct)) of your 5-hour window in the last 30 minutes.")
             }
@@ -107,7 +115,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     /// Sends an alert unless it already went out for this window (allowing for the seconds to
     /// minutes a window's reset time varies by between readings), and records it as sent only
     /// once macOS has taken it.
-    private func once(_ kind: String, _ resets: Date, _ detail: String, title: String, body: String) {
+    private func once(_ kind: String, _ resets: Date, _ detail: String, now: Date, title: String, body: String) {
         let key = "\(kind)|\(Int(resets.timeIntervalSince1970))|\(detail)"
         let sent = store.state.notified.contains { stored in
             let parts = stored.split(separator: "|")
@@ -120,7 +128,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             guard let self else { return }
             self.pending.remove(key)
             guard ok else { return }
-            self.store.pruneNotified() // the app runs for weeks; keys for old windows go as new ones come
+            self.store.pruneNotified(now: now) // the app runs for weeks; keys for old windows go as new ones come
             self.store.state.notified.append(key)
             self.store.save()
         }

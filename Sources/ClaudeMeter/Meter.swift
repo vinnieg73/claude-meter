@@ -37,6 +37,8 @@ struct WindowView {
     var averageRunsOut: Date?
     var budget: String?
     var budgetWarn = false
+    /// Set when Anthropic reset this window's usage before its time: it counts from then.
+    var restartedAt: Date?
 
     var level: Level { pct >= 90 ? .critical : pct >= 70 ? .warn : .normal }
 }
@@ -149,6 +151,8 @@ final class Meter: ObservableObject {
     private let queue = DispatchQueue(label: "claude-meter.logs", qos: .utility)
     /// What time it is. Only the replay test sets it, to step the meter through the past.
     var clock: () -> Date = Date.init
+    /// Where the logs start (`LogIndex.coveredFrom`).
+    var coveredFrom = Date.distantPast
     // Internal rather than private where the replay test (Replay.swift) drives the meter.
     let store = StateStore()
     private lazy var notifier = Notifier(store: store)
@@ -286,9 +290,11 @@ final class Meter: ObservableObject {
             let turns: [Turn]? = changed || firstScan ? index.turns : nil
             let active = index.activeSessions
             let names = index.sessionNames
+            let covered = index.coveredFrom
             Task { @MainActor in
                 guard let self else { return }
                 self.scanning = false
+                self.coveredFrom = covered
                 if let turns { self.turns = turns }
                 self.active = active
                 self.names = names
@@ -307,6 +313,7 @@ final class Meter: ObservableObject {
 
     private func take(from index: LogIndex) {
         turns = index.turns
+        coveredFrom = index.coveredFrom
         active = index.activeSessions
         names = index.sessionNames
     }
@@ -424,9 +431,11 @@ final class Meter: ObservableObject {
             func dated(_ w: Window?) -> Window? { w.map { var d = $0; d.at = d.at ?? last.at; return d } }
             var isFresh = false
             let measuredNow = reading.source != "tap"
-            (reading.fiveHour, isFresh) = pick(reading.fiveHour, over: dated(last.fiveHour), measuredNow: measuredNow)
+            (reading.fiveHour, isFresh) = pick(reading.fiveHour, over: dated(last.fiveHour), span: Self.fiveHours,
+                                               measuredNow: measuredNow)
             if isFresh { fresh.insert("5h") }
-            (reading.weekly, isFresh) = pick(reading.weekly, over: dated(last.weekly), measuredNow: measuredNow)
+            (reading.weekly, isFresh) = pick(reading.weekly, over: dated(last.weekly), span: Self.week,
+                                             measuredNow: measuredNow)
             if isFresh { fresh.insert("week") }
             // A window Anthropic just reset early: the estimate before it couldn't have known (so it
             // isn't scored), and the window's 80% and 95% alerts can go out again.
@@ -449,7 +458,9 @@ final class Meter: ObservableObject {
 
         recordAccuracy(reading, fresh: fresh.subtracting(restarted))
         calibrate(from: reading, fresh: fresh)
-        if !quiet { HistoryLog.append(reading) }
+        // The history log is a file in the real support folder, so a read-only store (the replay,
+        // a test harness) never adds to it, whatever else it does.
+        if !quiet, !store.readOnly { HistoryLog.append(reading) }
         store.state.lastExact = reading
         store.save()
         recompute()
@@ -466,7 +477,7 @@ final class Meter: ObservableObject {
     /// The newer of two measurements of a window, and whether it's the new one. A window the
     /// new reading lacks carries over while it hasn't reset. `measuredNow`: the number was
     /// measured at the reading's time (a probe, a drop-in), not carried by the statusline.
-    private func pick(_ new: Window?, over old: Window?, measuredNow: Bool) -> (Window?, Bool) {
+    private func pick(_ new: Window?, over old: Window?, span: TimeInterval, measuredNow: Bool) -> (Window?, Bool) {
         // A window the new reading lacks is kept, reset or not: still running, or the last known
         // reset to walk on from. (The statusline drops a window the moment it resets.)
         guard var new else { return (old, false) }
@@ -480,10 +491,33 @@ final class Meter: ObservableObject {
                 // Measured now, a lower number is Anthropic resetting the window's usage before
                 // its time; it happened after the last higher measurement. Otherwise the window
                 // keeps any such reset it had.
-                new.restartedAt = new.pct < old.pct - 0.5 ? old.at : old.restartedAt
+                if new.pct < old.pct - 0.5 {
+                    Self.markRestart(&new, after: old)
+                } else {
+                    new.restartedAt = old.restartedAt
+                    new.restartedLate = old.restartedLate
+                }
+            } else if measuredNow, new.resetsAt.addingTimeInterval(-span) < old.resetsAt.addingTimeInterval(-60) {
+                // A later window that began before the held one was due to reset (a window opens at
+                // or after the last one's reset): Anthropic ended that one early.
+                Self.markRestart(&new, after: old)
             }
         }
         return (new, true)
+    }
+
+    /// Notes that Anthropic reset a window early, as near as the readings can tell: right after the
+    /// last time the old one was measured. If that was long ago (nothing was measuring, so the reset
+    /// could be anywhere in the gap) it is when the new one was first seen, and marked late.
+    private static func markRestart(_ new: inout Window, after old: Window) {
+        let seen = new.at ?? old.at ?? .distantPast
+        if let last = old.at, seen.timeIntervalSince(last) <= 1800 {
+            new.restartedAt = last
+            new.restartedLate = nil
+        } else {
+            new.restartedAt = seen
+            new.restartedLate = true
+        }
     }
 
     /// Forgets that a window's alerts went out, so they can again: Anthropic reset its usage early.
@@ -495,28 +529,54 @@ final class Meter: ObservableObject {
         }
     }
 
-    /// Before a new reading replaces the old one, notes what the meter was estimating at
-    /// that moment. Readings a few minutes apart say little about the estimate (though near
-    /// the cap they come every five, and those count), and an estimate made before there was
-    /// a cap to make it with says nothing.
+    /// How the meter's estimate has held up: what it would have shown for this reading's moment
+    /// knowing only a reading 15 to 60 minutes older (the estimate as you see it when readings
+    /// stall), against what this reading says. Readings come about once a minute while you work, so
+    /// scoring against the previous one would measure almost nothing. At most one check per window
+    /// per 15 minutes, so the last twenty cover hours, not minutes. Not a window at the cap (it stops
+    /// climbing at 100%) nor one Anthropic reset early in between; and an estimate that had the wrong
+    /// window altogether is counted apart (`accuracyUnscored`), not dropped quietly.
+    private static let checkLag: ClosedRange<TimeInterval> = 900...3600
+    private static let checkEvery: TimeInterval = 900
+    /// How many checks are kept (the replay keeps all of its own).
+    var checkLimit = 200
+    /// Readings that had a check coming but whose estimate had the wrong window.
+    private(set) var accuracyUnscored = 0
+
     private func recordAccuracy(_ reading: ExactReading, fresh: Set<String>) {
-        guard loaded, let last = store.state.lastExact,
-              reading.at.timeIntervalSince(last.at) >= 240 else { return }
-        let minutes = reading.at.timeIntervalSince(last.at) / 60
+        guard loaded else { return }
         let cal = store.state.calibration
         var checks = store.state.checks ?? []
-        if fresh.contains("5h"), cal.cap5h != nil, let exact = reading.fiveHour,
-           let est = fiveHour(reading.at), !est.idle,
-           let resets = est.resetsAt, Window.same(resets, exact.resetsAt) {
-            checks.append(Check(at: reading.at, window: "5h", estimated: est.pct, exact: exact.pct,
-                                minutesSinceExact: minutes))
+        var history: [ExactReading]?
+        for (name, exactWindow, cap) in [("5h", reading.fiveHour, cal.cap5h), ("week", reading.weekly, cal.capWeek)] {
+            guard fresh.contains(name), cap != nil, let exact = exactWindow, exact.pct < 99 else { continue }
+            if let last = checks.last(where: { $0.window == name }),
+               reading.at.timeIntervalSince(last.at) < Self.checkEvery { continue }
+            let readings = history ?? exactHistory(since: reading.at.addingTimeInterval(-Self.checkLag.upperBound))
+            history = readings
+            guard let anchor = readings.last(where: {
+                      Self.checkLag.contains(reading.at.timeIntervalSince($0.at)) && Self.measured(by: $0).contains(name)
+                  }),
+                  let held = name == "5h" ? anchor.fiveHour : anchor.weekly, held.pct < 99 else { continue }
+            if let reset = exact.restartedAt, reset >= (held.at ?? anchor.at) { continue }
+            let shown = estimate(from: anchor, at: reading.at)
+            guard let est = name == "5h" ? shown.fiveHour : shown.weekly, !est.idle, let resets = est.resetsAt else { continue }
+            guard abs(resets.timeIntervalSince(exact.resetsAt)) < (name == "5h" ? 900 : 3600) else {
+                accuracyUnscored += 1
+                continue
+            }
+            checks.append(Check(at: reading.at, window: name, estimated: est.pct, exact: exact.pct,
+                                minutesSinceExact: reading.at.timeIntervalSince(anchor.at) / 60, anchor: held.pct))
         }
-        if fresh.contains("week"), cal.capWeek != nil, let exact = reading.weekly,
-           let est = weekly(reading.at), let resets = est.resetsAt, abs(resets.timeIntervalSince(exact.resetsAt)) < 3600 {
-            checks.append(Check(at: reading.at, window: "week", estimated: est.pct, exact: exact.pct,
-                                minutesSinceExact: minutes))
-        }
-        store.state.checks = Array(checks.suffix(200))
+        store.state.checks = Array(checks.suffix(checkLimit))
+    }
+
+    /// What the meter would show for `at` if `anchor` were the only reading it had.
+    private func estimate(from anchor: ExactReading, at: Date) -> (fiveHour: WindowView?, weekly: WindowView?) {
+        let held = store.state.lastExact
+        store.state.lastExact = anchor
+        defer { store.state.lastExact = held }
+        return (fiveHour(at), weekly(at))
     }
 
     private func setAccuracy(_ v: inout WindowView, window: String) {
@@ -525,7 +585,7 @@ final class Meter: ObservableObject {
         let errors = recent.map { $0.estimated - $0.exact }
         let typical = errors.map(abs).reduce(0, +) / Double(errors.count)
         let bias = errors.reduce(0, +) / Double(errors.count)
-        var text = String(format: "Estimates have been within ±%.1f pts", typical)
+        var text = String(format: "Estimates made 15 to 60 minutes after a reading have been within ±%.1f pts", typical)
         text += " over \(recent.count) check\(recent.count == 1 ? "" : "s")"
         if recent.count >= 3, abs(bias) >= 1 { text += bias > 0 ? ", usually high" : ", usually low" }
         v.accuracy = String(format: "±%.1f", typical)
@@ -540,15 +600,13 @@ final class Meter: ObservableObject {
         // unless the last update is in the future: the clock has been set back since.
         if let last = c.updatedAt, last <= clock().addingTimeInterval(60), r.at.timeIntervalSince(last) < 900 { return }
         var changed = false
-        // A window Anthropic reset early no longer counts from its start, so it implies no cap
-        // until it resets on time.
-        if fresh.contains("5h"), let w = r.fiveHour, w.restartedAt == nil,
+        if fresh.contains("5h"), let w = r.fiveHour,
            let cap = impliedCap(w, span: Self.fiveHours, at: w.at ?? r.at, minPct: 10, minSpend: 0.5) {
             c.cap5h = blend(c.basis5h == Self.costBasis ? c.cap5h : nil, cap, pct: w.pct)
             c.basis5h = Self.costBasis
             changed = true
         }
-        if fresh.contains("week"), let w = r.weekly, w.restartedAt == nil,
+        if fresh.contains("week"), let w = r.weekly,
            let cap = impliedCap(w, span: Self.week, at: w.at ?? r.at, minPct: 5, minSpend: 2) {
             c.capWeek = blend(c.basisWeek == Self.costBasis ? c.capWeek : nil, cap, pct: w.pct)
             c.basisWeek = Self.costBasis
@@ -562,14 +620,15 @@ final class Meter: ObservableObject {
     }
 
     /// The cap a measurement implies, when it can support one: taken within the last hour and
-    /// inside its own window, with the logs reaching back over the window's start, and a % high
-    /// enough that whole-percent rounding doesn't dominate it. Not at the cap: a reading held at
-    /// 100% while spend goes on (extra usage) would make the cap look bigger than it is.
+    /// inside its own window, with the logs reaching back over the window's start (where it began,
+    /// if Anthropic reset it early), and a % high enough that whole-percent rounding doesn't
+    /// dominate it. Not a window whose early reset was noticed late: the spend since is unknown. Not at the cap: a reading held at 100% while spend goes on (extra usage) would
+    /// make the cap look bigger than it is.
     private func impliedCap(_ w: Window, span: TimeInterval, at: Date, minPct: Double, minSpend: Double) -> Double? {
         let now = clock()
-        let start = w.resetsAt.addingTimeInterval(-span)
+        let start = max(w.resetsAt.addingTimeInterval(-span), w.restartedAt ?? .distantPast)
         guard w.pct >= minPct, w.pct < 99, now.timeIntervalSince(at) < 3600, at > start, at < w.resetsAt,
-              start > now.addingTimeInterval(-Self.logSpan + 3600) else { return nil }
+              start >= coveredFrom, w.restartedLate != true else { return nil }
         let spent = cost(from: start, to: at)
         return spent > minSpend ? spent / (w.pct / 100) : nil
     }
@@ -674,6 +733,7 @@ final class Meter: ObservableObject {
             let exact = cap != nil ? added < 0.5 : now.timeIntervalSince(measured) < 300
             v = WindowView(title: Self.fiveHourTitle, pct: w.pct + added, resetsAt: w.resetsAt,
                            exact: exact, asOf: measured)
+            v.restartedAt = w.restartedAt
         } else if let cap {
             // The window has lapsed; find the one open now, walking from the last known reset.
             guard let opened = openWindow(after: last?.fiveHour?.resetsAt ?? turns.first?.at ?? now, now: now) else {
@@ -709,6 +769,7 @@ final class Meter: ObservableObject {
             let exact = cap != nil ? added < 0.5 : now.timeIntervalSince(measured) < 300
             v = WindowView(title: Self.weeklyTitle, pct: w.pct + added, resetsAt: w.resetsAt,
                            exact: exact, asOf: measured)
+            v.restartedAt = w.restartedAt
         } else {
             // Weekly windows reset on a fixed schedule.
             guard let cap else { return nil }
@@ -731,7 +792,8 @@ final class Meter: ObservableObject {
     /// with an average and gives today's pace second. The budget is what's left per day to last
     /// until the reset, set against that average.
     private func forecast(_ v: inout WindowView, cap: Double, now: Date, resets: Date) {
-        guard v.pct < 100, let (perDay, label, averageLabel) = averagePerDay(now: now, pct: v.pct, resets: resets) else { return }
+        guard v.pct < 100, let (perDay, label, averageLabel) = averagePerDay(now: now, pct: v.pct, resets: resets,
+                                                                              restartedAt: v.restartedAt) else { return }
         let daysLeft = resets.timeIntervalSince(now) / 86400
         let atReset = v.pct + perDay * daysLeft
         v.averagePerDay = perDay
@@ -756,7 +818,7 @@ final class Meter: ObservableObject {
     /// differently, and a model change inside the span (Opus 5 to 5.5 on Sep 22) makes a
     /// log-based average unreliable. Uses the history log's increments over the last 7 days
     /// once it covers 3+ days; before that, this week's own average once it is a day old.
-    private func averagePerDay(now: Date, pct: Double, resets: Date) -> (Double, String, String)? {
+    private func averagePerDay(now: Date, pct: Double, resets: Date, restartedAt: Date?) -> (Double, String, String)? {
         // Old numbers re-sent (an earlier week, or a lower % for the same week that Anthropic
         // didn't reset early) say nothing new and would count as resets or climbs that never happened.
         var readings: [(at: Date, window: Window)] = []
@@ -791,7 +853,9 @@ final class Meter: ObservableObject {
             }
             return (used / (now.timeIntervalSince(first.at) / 86400), "7-day", "7-day average")
         }
-        let elapsed = now.timeIntervalSince(resets.addingTimeInterval(-Self.week)) / 86400
+        // The week's own %, over the time it has counted for: from its start, or from the early reset.
+        let from = max(resets.addingTimeInterval(-Self.week), restartedAt ?? .distantPast)
+        let elapsed = now.timeIntervalSince(from) / 86400
         return elapsed >= 1 ? (pct / elapsed, "Week's", "this week's average") : nil
     }
 
@@ -965,7 +1029,9 @@ final class Meter: ObservableObject {
     private func fillWeekShares(_ s: inout Snapshot) {
         guard let w = s.weekly, let resets = w.resetsAt, let cap = store.state.calibration.capWeek else { return }
         var byProject: [String: Double] = [:]
-        for t in turns[first(atOrAfter: resets.addingTimeInterval(-Self.week))...] {
+        // From the week's start, or from the early reset that started its count again.
+        let begin = max(resets.addingTimeInterval(-Self.week), w.restartedAt ?? .distantPast)
+        for t in turns[first(atOrAfter: begin)...] {
             byProject[t.project, default: 0] += t.cost
         }
         s.weekShares = byProject.map { Share(id: $0.key, pct: $0.value / cap * 100, cost: $0.value) }
@@ -1001,12 +1067,15 @@ final class Meter: ObservableObject {
         if let cap = store.state.calibration.cap5h {
             // How high a window got: its last exact reading plus what was logged after it, as
             // the live estimate works; the logs alone where no reading covers it.
-            func peak(_ start: Date, _ end: Date) -> (Double, Bool) {
-                if let e = latestExact[key(end)] {
+            // `reset` is the reset its readings are filed under, which is later than `end` for a window
+            // Anthropic cut short; the spend runs only to `end`, the rest being the next window's.
+            func peak(_ start: Date, _ end: Date, reset: Date) -> (Double, Bool) {
+                if let e = latestExact[key(reset)] {
                     return (e.pct + cost(from: e.at, to: min(end, now)) / cap * 100, true)
                 }
                 return (cost(from: start, to: min(end, now)) / cap * 100, false)
             }
+            var drawn: [Date] = [] // the resets a window has been drawn for
             // Walk the windows forward from the start of the logs, so their edges are the real
             // ones (each opens at the first message after the last closed, rounded down to 10
             // minutes), snapped to the real window where an exact reading pins one down.
@@ -1016,24 +1085,35 @@ final class Meter: ObservableObject {
                 guard i < turns.count, turns[i].at <= now else { break }
                 var start = max(Self.windowOpening(turns[i].at), anchor)
                 var end = start.addingTimeInterval(Self.fiveHours)
+                var reset = end
                 if let pinned = known.first(where: { $0.addingTimeInterval(-Self.fiveHours) <= start && start < $0 }) {
                     // Never reach back into the window before; its spend is already counted.
                     start = max(pinned.addingTimeInterval(-Self.fiveHours), anchor)
                     end = pinned
+                    reset = pinned
+                    // Another window began inside this one, so Anthropic ended this one early: at the
+                    // last time it was measured, the next being counted from there.
+                    if knownStarts.contains(where: { $0 > start && $0 < pinned }), let e = latestExact[key(pinned)] {
+                        end = min(pinned, max(start, e.at))
+                    }
                 } else if let next = knownStarts.first(where: { $0 > start && $0 < end }) {
                     end = next // a known window starts inside this one, so this one ended by then
+                    reset = next
                 }
+                drawn.append(reset)
                 if end > since {
-                    let (height, exact) = peak(start, end)
+                    let (height, exact) = peak(start, end, reset: reset)
                     h.windows.append(HistoryWindow(start: start, end: end, peak: height, exact: exact, open: end > now))
                 }
                 anchor = end
             }
             // A window with a reading but nothing logged here (all chat, say) still happened.
-            for end in known where end > since && !h.windows.contains(where: { Window.same($0.end, end) }) {
-                let (height, _) = peak(end.addingTimeInterval(-Self.fiveHours), end)
-                h.windows.append(HistoryWindow(start: end.addingTimeInterval(-Self.fiveHours), end: end,
-                                               peak: height, exact: true, open: end > now))
+            for end in known where end > since && !drawn.contains(where: { Window.same($0, end) }) {
+                // Not back over a window already drawn, one an early reset ended inside this one's span.
+                var start = end.addingTimeInterval(-Self.fiveHours)
+                if let before = h.windows.map(\.end).filter({ $0 <= end }).max(), before > start { start = before }
+                let (height, _) = peak(start, end, reset: end)
+                h.windows.append(HistoryWindow(start: start, end: end, peak: height, exact: true, open: end > now))
             }
             h.windows.sort { $0.start < $1.start }
         }
@@ -1053,9 +1133,7 @@ final class Meter: ObservableObject {
             }
             // Hourly climb from the logs, scaled to end at the week's actual %. A week Anthropic reset
             // early climbs to then from the logs alone, drops to 0, and climbs again from there.
-            let held = store.state.lastExact?.weekly
-            let restart = held.flatMap { Window.same($0.resetsAt, resets) ? $0.restartedAt : nil }
-                .flatMap { $0 > start && $0 < now ? $0 : nil }
+            let restart = w.restartedAt.flatMap { $0 > start && $0 < now ? $0 : nil }
             let from = restart ?? start
             let logged = cost(from: from, to: now) / cap * 100
             let scale = logged > 0 ? w.pct / logged : 1

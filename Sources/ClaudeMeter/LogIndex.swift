@@ -85,6 +85,9 @@ final class LogIndex: @unchecked Sendable {
     }()
     /// A weekly window never reaches back further than this.
     private let horizon: TimeInterval = 8 * 86400
+    /// Turns before this were never read. A window that began earlier has spend the index can't see,
+    /// so it can't teach a cap.
+    private(set) var coveredFrom = Date.distantPast
     private let activeWindow: TimeInterval = 180
 
     /// How far each file has been read, and which file it was: a transcript replaced in place
@@ -152,6 +155,7 @@ final class LogIndex: @unchecked Sendable {
     func refresh() -> Bool {
         let now = Date()
         let cutoff = now.addingTimeInterval(-horizon)
+        coveredFrom = max(coveredFrom, cutoff)
         let uptime = ProcessInfo.processInfo.systemUptime
         if uptime - lastDiscovery > 60 {
             discover(cutoff: cutoff)
