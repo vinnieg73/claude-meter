@@ -175,12 +175,13 @@ extension Meter {
             recompute()
             notifier.check(snapshot, now: t, post: true)
 
-            for w in [snapshot.fiveHour, snapshot.weekly].compactMap({ $0 }) where !w.idle {
+            // (A window nothing has measured for a while raises none: see WindowView.stale.)
+            for w in [snapshot.fiveHour, snapshot.weekly].compactMap({ $0 }) where !w.idle && !w.stale {
                 guard let r = w.resetsAt else { continue }
                 for threshold in [80.0, 95.0] where w.pct >= threshold { owe(w.title, "\(Int(threshold))", r) }
             }
             if let f = snapshot.fiveHour, let r = f.resetsAt {
-                if let capAt = f.capAt, snapshot.capWarning != nil {
+                if !f.stale, let capAt = f.capAt, snapshot.capWarning != nil {
                     let lead = capAt.timeIntervalSince(t)
                     if lead > 0, lead <= 1800 { owe("pace", "0", r) }
                 }
@@ -280,6 +281,21 @@ extension Meter {
             }
             sent[kind, default: []].append((epoch, a.at))
         }
+        // Every threshold alert has a reading behind it (give or take what an estimate can be off): a
+        // card that climbed on this Mac's spend alone after Anthropic reset a window would alert on a
+        // number nothing measured, as "weekly at 95%" did on Oct 7 when the highest reading was 87%.
+        var unbacked = 0
+        for a in alerts {
+            let parts = a.key.split(separator: "|")
+            guard parts.count == 3, let epoch = Double(parts[1]), let threshold = Double(parts[2]), threshold >= 50,
+                  parts[0] == Meter.fiveHourTitle || parts[0] == Meter.weeklyTitle else { continue }
+            let measured = readings.compactMap { parts[0] == Meter.fiveHourTitle ? $0.fiveHour : $0.weekly }
+                .filter { Window.same($0.resetsAt, Date(timeIntervalSince1970: epoch)) }
+            guard let highest = measured.map(\.pct).max(), highest < threshold - 3 else { continue }
+            unbacked += 1
+            report.failures.append(String(format: "alert %@ sent at %@, but the window's readings never got above %.0f%%",
+                                          a.key, "\(a.at)", highest))
+        }
         // ...and every alert the dropdown called for went out at least once.
         var missing = 0
         for o in owed {
@@ -374,7 +390,7 @@ extension Meter {
                             + "message logged just past a mark), \(openingSkipped) skipped before calibration, "
                             + "\(openingsMoved) moved by an early reset, \(openingsForeign) opened away from this Mac.")
         report.lines.append("2. Probe gate: \(gateChecks) points checked.")
-        report.lines.append("3. Alerts: \(alerts.count) sent, \(duplicates) duplicate, \(missing) missing of \(owed.count) called for"
+        report.lines.append("3. Alerts: \(alerts.count) sent, \(duplicates) duplicate, \(unbacked) unbacked by a reading, \(missing) missing of \(owed.count) called for"
                             + (restarts.isEmpty ? "." : ", across \(restarts.count) early reset\(restarts.count == 1 ? "" : "s") (\(restarts.map(\.window).joined(separator: ", "))) that re-arm them."))
         if openingChecks < Replay.minimum.openings || openingSkipped > openingChecks {
             report.failures.append("only \(openingChecks) window openings checked (\(openingSkipped) skipped), "

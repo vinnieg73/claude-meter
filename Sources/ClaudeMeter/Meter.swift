@@ -39,6 +39,10 @@ struct WindowView {
     var budgetWarn = false
     /// Set when Anthropic reset this window's usage before its time: it counts from then.
     var restartedAt: Date?
+    /// Readings keep arriving but none has measured this window for ten minutes (a probe left it
+    /// out; they come every minute), so its % is the last measurement plus this Mac's spend since, which says nothing if
+    /// Anthropic reset it in between. No alert is raised from it; it is raised once it is measured.
+    var stale = false
 
     var level: Level { pct >= 90 ? .critical : pct >= 70 ? .warn : .normal }
 }
@@ -202,6 +206,9 @@ final class Meter: ObservableObject {
     static let weeklyTitle = "Weekly · all models"
     /// Bump when the cost of a turn changes meaning, so calibration relearns instead of drifting.
     /// 2: the largest copy of each turn counts (0.8).
+    /// Not for a price change on a model that is a sliver of the spend (Haiku 5.5 in 0.9.2 was 0.1% of
+    /// the tokens, $1.44 against $3.71 over a week): relearning both caps would show for hours to fix
+    /// a change smaller than their rounding.
     private static let costBasis = 2
 
     /// A 5-hour window opens at its first message rounded down to the 10-minute mark (every
@@ -344,8 +351,8 @@ final class Meter: ObservableObject {
     /// Runs the probe when there's something new to measure: the last exact reading is a minute
     /// or more old and something has been logged since. Idle time changes nothing, so it costs nothing.
     /// Forced (Sync) runs regardless of timing. Either way, never when it would open a window.
-    /// A failure waits before trying again: a minute, doubling to half an hour, or half an hour at
-    /// once when only you can fix it (signed out).
+    /// A failure waits before trying again: a minute, doubling to half an hour, or five minutes
+    /// when only you can fix it (signed out).
     func sync(force: Bool) {
         guard !probing, !quiet else { return }
         let now = clock()
@@ -363,12 +370,14 @@ final class Meter: ObservableObject {
             if let retry = store.state.probeRetryAt, now < retry, retry < now.addingTimeInterval(3600) { return }
             if let last = store.state.lastExact {
                 // Timed from the last reading or the last probe, whichever is later: a probe whose
-                // answer added nothing would otherwise run again on the next tick. A clock set
-                // back since the reading counts as due.
+                // answer added nothing would otherwise run again on the next tick. A clock set back
+                // since the reading counts as due once (a probe from before it doesn't count at all),
+                // and then needs new activity like any other.
                 let clockWentBack = last.at > now.addingTimeInterval(60)
-                let since = clockWentBack ? .distantPast : max(last.at, lastProbe ?? .distantPast)
+                let probed = lastProbe.flatMap { $0 <= now ? $0 : nil }
+                let since = clockWentBack ? (probed ?? .distantPast) : max(last.at, probed ?? .distantPast)
                 guard now.timeIntervalSince(since) >= Self.probeEvery,
-                      let latest = turns.last?.at, clockWentBack || latest > since else { return }
+                      let latest = turns.last?.at, latest > since else { return }
             }
         }
         // Stamped at launch, not when it answers: a turn logged while it runs is after the reading, so
@@ -383,17 +392,20 @@ final class Meter: ObservableObject {
             probing = false
             switch outcome {
             case .reading(var reading):
-                reading.at = launched
+                // At launch, unless it took so long (the Mac slept) that the answer is of a later moment.
+                let answered = clock()
+                reading.at = answered.timeIntervalSince(launched) > Self.slowProbe ? answered : launched
                 probeFailures = 0
                 store.state.probeError = nil
                 store.state.probeRetryAt = nil
                 if notice == Self.noWindowNotice { notice = nil }
                 absorb(reading)
             case .failed(let reason):
-                // A minute at first, doubling to half an hour; a failure that waiting won't fix
-                // (signed out, no CLI) goes straight to the half hour.
+                // A minute at first, doubling to half an hour; a failure only you can fix (signed out,
+                // no CLI) waits five minutes: such a probe fails at once and spends nothing, so the
+                // wait only limits how often it starts, and you are noticed back soon after you log in.
                 probeFailures += 1
-                let wait = Probe.needsYou(reason) ? 1800 : min(1800, 60 * pow(2, Double(probeFailures - 1)))
+                let wait = Probe.needsYou(reason) ? 300 : min(1800, 60 * pow(2, Double(probeFailures - 1)))
                 store.state.probeError = reason
                 store.state.probeRetryAt = clock().addingTimeInterval(wait)
             }
@@ -409,8 +421,9 @@ final class Meter: ObservableObject {
     func windowOpen(_ now: Date) -> Bool {
         guard let latest = turns.last?.at else { return false }
         if let resets = store.state.lastExact?.fiveHour?.resetsAt {
-            // A message after the reset opened a window, but that one ends too.
-            return now < resets || openWindow(after: resets, now: now) != nil
+            // A message after the reset opened a window, but that one ends too. Not the last two minutes
+            // before it: a probe launched then can reach the API after the reset and open the next one.
+            return now < resets.addingTimeInterval(-Self.resetMargin) || openWindow(after: resets, now: now) != nil
         }
         return now.timeIntervalSince(latest) < 600
     }
@@ -535,16 +548,19 @@ final class Meter: ObservableObject {
 
     /// Notes that Anthropic reset a window early, as near as the readings can tell: right after the
     /// last time the old one was measured. If that was long ago (nothing was measuring, so the reset
-    /// could be anywhere in the gap) it is when the new one was first seen, and marked late.
+    /// could be anywhere after it) it is marked late: it still counts from there, which can put a
+    /// little of the old window's spend into the new one (only shrinking "Elsewhere"; on Oct 7 the
+    /// reset was seen at 04:28 and had happened at 03:24, so counting from when it was seen showed the
+    /// week at 0.1% of shares and the old week climbing to 96%), but it can't teach a cap.
     private static func markRestart(_ new: inout Window, after old: Window) {
         let seen = new.at ?? old.at ?? .distantPast
-        if let last = old.at, seen.timeIntervalSince(last) <= 1800 {
-            new.restartedAt = last
-            new.restartedLate = nil
-        } else {
+        guard let last = old.at else { // never measured: when it was seen is all there is
             new.restartedAt = seen
             new.restartedLate = true
+            return
         }
+        new.restartedAt = last
+        new.restartedLate = seen.timeIntervalSince(last) > 1800 ? true : nil
     }
 
     /// Forgets that a window's alerts went out, so they can again: Anthropic reset its usage early.
@@ -648,6 +664,13 @@ final class Meter: ObservableObject {
 
     /// How far a window's % must fall, measured, to be Anthropic resetting it early (they fall by tens).
     static let restartDrop = 3.0
+    /// A window the latest reading is this much newer than its last measurement is `stale`. Ten
+    /// minutes: at half an hour the weekly had already climbed from 87% to 95% on spend alone.
+    static let staleAfter: TimeInterval = 600
+    /// A probe doesn't run this close to a reset: it could reach the API after it and open the next window.
+    static let resetMargin: TimeInterval = 120
+    /// Longer than this between launching a probe and its answer, the reading is dated at the answer.
+    static let slowProbe: TimeInterval = 90
 
     /// The cap a measurement implies, when it can support one: taken within the last hour and
     /// inside its own window, with the logs reaching back over the window's start (where it began,
@@ -764,6 +787,7 @@ final class Meter: ObservableObject {
             v = WindowView(title: Self.fiveHourTitle, pct: w.pct + added, resetsAt: w.resetsAt,
                            exact: exact, asOf: measured)
             v.restartedAt = w.restartedAt
+            v.stale = last.at.timeIntervalSince(measured) > Self.staleAfter
         } else if let cap {
             // The window has lapsed; find the one open now, walking from the last known reset.
             guard let opened = openWindow(after: last?.fiveHour?.resetsAt ?? turns.first?.at ?? now, now: now) else {
@@ -800,6 +824,7 @@ final class Meter: ObservableObject {
             v = WindowView(title: Self.weeklyTitle, pct: w.pct + added, resetsAt: w.resetsAt,
                            exact: exact, asOf: measured)
             v.restartedAt = w.restartedAt
+            v.stale = last.at.timeIntervalSince(measured) > Self.staleAfter
         } else {
             // Weekly windows reset on a fixed schedule.
             guard let cap else { return nil }
@@ -1075,8 +1100,9 @@ final class Meter: ObservableObject {
             guard idle >= Self.burnLookback, idle < ttl, let price = Pricing.price(for: t.model) else { return nil }
             // Cold, the whole prompt is written to cache again instead of read from it.
             let context = Double(t.input + t.cacheRead + t.cacheWrite)
-            let write = price.input * (ttl == 3600 ? 2 : 1.25)
-            let extra = context * (write - price.cacheRead) / 1_000_000 * (t.fast ? 2 : 1)
+            let rate = Pricing.rates(price, promptTokens: Int(context)) // a long prompt can cost more
+            let write = rate.input * (ttl == 3600 ? 2 : 1.25)
+            let extra = context * (write - rate.cacheRead) / 1_000_000 * (t.fast ? 2 : 1)
             guard extra >= 0.5 else { return nil }
             return Cooling(id: session, name: names[session] ?? t.project,
                            coldAt: t.at.addingTimeInterval(ttl), extra: extra,

@@ -70,11 +70,17 @@ enum Pricing {
         return !(next.count <= 2 && Int(next) != nil)
     }
 
+    /// What a prompt of `promptTokens` is charged: the model's rates, or its long-prompt card past
+    /// `longPrompt` tokens. One place, so a cost and an estimate of a cost can't disagree.
+    static func rates(_ p: Price, promptTokens: Int) -> (input: Double, output: Double, cacheRead: Double) {
+        if let long = p.long, promptTokens > longPrompt { return long }
+        return (p.input, p.output, p.cacheRead)
+    }
+
     static func cost(model: String, input: Int, output: Int, cacheRead: Int,
                      write5m: Int, write1h: Int, fast: Bool) -> Double {
         guard let p = price(for: model) else { return 0 }
-        var rate = (input: p.input, output: p.output, cacheRead: p.cacheRead)
-        if let long = p.long, input + cacheRead + write5m + write1h > longPrompt { rate = long }
+        let rate = rates(p, promptTokens: input + cacheRead + write5m + write1h)
         let dollars = Double(input) * rate.input
             + Double(output) * rate.output
             + Double(cacheRead) * rate.cacheRead

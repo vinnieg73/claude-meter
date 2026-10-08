@@ -66,7 +66,10 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         // one that ran hot either way.
         let resets = s.fiveHour?.resetsAt
         if !Window.same(resets, currentReset) {
-            if send, let previous = currentReset, now >= previous, peak >= thresholds[0] {
+            // Also when Anthropic ended it early (the new window carries a restart): `now` is before the
+            // reset it was due to.
+            let early = s.fiveHour?.restartedAt != nil
+            if send, let previous = currentReset, now >= previous || early, peak >= thresholds[0] {
                 deliver(key: "reset|\(Int(previous.timeIntervalSince1970))|0",
                         title: "Claude 5-hour window reset", body: "You're back to a full window.")
             }
@@ -76,14 +79,21 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         } else if let f = s.fiveHour {
             if f.restartedAt != restartSeen {
                 restartSeen = f.restartedAt
-                peak = f.pct // used up again from here: not a hot window for the reset alert
+                // The same window used up again from here: the hot one it was is over.
+                if send, let restart = f.restartedAt, peak >= thresholds[0] {
+                    deliver(key: "reset|\(Int(restart.timeIntervalSince1970))|0",
+                            title: "Claude 5-hour window reset", body: "You're back to a full window.")
+                }
+                peak = f.pct
             } else {
                 peak = max(peak, f.pct)
             }
         }
         guard send else { return }
 
-        for w in [s.fiveHour, s.weekly].compactMap({ $0 }) where !w.idle {
+        // Not a window nothing has measured for a while: if Anthropic reset it in between, its % is a
+        // number only this Mac's spend made up (a false "weekly at 95%" went out that way on Oct 7).
+        for w in [s.fiveHour, s.weekly].compactMap({ $0 }) where !w.idle && !w.stale {
             guard let resets = w.resetsAt else { continue }
             for t in thresholds where w.pct >= t {
                 once(w.title, resets, "\(Int(t))", now: now,
@@ -93,7 +103,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         }
 
         // When the current pace (not a held warning) says the cap is half an hour out or less.
-        if let f = s.fiveHour, let capAt = f.capAt, s.capWarning != nil, let resets = f.resetsAt {
+        if let f = s.fiveHour, !f.stale, let capAt = f.capAt, s.capWarning != nil, let resets = f.resetsAt {
             let lead = capAt.timeIntervalSince(now)
             if lead > 0, lead <= 1800 {
                 once("pace", resets, "0", now: now,

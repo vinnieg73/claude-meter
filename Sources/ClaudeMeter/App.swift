@@ -17,17 +17,20 @@ enum Main {
 
     static func main() {
         let args = CommandLine.arguments
-        // A typo shouldn't start a second meter: unknown or incomplete flags print usage.
-        let known: Set = ["--render", "--dark", "--history", "--icons", "--fixture", "--status", "--unregister-login", "--replay"]
-        if args.dropFirst().contains(where: { $0.hasPrefix("--") && !known.contains($0) }) {
-            return print(usage)
+        // A typo shouldn't start a second meter: unknown or incomplete flags print usage, and fail,
+        // so a script that mistyped one doesn't take it for a render that worked.
+        func misused() -> Never {
+            print(usage)
+            exit(2)
         }
+        let known: Set = ["--render", "--dark", "--history", "--icons", "--fixture", "--status", "--unregister-login", "--replay"]
+        if args.dropFirst().contains(where: { $0.hasPrefix("--") && !known.contains($0) }) { misused() }
         if let i = args.firstIndex(of: "--render") {
-            guard i + 1 < args.count, !args[i + 1].hasPrefix("--") else { return print(usage) }
+            guard i + 1 < args.count, !args[i + 1].hasPrefix("--") else { misused() }
             if args.contains("--icons") { exit(MenuBar.renderIcons(to: args[i + 1]) ? 0 : 1) }
             var fixture: String?
             if let f = args.firstIndex(of: "--fixture") {
-                guard f + 1 < args.count, !args[f + 1].hasPrefix("--") else { return print(usage) }
+                guard f + 1 < args.count, !args[f + 1].hasPrefix("--") else { misused() }
                 fixture = args[f + 1]
             }
             // A picture that wasn't drawn or written is a failure: scripts go by the exit code.

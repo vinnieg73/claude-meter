@@ -79,9 +79,19 @@ or a 5-hour window that began before the held one was due, is taken as that: the
 from the last time the old one was measured (`restartedAt`), its 80%/95% alerts can go out again,
 "This week" and the weekly pace count from there, and History's week drops to 0 and cuts the old
 window short. It calibrates from there too, unless the reset was noticed more than 30 minutes
-after the last measurement (nothing was measuring, so the moment is unknown). A smaller drop from
+after the last measurement: it still counts from that measurement (the spend since is real, and at
+worst a little of the old window's lands in the new one), but nothing says when in between it
+happened, so it teaches no cap. A window that ran past 80% and is cut short gets the same "back to a
+full window" alert as at a normal reset. A smaller drop from
 a probe, and any lower or unchanged % from the statusline, is an old number re-sent; once a window
 has been reset early the statusline is ignored for it, since it may redraw numbers from before.
+
+**A window nothing measures.** If readings keep arriving but one window isn't in them for ten
+minutes (a probe left the weekly out for an hour after the Oct 7 reset), its % is the last
+measurement plus this Mac's spend since, which says nothing if Anthropic reset it in between: on
+Oct 7 the card read 97% for a week at about 10%, and a false "weekly at 95%" went out. Such a window
+is *stale*: the card still estimates, but no 80%/95%/cap alert is raised from it until it is measured
+again, when it is raised as usual.
 
 ## Build
 
@@ -96,7 +106,7 @@ it in about a second instead of scanning every transcript; delete it to force a 
 prints the menu bar title, for checking the UI without screen-recording access. `--fixture <name>`
 draws a made-up state instead of the live one (`Fixtures.swift`), and `scripts/render-all.sh <dir>`
 renders every state, light and dark, plus History and the menu bar ring. A render that couldn't be
-drawn or written exits non-zero.
+drawn or written exits 1, and a mistyped command exits 2.
 
 `~/Applications/ClaudeMeter.app/Contents/MacOS/ClaudeMeter --status` prints how the app is
 set up (open at login, notification permission, CLI found) and what it last knew (last exact
@@ -124,8 +134,8 @@ on a failure. It checks:
 2. **Probe gate**: between a reset and the next message a probe would not run (it would open a
    window); right after that message it would.
 3. **Alerts**: none goes out twice for the same window unless Anthropic reset it early in between,
-   and every threshold, cap warning and runaway the dropdown called for was sent (alerts go to a
-   recorder, not macOS).
+   and every threshold, cap warning and runaway the dropdown called for was sent, and every
+   threshold alert has a reading of that window behind it (alerts go to a recorder, not macOS).
 4. **Accuracy**: estimates 15 to 60 minutes after a reading, typically within ±1.5 points
    (5-hour) and ±1.0 (weekly), and growing as much as the readings say (1.00 ± 0.12, which
    catches a wrong cap that the typical error is too coarse to see).
@@ -180,9 +190,13 @@ About $0.001 of usage per run, so at most ~$0.06/hr while you work (about 0.03 p
   off the subscription onto API billing.
 - It needs the Claude Code CLI signed in to the subscription (`claude` → `/login` → Claude
   account). The meter never reads the token; Claude Code refreshes it itself. If the CLI is
-  signed out (or missing), the footer says so and the probe retries every 30 minutes; any other
-  failure (offline, a slow machine) retries after a minute, doubling up to 30 minutes.
-- Each reading is stamped when its probe starts, not when it answers, and a probe is called for
+  signed out (or missing), the footer says so and the probe retries every 5 minutes (it fails at
+  once and spends nothing); any other failure (offline, a slow machine) retries after a minute,
+  doubling up to 30 minutes.
+- Not in the last two minutes before a window's reset: a probe launched then could reach the API
+  after it and open the next window.
+- Each reading is stamped when its probe starts (when it answers, if it took over 90 seconds, say
+  the Mac slept), and a probe is called for
   only by activity logged after the last one started, so a turn logged while it ran is not lost
   and an answer that was turned away is not asked for again while you're idle.
 

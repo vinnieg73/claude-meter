@@ -23,7 +23,7 @@ import json, os, stat, tempfile
 # Through a symlink (a dotfiles repo, say): the real file is rewritten and the link stays a link.
 path = os.path.realpath(os.path.expanduser("~/.claude/settings.json"))
 if os.path.exists(path):
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         settings = json.load(f)
     command = str((settings.get("statusLine") or {}).get("command", "")).strip().strip('"').strip("'")
     if command.endswith("/claude-meter-tap"):
@@ -31,8 +31,8 @@ if os.path.exists(path):
         mode = stat.S_IMODE(os.stat(path).st_mode)
         fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
         os.chmod(tmp, mode)
-        with os.fdopen(fd, "w") as f:
-            json.dump(settings, f, indent=2)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
             f.write("\n")
         os.replace(tmp, path)
         print("statusline entry: removed")
