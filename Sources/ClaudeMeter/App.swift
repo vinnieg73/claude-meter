@@ -10,7 +10,7 @@ enum Main {
     static let usage = """
         usage: ClaudeMeter                      run the menu bar app
                ClaudeMeter --status             print setup and last known state
-               ClaudeMeter --render out.png [--dark] [--history | --icons] [--fixture name]
+               ClaudeMeter --render out.png [--dark] [--history | --help-page | --icons] [--fixture name]
                ClaudeMeter --unregister-login
                ClaudeMeter --replay             replay this Mac's history through the meter and check it
         """
@@ -23,7 +23,7 @@ enum Main {
             print(usage)
             exit(2)
         }
-        let known: Set = ["--render", "--dark", "--history", "--icons", "--fixture", "--status", "--unregister-login", "--replay"]
+        let known: Set = ["--render", "--dark", "--history", "--help-page", "--icons", "--fixture", "--status", "--unregister-login", "--replay"]
         if args.dropFirst().contains(where: { $0.hasPrefix("--") && !known.contains($0) }) { misused() }
         if let i = args.firstIndex(of: "--render") {
             guard i + 1 < args.count, !args[i + 1].hasPrefix("--") else { misused() }
@@ -35,7 +35,7 @@ enum Main {
             }
             // A picture that wasn't drawn or written is a failure: scripts go by the exit code.
             exit(Preview.render(to: args[i + 1], dark: args.contains("--dark"), history: args.contains("--history"),
-                                fixture: fixture) ? 0 : 1)
+                                help: args.contains("--help-page"), fixture: fixture) ? 0 : 1)
         }
         if args.contains("--status") { return Status.print() }
         if args.contains("--replay") { exit(Replay.run()) }
@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     private let popover = NSPopover()
     private var subscriptions: Set<AnyCancellable> = []
     private var historyWindow: NSWindow?
+    private var helpWindow: NSWindow?
     private var hotKey: HotKey?
     private var sigterm: DispatchSourceSignal?
 
@@ -71,7 +72,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
         popover.behavior = .transient
         popover.delegate = self
-        let host = NSHostingController(rootView: PopoverView(meter: meter) { [weak self] in self?.openHistory() })
+        let host = NSHostingController(rootView: PopoverView(meter: meter, openHistory: { [weak self] in self?.openHistory() },
+                                                                   openHelp: { [weak self] in self?.openHelp() }))
         host.sizingOptions = .preferredContentSize // the popover follows the content as sections come and go
         popover.contentViewController = host
 
@@ -133,6 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         // wide glyph (a laptop is 22pt) would push every title along.
         menu.addItem(menuItem("Sync now", "arrow.clockwise", #selector(syncNow)))
         menu.addItem(menuItem("History…", "chart.xyaxis.line", #selector(showHistory)))
+        menu.addItem(menuItem("Help…", "questionmark.circle", #selector(showHelp)))
         menu.addItem(.separator())
         menu.addItem(menuItem("Open at login", "arrow.up.forward.app", #selector(toggleLogin), on: meter.launchAtLogin))
         menu.addItem(menuItem("Weekly % in menu bar", "calendar", #selector(toggleWeekly), on: meter.showWeeklyInTitle))
@@ -173,25 +176,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     @objc private func testNotification() { meter.testNotification() }
     @objc private func toggleHotkey() { meter.hotkeyOn.toggle() }
     @objc private func showHistory() { openHistory() }
+    @objc private func showHelp() { openHelp() }
 
     private func openHistory() {
         popover.performClose(nil)
         if historyWindow == nil {
-            historyWindow = HistoryChrome.makeWindow(meter: meter, delegate: self)
+            historyWindow = HistoryChrome.makeWindow(title: "Claude Meter · History", delegate: self) {
+                HistoryView(meter: meter)
+            }
         }
         NSApp.unhide(nil)
         NSApp.activate()
         historyWindow?.makeKeyAndOrderFront(nil)
     }
 
+    private func openHelp() {
+        popover.performClose(nil)
+        if helpWindow == nil {
+            helpWindow = HistoryChrome.makeWindow(title: "Claude Meter · Help", delegate: self) { HelpView() }
+        }
+        NSApp.unhide(nil)
+        NSApp.activate()
+        helpWindow?.makeKeyAndOrderFront(nil)
+    }
+
     /// Opened from the shortcut, the meter took the focus from whatever you were in; closing
     /// the dropdown hands it back rather than leaving your keystrokes going nowhere.
     func popoverDidClose(_ notification: Notification) {
-        if NSApp.isActive, historyWindow?.isVisible != true { NSApp.hide(nil) }
+        if NSApp.isActive, historyWindow?.isVisible != true, helpWindow?.isVisible != true { NSApp.hide(nil) }
     }
 
     /// Dropped on close, so its view stops recomputing history every tick.
     func windowWillClose(_ notification: Notification) {
         if (notification.object as? NSWindow) === historyWindow { historyWindow = nil }
+        if (notification.object as? NSWindow) === helpWindow { helpWindow = nil }
     }
 }

@@ -9,7 +9,11 @@ redesigns, no new settings. A fix may touch any code it needs to, but should not
 the meter shows or does beyond correcting the bug.
 
 Exception (2026-10-06, asked for by the user): a one-time visual pass, done in v0.9.0. Scope is back
-to bug elimination. When a fix touches a view, check it with `scripts/render-all.sh <dir>` (every
+to bug elimination.
+
+Exception (2026-10-08, asked for by the user): a Help window (right-click → Help…, or the gear menu)
+that explains everything the meter shows in plain words, done in v0.9.4. Scope is back to bug
+elimination. When a fix touches a view, check it with `scripts/render-all.sh <dir>` (every
 state, light and dark, from `Fixtures.swift`).
 
 Before calling a fix done, run `./scripts/replay.sh` and confirm PASS. It replays the real history

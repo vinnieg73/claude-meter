@@ -4,6 +4,7 @@ import SwiftUI
 struct PopoverView: View {
     @ObservedObject var meter: Meter
     var openHistory: () -> Void = {}
+    var openHelp: () -> Void = {}
     /// For `--render --fixture`: shown instead of the meter's own snapshot.
     var fixture: Snapshot? = nil
 
@@ -32,7 +33,7 @@ struct PopoverView: View {
                 Module { UsageSection(s: s) }
             }
 
-            FooterView(meter: meter, s: s, openHistory: openHistory)
+            FooterView(meter: meter, s: s, openHistory: openHistory, openHelp: openHelp)
         }
         .padding(.horizontal, Theme.pad)
         .padding(.top, Theme.pad)

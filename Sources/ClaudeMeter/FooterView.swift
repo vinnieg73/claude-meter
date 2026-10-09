@@ -5,6 +5,7 @@ struct FooterView: View {
     @ObservedObject var meter: Meter
     let s: Snapshot
     var openHistory: () -> Void = {}
+    var openHelp: () -> Void = {}
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let fine = Font.system(size: 9.5)
@@ -87,6 +88,8 @@ struct FooterView: View {
                 Toggle("Notifications", isOn: $meter.notificationsOn)
                 Button("Send test notification") { meter.testNotification() }
                 Toggle("Shortcut ⌃⌥⌘U", isOn: $meter.hotkeyOn)
+                Divider()
+                Button { openHelp() } label: { Label("Help…", systemImage: "questionmark.circle") }
                 Divider()
                 Text("Claude Meter \(Meter.version)")
             } label: {

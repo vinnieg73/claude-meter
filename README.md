@@ -46,8 +46,11 @@ peak, this week's climb against an even pace, and plan fit: how the same usage w
 gone on Pro, Max 5x and Max 20x. Exact readings are logged to `history.jsonl` from 0.6 on;
 windows before that are estimated from the logs.
 
+**Help** (gear menu, or right-click → Help…): a window that explains everything above in plain
+words, section by section.
+
 **Shortcut** ⌃⌥⌘U opens the dropdown from anywhere (Carbon hot key, no accessibility
-permission needed). Right-click the menu bar item for Sync, History and settings: open at
+permission needed). Right-click the menu bar item for Sync, History, Help and settings: open at
 login, weekly % in the title, notifications, the shortcut.
 
 ## Where the numbers come from
@@ -102,10 +105,11 @@ again, when it is raised as usual.
 The log index is cached at `~/Library/Caches/ClaudeMeter/index.plist` (a warm launch reads
 it in about a second instead of scanning every transcript; delete it to force a full scan).
 
-`ClaudeMeter --render out.png [--dark] [--history]` draws the popover (or History) offscreen and
+`ClaudeMeter --render out.png [--dark] [--history | --help-page]` draws the popover (or History, or
+Help, whole rather than scrolled) offscreen and
 prints the menu bar title, for checking the UI without screen-recording access. `--fixture <name>`
 draws a made-up state instead of the live one (`Fixtures.swift`), and `scripts/render-all.sh <dir>`
-renders every state, light and dark, plus History and the menu bar ring. A render that couldn't be
+renders every state, light and dark, plus History, Help and the menu bar ring. A render that couldn't be
 drawn or written exits 1, and a mistyped command exits 2.
 
 `~/Applications/ClaudeMeter.app/Contents/MacOS/ClaudeMeter --status` prints how the app is
