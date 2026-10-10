@@ -76,13 +76,21 @@ struct Turn: Codable {
 /// Only touched from one serial queue.
 final class LogIndex: @unchecked Sendable {
     /// Claude Code keeps its config in ~/.claude unless CLAUDE_CONFIG_DIR moves it. Resolved,
-    /// because the directory walk returns nothing when the folder itself is a symlink.
-    private let root: URL = {
+    /// because the directory walk returns nothing when the folder itself is a symlink. Worked out on
+    /// this queue, not at launch (asking the login shell can take seconds), and kept once the shell
+    /// has answered; until then ~/.claude stands in and the shell is asked again at the next walk.
+    private var root: URL {
+        if let settledRoot { return settledRoot }
         let base = ShellEnv.claudeConfigDir
             .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude")
-        return base.appendingPathComponent("projects").resolvingSymlinksInPath()
-    }()
+        let url = base.appendingPathComponent("projects").resolvingSymlinksInPath()
+        if ShellEnv.settled { settledRoot = url }
+        return url
+    }
+    private var settledRoot: URL?
+    /// The time the 8-day horizon counts back from: now, or the replay's newest reading.
+    var clock: () -> Date = Date.init
     /// A weekly window never reaches back further than this.
     private let horizon: TimeInterval = 8 * 86400
     /// Turns before this were never read. A window that began earlier has spend the index can't see,
@@ -157,7 +165,7 @@ final class LogIndex: @unchecked Sendable {
     /// once a minute to find new ones, since walking it is most of what a refresh would cost.
     @discardableResult
     func refresh() -> Bool {
-        let now = Date()
+        let now = clock()
         let cutoff = now.addingTimeInterval(-horizon)
         coveredFrom = max(coveredFrom, cutoff)
         let uptime = ProcessInfo.processInfo.systemUptime
@@ -399,7 +407,7 @@ final class LogIndex: @unchecked Sendable {
         guard let data = try? Data(contentsOf: Self.cacheURL),
               let cache = try? PropertyListDecoder().decode(IndexCache.self, from: data),
               cache.version == IndexCache.version else { return }
-        let cutoff = Date().addingTimeInterval(-horizon)
+        let cutoff = clock().addingTimeInterval(-horizon)
         marks = cache.marks // marks from before `head` existed read with none, and are re-checked on the next read
         turns = cache.turns.filter { $0.at >= cutoff }.sorted { $0.at < $1.at }
         reindex()

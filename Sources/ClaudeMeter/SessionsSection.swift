@@ -211,7 +211,7 @@ private struct SessionRow: View {
     }
 
     private var label: String {
-        var parts = [name, model, "\(figure) per hour"]
+        var parts = [name] + (tag.map { [tagTip($0)] } ?? []) + [model, "\(figure) per hour"]
         if let detail { parts.append("\(detail) of the 5-hour window per hour") }
         if let warning { parts.append("warning: \(warning)") }
         return parts.joined(separator: ", ")

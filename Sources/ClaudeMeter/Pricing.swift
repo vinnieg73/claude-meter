@@ -2,13 +2,15 @@ import Foundation
 
 /// API list prices in $ per million tokens. Used to weight turns so a limit can be
 /// estimated from spend; subscription limits are not published in tokens.
-/// Cache writes are 1.25x input (5m TTL) and 2x input (1h TTL). Fast mode is 2x.
+/// Cache writes are 1.25x input (5m TTL) and 2x input (1h TTL). Fast mode is 2x, on the models that have it.
 struct Price {
     let input: Double
     let output: Double
     let cacheRead: Double
     /// A second rate card for a prompt past `Pricing.longPrompt` tokens (Haiku 5.5 only).
     var long: (input: Double, output: Double, cacheRead: Double)? = nil
+    /// Whether the model has fast mode (2x). Elsewhere a "fast" turn runs and bills at standard rates.
+    var fast = false
 }
 
 enum Pricing {
@@ -22,15 +24,15 @@ enum Pricing {
         ("claude-mythos-5-1", Price(input: 10, output: 50, cacheRead: 0.25)),
         ("claude-fable-5", Price(input: 10, output: 50, cacheRead: 1.0)),
         ("claude-mythos-5", Price(input: 10, output: 50, cacheRead: 1.0)),
-        ("claude-opus-5-5", Price(input: 4, output: 20, cacheRead: 0.20)),
-        ("claude-opus-5", Price(input: 5, output: 25, cacheRead: 0.50)),
-        ("claude-opus-4-8", Price(input: 5, output: 25, cacheRead: 0.50)),
+        ("claude-opus-5-5", Price(input: 4, output: 20, cacheRead: 0.20, fast: true)),
+        ("claude-opus-5", Price(input: 5, output: 25, cacheRead: 0.50, fast: true)),
+        ("claude-opus-4-8", Price(input: 5, output: 25, cacheRead: 0.50, fast: true)),
         ("claude-opus-4-7", Price(input: 5, output: 25, cacheRead: 0.50)),
         ("claude-opus-4-6", Price(input: 5, output: 25, cacheRead: 0.50)),
         ("claude-opus-4-5", Price(input: 5, output: 25, cacheRead: 0.50)),
         ("claude-opus-4-1", Price(input: 15, output: 75, cacheRead: 1.50)),
         ("claude-opus-4", Price(input: 15, output: 75, cacheRead: 1.50)),
-        ("claude-sonnet-5-5", Price(input: 2, output: 10, cacheRead: 0.20)),
+        ("claude-sonnet-5-5", Price(input: 2, output: 10, cacheRead: 0.10)),
         ("claude-sonnet-5", Price(input: 2, output: 10, cacheRead: 0.20)),
         ("claude-sonnet-4-6", Price(input: 3, output: 15, cacheRead: 0.30)),
         ("claude-sonnet-4-5", Price(input: 3, output: 15, cacheRead: 0.30)),
@@ -47,8 +49,8 @@ enum Pricing {
     static let families: [(word: String, price: Price)] = [
         ("fable", Price(input: 10, output: 50, cacheRead: 0.25)),
         ("mythos", Price(input: 10, output: 50, cacheRead: 0.25)),
-        ("opus", Price(input: 4, output: 20, cacheRead: 0.20)),
-        ("sonnet", Price(input: 2, output: 10, cacheRead: 0.20)),
+        ("opus", Price(input: 4, output: 20, cacheRead: 0.20, fast: true)),
+        ("sonnet", Price(input: 2, output: 10, cacheRead: 0.10)),
         ("haiku", haiku55),
     ]
 
@@ -86,6 +88,6 @@ enum Pricing {
             + Double(cacheRead) * rate.cacheRead
             + Double(write5m) * rate.input * 1.25
             + Double(write1h) * rate.input * 2
-        return dollars / 1_000_000 * (fast ? 2 : 1)
+        return dollars / 1_000_000 * (fast && p.fast ? 2 : 1)
     }
 }

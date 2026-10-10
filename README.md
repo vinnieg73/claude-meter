@@ -38,7 +38,7 @@ The ring fills to the exact 5-hour %.
 
 **Runaway alert.** A single session that uses 20%+ of the 5-hour window within 30 minutes
 gets a ⚠ in Burning now and one notification per window, to catch loops and large workflows
-while you're away.
+while you're away. It keeps its ⚠ row, at the top, for those 30 minutes even once it has gone quiet.
 
 **Cap warning.** When the 5-hour pace hits the cap at least 10 minutes before the reset, the
 menu bar switches to `31% · cap 10:49 PM` in orange, and one notification fires when the cap
@@ -142,10 +142,14 @@ on a failure. It checks:
    window); right after that message it would.
 3. **Alerts**: none goes out twice for the same window unless Anthropic reset it early in between,
    and every threshold, cap warning and runaway the dropdown called for was sent, and every
-   threshold alert has a reading of that window behind it (alerts go to a recorder, not macOS).
+   threshold alert has a reading of that window behind it, one with no reading of its window at
+   all included (alerts go to a recorder, not macOS).
 4. **Accuracy**: estimates 15 to 60 minutes after a reading, typically within ±1.5 points
    (5-hour) and ±1.0 (weekly), and growing as much as the readings say (1.00 ± 0.12, which
-   catches a wrong cap that the typical error is too coarse to see).
+   catches a wrong cap that the typical error is too coarse to see). It also fails when more than
+   10% of estimates (and at least 3) drew the wrong window and so couldn't be scored. The logs' 8
+   days are counted back from the newest reading, so the same history gives the same verdict
+   whenever it's replayed.
 5. **Consistency**: the early resets the meter recorded are the ones the readings show; the
    "This week" shares never add up to more than the weekly card; History's windows don't overlap,
    don't hold another window's readings, there is one window for each group of readings (an early

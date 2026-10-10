@@ -731,9 +731,12 @@ final class Meter: ObservableObject {
             }
             s.extras = extras(now)
             let recent = recentBySession(now)
-            s.burning = burning(recent)
             s.runaways = runaways(recent)
-            s.cooling = cooling(recent, now: now)
+            // A runaway keeps its ⚠ row in Burning now for its whole 30 minutes, even once it has gone
+            // quiet, so the alert always has a row to point to (and isn't listed as going cold too).
+            let flagged = Set(s.runaways.map(\.id))
+            s.burning = burning(recent, flagged: flagged)
+            s.cooling = cooling(recent, now: now).filter { !flagged.contains($0.id) }
             tagSharedNames(&s, recent, now: now)
             fillToday(&s, now: now)
             fillWeekShares(&s)
@@ -1083,16 +1086,20 @@ final class Meter: ObservableObject {
         for i in s.cooling.indices { s.cooling[i].tag = started(s.cooling[i].id, s.cooling[i].name, s.cooling[i].tag) }
     }
 
-    private func burning(_ recent: [String: Recent]) -> [Burn] {
+    /// Runaways (`flagged`) first, so the dropdown's four rows always include them; then by spend.
+    private func burning(_ recent: [String: Recent], flagged: Set<String>) -> [Burn] {
         let cap = store.state.calibration.cap5h
         return recent.compactMap { session, r in
-            guard r.last15 > 0, let t = r.lastTurn else { return nil }
+            guard r.last15 > 0 || flagged.contains(session), let t = r.lastTurn else { return nil }
             let perHour = r.last15 / (Self.burnLookback / 3600)
+            guard perHour >= 0.5 || flagged.contains(session) else { return nil }
             return Burn(id: session, name: names[session] ?? "…", model: Fmt.model(t.model),
                         perHour: perHour, pctPerHour: cap.map { perHour / $0 * 100 })
         }
-        .filter { $0.perHour >= 0.5 }
-        .sorted { $0.perHour > $1.perHour }
+        .sorted { a, b in
+            let (fa, fb) = (flagged.contains(a.id), flagged.contains(b.id))
+            return fa != fb ? fa : a.perHour > b.perHour
+        }
     }
 
     /// On once the pace caps the window at least 10 minutes before it resets; off once the pace
@@ -1133,7 +1140,7 @@ final class Meter: ObservableObject {
             let context = Double(t.input + t.cacheRead + t.cacheWrite)
             let rate = Pricing.rates(price, promptTokens: Int(context)) // a long prompt can cost more
             let write = rate.input * (ttl == 3600 ? 2 : 1.25)
-            let extra = context * (write - rate.cacheRead) / 1_000_000 * (t.fast ? 2 : 1)
+            let extra = context * (write - rate.cacheRead) / 1_000_000 * (t.fast && price.fast ? 2 : 1)
             guard extra >= 0.5 else { return nil }
             return Cooling(id: session, name: names[session] ?? t.project,
                            coldAt: t.at.addingTimeInterval(ttl), extra: extra,
@@ -1257,24 +1264,30 @@ final class Meter: ObservableObject {
                 h.weekRate = (atReset - w.pct) / hoursLeft
             }
             // Hourly climb from the logs, scaled to end at the week's actual %. A week Anthropic reset
-            // early climbs to then from the logs alone, drops to 0, and climbs again from there.
+            // early climbs to the last % measured before the reset (from the logs alone if none was),
+            // drops to 0, and climbs again from there.
             let restart = w.restartedAt.flatMap { $0 > start && $0 < now ? $0 : nil }
             let from = restart ?? start
             let logged = cost(from: from, to: now) / cap * 100
             let scale = logged > 0 ? w.pct / logged : 1
+            var preScale = 1.0
+            if let restart, let held = exactHistory(since: start).last(where: { $0.at < restart && $0.weekly != nil })?.weekly {
+                let loggedBefore = cost(from: start, to: held.at ?? restart) / cap * 100
+                if loggedBefore > 0 { preScale = held.pct / loggedBefore }
+            }
             var t = start
             while t < now {
                 if let restart, t >= restart, h.weekSeries.last.map({ $0.at < restart }) ?? true {
-                    h.weekSeries.append(PacePoint(at: restart, pct: cost(from: start, to: restart) / cap * 100))
+                    h.weekSeries.append(PacePoint(at: restart, pct: cost(from: start, to: restart) / cap * 100 * preScale))
                     h.weekSeries.append(PacePoint(at: restart.addingTimeInterval(1), pct: 0)) // a chart needs distinct times
                 }
                 let before = restart.map { t < $0 } ?? false
-                h.weekSeries.append(PacePoint(at: t, pct: before ? cost(from: start, to: t) / cap * 100
+                h.weekSeries.append(PacePoint(at: t, pct: before ? cost(from: start, to: t) / cap * 100 * preScale
                                                                : cost(from: from, to: t) / cap * 100 * scale))
                 t.addTimeInterval(3600)
             }
             if let restart, h.weekSeries.last.map({ $0.at < restart }) ?? true {
-                h.weekSeries.append(PacePoint(at: restart, pct: cost(from: start, to: restart) / cap * 100))
+                h.weekSeries.append(PacePoint(at: restart, pct: cost(from: start, to: restart) / cap * 100 * preScale))
                 h.weekSeries.append(PacePoint(at: restart.addingTimeInterval(1), pct: 0))
             }
             h.weekSeries.append(PacePoint(at: now, pct: w.pct))

@@ -43,8 +43,10 @@ enum Probe {
         ]
         process.currentDirectoryURL = dir
         var env = ProcessInfo.processInfo.environment
-        // Any of these would move the call off the subscription (the desktop app sets the first).
-        for key in ["ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] { env[key] = nil }
+        // Any of these would move the call off the subscription (the desktop app sets ANTHROPIC_BASE_URL):
+        // an API key or endpoint, or Bedrock, Vertex or Foundry and their settings.
+        for key in env.keys where key.hasPrefix("ANTHROPIC_") || key.hasPrefix("CLAUDE_CODE_USE_")
+            || key == "AWS_BEARER_TOKEN_BEDROCK" { env[key] = nil }
         if let dir = ShellEnv.claudeConfigDir { env["CLAUDE_CONFIG_DIR"] = dir }
         // Apps launched from Finder or at login get a bare PATH; an npm-installed claude is a
         // node script and needs node on it.
@@ -155,6 +157,8 @@ enum Probe {
     /// Looks for the `rate_limit_event` in Claude Code's stream-json output. Its
     /// `unifiedWindows` carry utilization as a fraction and resets as epoch seconds.
     static func parse(_ data: Data) -> Outcome {
+        // Each event's windows, merged: a later event updates the windows it carries and keeps the rest,
+        // should the windows ever come one per event.
         var reading: ExactReading?
         var error: String?
         for line in data.split(separator: 0x0A) {
@@ -163,7 +167,7 @@ enum Probe {
             case "rate_limit_event":
                 guard let info = obj["rate_limit_info"] as? [String: Any],
                       let windows = info["unifiedWindows"] as? [String: Any] else { continue }
-                var r = ExactReading(at: Date(), source: "probe")
+                var r = reading ?? ExactReading(at: Date(), source: "probe")
                 for (key, value) in windows {
                     guard let w = value as? [String: Any],
                           let used = (w["utilization"] as? NSNumber)?.doubleValue,
@@ -185,7 +189,7 @@ enum Probe {
         if let reading { return .reading(reading) }
         if let error {
             let lower = error.lowercased()
-            if lower.contains("login") || lower.contains("authenticat") {
+            if ["login", "authenticat", "oauth", "expired", "credential", "unauthorized"].contains(where: lower.contains) {
                 return .failed(signedOut)
             }
             return .failed(String(error.prefix(80)))

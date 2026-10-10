@@ -59,8 +59,12 @@ extension Meter {
         store.state = PersistedState()
         checkLimit = .max // the whole run's checks, not the last 200
 
-        // Every logged turn, read once; at each step the meter is handed those up to its clock.
+        // Every logged turn, read once; at each step the meter is handed those up to its clock. The logs'
+        // 8 days are counted back from the newest reading, not from today, so the same history gives the
+        // same verdict whenever it's replayed.
         let index = LogIndex()
+        let newest = HistoryLog.load().readings.map(\.at).max() ?? Date()
+        index.clock = { newest }
         index.loadCache()
         index.refresh()
         let all = index.turns
@@ -291,7 +295,12 @@ extension Meter {
                   parts[0] == Meter.fiveHourTitle || parts[0] == Meter.weeklyTitle else { continue }
             let measured = readings.compactMap { parts[0] == Meter.fiveHourTitle ? $0.fiveHour : $0.weekly }
                 .filter { Window.same($0.resetsAt, Date(timeIntervalSince1970: epoch)) }
-            guard let highest = measured.map(\.pct).max(), highest < threshold - 3 else { continue }
+            guard let highest = measured.map(\.pct).max() else {
+                unbacked += 1
+                report.failures.append("alert \(a.key) sent at \(a.at), but no reading measured that window")
+                continue
+            }
+            guard highest < threshold - 3 else { continue }
             unbacked += 1
             report.failures.append(String(format: "alert %@ sent at %@, but the window's readings never got above %.0f%%",
                                           a.key, "\(a.at)", highest))
@@ -399,10 +408,16 @@ extension Meter {
         if gateChecks < Replay.minimum.gate {
             report.failures.append("only \(gateChecks) probe gate points checked, need \(Replay.minimum.gate)")
         }
+        let checks = store.state.checks ?? []
         if accuracyUnscored > 0 {
             report.lines.append("   \(accuracyUnscored) estimates had the wrong window and went unscored.")
+            // A few are an early reset caught between readings; many are estimates drawing the wrong
+            // window, which scoring only the rest would hide.
+            let attempts = accuracyUnscored + checks.count
+            if accuracyUnscored >= 3, Double(accuracyUnscored) > 0.1 * Double(attempts) {
+                report.failures.append("\(accuracyUnscored) of \(attempts) estimates had the wrong window (over 10%)")
+            }
         }
-        let checks = store.state.checks ?? []
         // The logs reach back 8 days, so only a week that began inside them can teach the weekly cap:
         // just after a rollover there is little or nothing to check, and demanding the full count then
         // would fail a meter that is fine. The weekly floor follows how long the readings it could learn
