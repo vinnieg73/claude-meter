@@ -112,6 +112,15 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             }
         }
 
+        // Exact readings stopped while you work: once per last reading, so a new reading re-arms it.
+        if let since = s.readingsStoppedSince {
+            let why = s.probeError.map { " The probe says: \($0)." } ?? ""
+            once("stalled", since, "0", now: now,
+                 title: "Claude Meter stopped getting exact readings",
+                 body: "None since \(Fmt.when(since)), so it's estimating.\(why) Try Sync; if that fails too, "
+                     + "a Claude Code update may have changed what it reads.")
+        }
+
         // A session eating the window fast enough to look like a loop: once per session per window.
         if let resets = s.fiveHour?.resetsAt {
             for r in s.runaways {

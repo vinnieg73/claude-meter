@@ -64,7 +64,7 @@ about once a minute while you work and fills the time between from the **local l
 | Source | What | When |
 |---|---|---|
 | `~/.claude/projects/**/*.jsonl` | every Claude Code turn on this Mac: model, tokens, project | continuously (tailed every 10s); `CLAUDE_CONFIG_DIR` is honoured, read from your login shell since apps don't inherit it, and symlinked project folders are followed |
-| probe | Claude Code's `rate_limit_event` (exact) | at most once a minute, only if something was logged since the last reading and a window is already open; **Sync** on demand |
+| probe | Claude Code's `rate_limit_event` (exact) | only while a window is already open: at most once a minute if something was logged here since the last reading, else every 5 minutes (use this Mac can't see, like cloud sessions or claude.ai, moves it too); **Sync** on demand |
 | statusline tap | Claude Code's own `rate_limits` (exact) | whenever a **terminal** `claude` session redraws its statusline |
 | `tap.json` drop-in | any exact reading, from anywhere | when written |
 
@@ -247,5 +247,8 @@ at the most). A reading dated in the future is ignored, and `at` may be in secon
 ## Notifications
 
 At 80% and 95% of each window, once per window, and when a 5-hour window that passed 80%
-resets. **Send test notification** (gear or right-click menu) checks they get through; if macOS
+resets. Also once when exact readings stop: Claude Code in use (a message in the last 15 minutes)
+but no exact reading for an hour, when they normally come about once a minute. That usually means
+a Claude Code update changed what the probe or statusline reads, or a sign-out; the alert quotes
+the probe's last error. A new reading re-arms it. **Send test notification** (gear or right-click menu) checks they get through; if macOS
 is blocking them it opens the Notifications settings pane.

@@ -126,6 +126,11 @@ struct Snapshot {
     var tapSeen: Date?
     /// Any exact reading at all, so the empty 5-hour card doesn't read like a first install.
     var hasReading = false
+    /// Set to the last exact reading's time while Claude Code is in use but no exact reading has come
+    /// for an hour: the probe and the statusline have stopped working (an update, a sign-out), and
+    /// every number is an estimate. With the probe's last error, if it had one.
+    var readingsStoppedSince: Date?
+    var probeError: String?
     var menuTitle = "Claude"
     var menuPct: Double = 0
     var level: Level = .normal
@@ -174,6 +179,9 @@ final class Meter: ObservableObject {
     private var spent: [Double] = [0]
     private var active: [String] = []
     private var names: [String: String] = [:]
+    /// When this meter first had its logs to look at (its clock, so the replay's too): the readings-stopped
+    /// alert doesn't count time it wasn't running.
+    private var watchingSince: Date?
     var loaded = false
     private var scanning = false
     private var tapMTime: Date?
@@ -353,7 +361,9 @@ final class Meter: ObservableObject {
     }
 
     /// Runs the probe when there's something new to measure: the last exact reading is a minute
-    /// or more old and something has been logged since. Idle time changes nothing, so it costs nothing.
+    /// or more old and something has been logged since; or, while a window is open, five minutes old
+    /// with nothing logged here, since use this Mac can't see (cloud sessions, claude.ai, the phone)
+    /// moves it too. With no window open it waits for a message here: a probe would open one.
     /// Forced (Sync) runs regardless of timing. Either way, never when it would open a window.
     /// A failure waits before trying again: a minute, doubling to half an hour, or five minutes
     /// when only you can fix it (signed out).
@@ -380,8 +390,9 @@ final class Meter: ObservableObject {
                 let clockWentBack = last.at > now.addingTimeInterval(60)
                 let probed = lastProbe.flatMap { $0 <= now ? $0 : nil }
                 let since = clockWentBack ? (probed ?? .distantPast) : max(last.at, probed ?? .distantPast)
-                guard now.timeIntervalSince(since) >= Self.probeEvery,
-                      let latest = turns.last?.at, latest > since else { return }
+                guard now.timeIntervalSince(since) >= Self.probeEvery else { return }
+                let loggedSince = turns.last.map { $0.at > since } ?? false
+                guard loggedSince || now.timeIntervalSince(since) >= Self.idleProbeEvery else { return }
             }
         }
         // Stamped at launch, not when it answers: a turn logged while it runs is after the reading, so
@@ -668,6 +679,10 @@ final class Meter: ObservableObject {
 
     /// How far a window's % must fall, measured, to be Anthropic resetting it early (they fall by tens).
     static let restartDrop = 3.0
+    /// How often to probe an open window when nothing is logged on this Mac.
+    static let idleProbeEvery: TimeInterval = 300
+    /// How long Claude Code can be in use without an exact reading before that's a failure, not a lull.
+    static let stalledAfter: TimeInterval = 3600
     /// A window the latest reading is this much newer than its last measurement is `stale`. Ten
     /// minutes: at half an hour the weekly had already climbed from 87% to 95% on spend alone.
     static let staleAfter: TimeInterval = 600
@@ -741,6 +756,18 @@ final class Meter: ObservableObject {
             fillToday(&s, now: now)
             fillWeekShares(&s)
             s.capWarning = updateWarning(s.fiveHour)
+            // In use for an hour since the last reading (its first message after it an hour old, and one
+            // in the last 15 minutes) yet nothing exact, when readings come about once a minute while you
+            // work. Not the first message after a break: its reading is a minute away. Counted from when
+            // this meter started watching, too: work done while it was quit had no one to probe for it.
+            watchingSince = watchingSince ?? now
+            if let last = store.state.lastExact?.at, let latest = turns.last?.at, let watching = watchingSince,
+               now.timeIntervalSince(latest) < 900,
+               case let i = first(atOrAfter: max(last, watching).addingTimeInterval(1)), i < turns.count,
+               now.timeIntervalSince(turns[i].at) > Self.stalledAfter {
+                s.readingsStoppedSince = last
+                s.probeError = store.state.probeError
+            }
         }
 
         if let f = s.fiveHour {

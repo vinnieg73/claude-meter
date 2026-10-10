@@ -167,6 +167,7 @@ struct HelpView: View {
                 "When a 5-hour window that went past 80% resets, so you know you're clear.",
                 "When you're 30 minutes from hitting the 5-hour limit.",
                 "When a session runs away (see Burning now).",
+                "When exact readings stop: an hour of using Claude Code without one, so everything shown is an estimate. Usually a Claude Code update or a sign-out; try Sync.",
             ])
             Para("\"Send test notification\" checks they get through. If macOS is blocking them, it opens the settings to fix it.",
                  secondary: true)
