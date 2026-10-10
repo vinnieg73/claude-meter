@@ -4,11 +4,12 @@ Updated 2026-10-10 by Claude, from the Utilities project thread (after v0.9.8).
 
 ## Status
 
-v0.9.8 (build 21) is on GitHub (vinnieg73/claude-meter, private) and installed in `~/Applications`. Replay passes. The repo's CLAUDE.md limits work to bug fixes; features need
+v0.9.9 (build 22) is on GitHub (vinnieg73/claude-meter, private) and installed in `~/Applications`. Replay passes. The repo's CLAUDE.md limits work to bug fixes; features need
 Vinnie's OK and a dated exception note there.
 
 ## Done recently
 
+- v0.9.9: the probe runs once a minute whenever a 5-hour window is open, local activity or not, so readings are never more than about a minute old while a window is open.
 - v0.9.8: while a 5-hour window is open, the meter probes every 5 minutes even if nothing is logged on this Mac. Before, it only probed after local activity, so usage from cloud sessions, claude.ai or the phone left it stuck (on Oct 10 it showed 25% while the real number was 45 to 51%).
 - v0.9.8: one notification when exact readings stop. It fires after an hour of Claude Code use since the last reading with none arriving, and quotes the probe's last error. Replaying a week of history: 0 false alarms. It doesn't fire on the first message after a break, since a reading follows within a minute. An hour of use while the meter was quit doesn't count. A simulated 2-hour outage in replay fired it exactly once; never seen firing for real yet.
 - A weekly read-only replay check runs Mondays at 9 AM (scheduled task `claude-meter-weekly-replay`, in the desktop app's Scheduled sidebar).

@@ -196,7 +196,7 @@ struct HelpView: View {
     private var sources: some View {
         HelpSection(symbol: "dot.radiowaves.left.and.right", title: "Where the numbers come from") {
             Bullets([
-                "Exact readings come from Anthropic, about once a minute while you're working, and never while you're idle. Each uses a tiny sliver of your limit.",
+                "Exact readings come from Anthropic, once a minute while a 5-hour window is open, so use on other devices shows up too. None while no window is open, since asking would start one. Each uses a tiny sliver of your limit.",
                 "In between, the meter estimates from Claude Code's own records on this Mac.",
                 "It can't see claude.ai chat, the phone app or your other computers. The next exact reading catches up, and until then the meter leans toward showing a bit too much rather than too little.",
             ])

@@ -360,10 +360,9 @@ final class Meter: ObservableObject {
         absorb(reading)
     }
 
-    /// Runs the probe when there's something new to measure: the last exact reading is a minute
-    /// or more old and something has been logged since; or, while a window is open, five minutes old
-    /// with nothing logged here, since use this Mac can't see (cloud sessions, claude.ai, the phone)
-    /// moves it too. With no window open it waits for a message here: a probe would open one.
+    /// Runs the probe once a minute while a window is open, whether or not anything was logged here:
+    /// use this Mac can't see (cloud sessions, claude.ai, the phone) moves it too, and a probe is a
+    /// tiny Haiku turn. With no window open it waits for a message here: a probe would open one.
     /// Forced (Sync) runs regardless of timing. Either way, never when it would open a window.
     /// A failure waits before trying again: a minute, doubling to half an hour, or five minutes
     /// when only you can fix it (signed out).
@@ -385,14 +384,11 @@ final class Meter: ObservableObject {
             if let last = store.state.lastExact {
                 // Timed from the last reading or the last probe, whichever is later: a probe whose
                 // answer added nothing would otherwise run again on the next tick. A clock set back
-                // since the reading counts as due once (a probe from before it doesn't count at all),
-                // and then needs new activity like any other.
+                // since the reading counts as due (a probe from before it doesn't count at all).
                 let clockWentBack = last.at > now.addingTimeInterval(60)
                 let probed = lastProbe.flatMap { $0 <= now ? $0 : nil }
                 let since = clockWentBack ? (probed ?? .distantPast) : max(last.at, probed ?? .distantPast)
                 guard now.timeIntervalSince(since) >= Self.probeEvery else { return }
-                let loggedSince = turns.last.map { $0.at > since } ?? false
-                guard loggedSince || now.timeIntervalSince(since) >= Self.idleProbeEvery else { return }
             }
         }
         // Stamped at launch, not when it answers: a turn logged while it runs is after the reading, so
@@ -679,8 +675,6 @@ final class Meter: ObservableObject {
 
     /// How far a window's % must fall, measured, to be Anthropic resetting it early (they fall by tens).
     static let restartDrop = 3.0
-    /// How often to probe an open window when nothing is logged on this Mac.
-    static let idleProbeEvery: TimeInterval = 300
     /// How long Claude Code can be in use without an exact reading before that's a failure, not a lull.
     static let stalledAfter: TimeInterval = 3600
     /// A window the latest reading is this much newer than its last measurement is `stale`. Ten

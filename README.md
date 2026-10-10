@@ -59,12 +59,12 @@ login, weekly % in the title, notifications, the shortcut.
 ## Where the numbers come from
 
 Anthropic's limits are exact only on Anthropic's side. The meter takes an **exact reading**
-about once a minute while you work and fills the time between from the **local logs**:
+once a minute while a 5-hour window is open and fills the time between from the **local logs**:
 
 | Source | What | When |
 |---|---|---|
 | `~/.claude/projects/**/*.jsonl` | every Claude Code turn on this Mac: model, tokens, project | continuously (tailed every 10s); `CLAUDE_CONFIG_DIR` is honoured, read from your login shell since apps don't inherit it, and symlinked project folders are followed |
-| probe | Claude Code's `rate_limit_event` (exact) | only while a window is already open: at most once a minute if something was logged here since the last reading, else every 5 minutes (use this Mac can't see, like cloud sessions or claude.ai, moves it too); **Sync** on demand |
+| probe | Claude Code's `rate_limit_event` (exact) | once a minute while a window is already open, whether or not anything was logged here (use this Mac can't see, like cloud sessions or claude.ai, moves it too); with no window open, only after a message here, since a probe would open one; **Sync** on demand |
 | statusline tap | Claude Code's own `rate_limits` (exact) | whenever a **terminal** `claude` session redraws its statusline |
 | `tap.json` drop-in | any exact reading, from anywhere | when written |
 
