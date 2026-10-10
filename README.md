@@ -150,7 +150,10 @@ on a failure. It checks:
    its readings.
 
 It also fails when it ran too little to mean anything (fewer than 8 openings, 15 gate points or
-30 accuracy checks).
+30 accuracy checks). The weekly floor is lower the less of the week the logs cover: they reach back
+8 days, so just after a weekly reset there is little or nothing to check, and that isn't a failure.
+It's the full 30 once the week's readings span half a week, scaled down below that, and with under
+a day's worth it asks for none (and judges no fewer than 8 checks).
 
 Each reading is replayed with only the windows it measured: the history log also keeps windows
 carried over from earlier readings (past the 5-hour cap the probe stopped reporting the weekly), and

@@ -403,11 +403,26 @@ extension Meter {
             report.lines.append("   \(accuracyUnscored) estimates had the wrong window and went unscored.")
         }
         let checks = store.state.checks ?? []
+        // The logs reach back 8 days, so only a week that began inside them can teach the weekly cap:
+        // just after a rollover there is little or nothing to check, and demanding the full count then
+        // would fail a meter that is fine. The weekly floor follows how long the readings it could learn
+        // from span: the full count from half a week on, none below a day's worth (too few to judge by).
+        let weeklyReplayable = readings.filter { r in
+            guard let w = r.weekly else { return false }
+            return w.pct >= 5 && w.restartedLate != true && w.resetsAt.addingTimeInterval(-7 * 86400) >= coveredFrom
+        }
+        let weeklySpan = (weeklyReplayable.last?.at).map { $0.timeIntervalSince(weeklyReplayable[0].at) } ?? 0
+        let weeklyNeed = min(Replay.minimum.accuracy, Int(Double(Replay.minimum.accuracy) * weeklySpan / (3.5 * 86400)))
         for (window, name, bar) in [("5h", "5-hour", Replay.accuracyBar.fiveHour), ("week", "weekly", Replay.accuracyBar.weekly)] {
             let errors = checks.filter { $0.window == window }.map { $0.estimated - $0.exact }
-            guard errors.count >= Replay.minimum.accuracy else {
+            let need = window == "week" ? (weeklyNeed < 8 ? 0 : weeklyNeed) : Replay.minimum.accuracy
+            if need == 0, errors.count < 8 {
+                report.lines.append("4. Accuracy, \(name): \(errors.count) checks, too few to judge (the week began too recently for the logs to teach its cap)")
+                continue
+            }
+            guard errors.count >= need else {
                 report.lines.append("4. Accuracy, \(name): \(errors.count) checks")
-                report.failures.append("only \(errors.count) \(name) accuracy checks, need \(Replay.minimum.accuracy)")
+                report.failures.append("only \(errors.count) \(name) accuracy checks, need \(need)")
                 continue
             }
             let typical = errors.map(abs).reduce(0, +) / Double(errors.count)
@@ -422,7 +437,8 @@ extension Meter {
             let growth = measuredGrowth > 0 ? estimatedGrowth / measuredGrowth : 1
             report.lines.append(String(format: "4. Accuracy, %@: ±%.2f typical over %d checks (bias %+.2f, worst %+.1f), bar ±%.1f; growth %.2f× what was measured",
                                        name, typical, errors.count, bias, worst, bar, growth))
-            if abs(growth - 1) > Replay.growthBar {
+            // (Only with enough measured growth to judge by: a few points are mostly rounding.)
+            if measuredGrowth >= 5, abs(growth - 1) > Replay.growthBar {
                 report.failures.append(String(format: "%@ estimates grew %.2f× what the readings measured, outside 1 ± %.2f (a wrong cap)",
                                               name, growth, Replay.growthBar))
             }
