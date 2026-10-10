@@ -55,7 +55,7 @@ struct Burn: Identifiable {
     let perHour: Double
     /// Points of the 5-hour window per hour, once a cap is known.
     let pctPerHour: Double?
-    /// When the session last ran ("18m ago"), set only while another row shows the same name.
+    /// When the session last ran ("18m"), set only while another row shows the same name.
     var tag: String? = nil
 }
 
@@ -68,7 +68,7 @@ struct Cooling: Identifiable {
     /// What the next message would cost on top of a warm one, once the cache is cold.
     let extra: Double
     let extraPct: Double?
-    /// When the session last ran ("18m ago"), set only while another row shows the same name.
+    /// When the session last ran ("18m"), set only while another row shows the same name.
     var tag: String? = nil
 }
 
@@ -1067,11 +1067,11 @@ final class Meter: ObservableObject {
         func tag(_ id: String, _ name: String) -> String? {
             guard shared.contains(name), let at = recent[id]?.lastTurn?.at else { return nil }
             let idle = now.timeIntervalSince(at)
-            return idle < 90 ? "just now" : Fmt.duration(idle) + " ago"
+            return idle < 90 ? "now" : Fmt.duration(idle)
         }
         for i in s.burning.indices { s.burning[i].tag = tag(s.burning[i].id, s.burning[i].name) }
         for i in s.cooling.indices { s.cooling[i].tag = tag(s.cooling[i].id, s.cooling[i].name) }
-        // Two working at once both ran "just now": those say when they started instead.
+        // Two working at once both ran "now": those say when they started instead.
         let labels = s.burning.prefix(4).map { "\($0.name)\u{0}\($0.tag ?? "")" }
             + s.cooling.prefix(3).map { "\($0.name)\u{0}\($0.tag ?? "")" }
         func started(_ id: String, _ name: String, _ tag: String?) -> String? {

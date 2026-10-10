@@ -82,7 +82,8 @@ struct SessionsSection: View {
             // A grid, so the chips and the costs line up from row to row.
             Grid(alignment: .trailing, horizontalSpacing: 6, verticalSpacing: 2) {
                 ForEach(s.cooling.prefix(3)) { c in
-                    let cold = "cold in \(Fmt.duration(c.coldAt.timeIntervalSinceNow))"
+                    let left = c.coldAt.timeIntervalSinceNow
+                    let cold = left < 60 ? "cold in <1m" : "cold in \(Fmt.duration(left))"
                     let extra = Fmt.dollars(c.extra)
                     let extraPct = c.extraPct.map { "(+\(Fmt.rate($0))%)" }
                     GridRow(alignment: .firstTextBaseline) {
@@ -92,13 +93,14 @@ struct SessionsSection: View {
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
                             Text(c.name).lineLimit(1).truncationMode(.tail)
                             if let tag = c.tag {
-                                Text(tag).font(Theme.meta).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                                Text("· \(tag)").font(Theme.meta).foregroundStyle(.secondary).lineLimit(1).fixedSize()
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .help(c.name + (c.tag.map { "\n" + tagTip($0) } ?? ""))
                         .accessibilityElement(children: .ignore)
                         .accessibilityAddTraits(.isStaticText)
-                        .accessibilityLabel("\(c.name)\(c.tag.map { ", last ran \($0)" } ?? ""), \(cold), then plus \(extra)"
+                        .accessibilityLabel("\(c.name)\(c.tag.map { ", " + tagTip($0) } ?? ""), \(cold), then plus \(extra)"
                                             + (c.extraPct.map { ", plus \(Fmt.rate($0)) percent" } ?? ""))
                         ColdChip(text: cold)
                             .accessibilityHidden(true)
@@ -122,12 +124,12 @@ struct SessionsSection: View {
     }
 }
 
-/// A burning session: its share of the spend drawn behind it (the same bar as `BarRow`), with the
-/// model as a quiet tag after the name, and a warning ahead of it for a runaway.
+/// A burning session: its share of the spend drawn behind it (the same bar as `BarRow`), the model in
+/// its tooltip, and a warning ahead of it for a runaway.
 private struct SessionRow: View {
     let name: String
     let model: String
-    /// When the session last ran, beside the model, while another row shares its name.
+    /// When the session last ran, after the name, while another row shares its name.
     let tag: String?
     let figure: String
     let detail: String?
@@ -152,13 +154,14 @@ private struct SessionRow: View {
                     .frame(width: Self.warningWidth)
                     .accessibilityHidden(true)
             }
-            // The name gives way to the model (and tag), which are short and shown whole; only an absurd id
-            // (nothing real is near 24 characters) is cut, so it can't push the name out.
+            // The name has the row to itself (the model is in the tooltip); only the tag, short and shown
+            // whole, sits after it.
             Text(name).lineLimit(1).truncationMode(.tail).layoutPriority(1)
-            Text((model.count > 24 ? String(model.prefix(23)) + "…" : model) + (tag.map { " · \($0)" } ?? ""))
-                .font(Theme.meta).foregroundStyle(.secondary)
-                .lineLimit(1).fixedSize()
-                .padding(.leading, 2)
+            if let tag {
+                Text("· \(tag)").font(Theme.meta).foregroundStyle(.secondary)
+                    .lineLimit(1).fixedSize()
+                    .padding(.leading, 2)
+            }
             Spacer(minLength: 4)
             HStack(alignment: .firstTextBaseline, spacing: 0) {
                 Text(figure).monospacedDigit()
@@ -193,10 +196,18 @@ private struct SessionRow: View {
                 }
             }
         }
-        .modifier(Tip(text: warning))
+        .modifier(Tip(text: tip))
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isStaticText)
         .accessibilityLabel(label)
+    }
+
+    /// The whole name and the model, which the row leaves out, then any tag and warning.
+    private var tip: String {
+        var lines = ["\(name) · \(model)"]
+        if let tag { lines.append(tagTip(tag)) }
+        if let warning { lines.append(warning) }
+        return lines.joined(separator: "\n")
     }
 
     private var label: String {
@@ -205,6 +216,12 @@ private struct SessionRow: View {
         if let warning { parts.append("warning: \(warning)") }
         return parts.joined(separator: ", ")
     }
+}
+
+/// What a row's tooltip says about its tag: "Last ran 18m ago", "Started 9:41 PM".
+private func tagTip(_ tag: String) -> String {
+    if tag.hasPrefix("started") { return "S" + tag.dropFirst() }
+    return tag == "now" ? "Last ran just now" : "Last ran \(tag) ago"
 }
 
 /// The `Chip` look in cyan, with the text darkened in light appearances: system cyan on its own

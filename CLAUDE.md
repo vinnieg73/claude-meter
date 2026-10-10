@@ -17,8 +17,9 @@ elimination. When a fix touches a view, check it with `scripts/render-all.sh <di
 state, light and dark, from `Fixtures.swift`).
 
 Exception (2026-10-09, asked for by the user): Burning now and Going cold name sessions by the
-desktop app's thread title, and tag rows that share a name with when each last ran, done in v0.9.5.
-Scope is back to bug elimination.
+desktop app's thread title, and tag rows that share a name with when each last ran, done in v0.9.5;
+in v0.9.6 (also asked for) the model moved to the row's tooltip so names fit. Scope is back to bug
+elimination.
 
 Before calling a fix done, run `./scripts/replay.sh` and confirm PASS. It replays the real history
 log and transcripts through the working tree (read-only) and checks window openings, the probe

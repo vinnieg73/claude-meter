@@ -261,14 +261,15 @@ enum Fixtures {
         var p = critical
         let name = "An extraordinarily long project name that keeps going"
         p.snapshot.burning = [
-            Burn(id: "a", name: name, model: "Sonnet 5.5", perHour: 1240, pctPerHour: 140),
+            // Its name is shared with a cold row, so both are tagged: here the longest tag there is.
+            Burn(id: "a", name: name, model: "Sonnet 5.5", perHour: 1240, pctPerHour: 140, tag: "started 9:41 PM"),
             Burn(id: "b", name: "Another session with a very long custom title", model: "Opus 5.5", perHour: 312, pctPerHour: 38),
             Burn(id: "c", name: "Pocket Saloon", model: "Haiku 4.5", perHour: 0.04, pctPerHour: 0.02),
             Burn(id: "f", name: "Claude Meter", model: "claude-experimental-9", perHour: 12.5, pctPerHour: 7.6),
         ]
         p.snapshot.runaways = [Runaway(id: "a", name: name, pct: 64), Runaway(id: "b", name: "Another", pct: 21)]
         p.snapshot.cooling = [
-            Cooling(id: "d", name: name, coldAt: now.addingTimeInterval(59 * 60), extra: 41.8, extraPct: 25),
+            Cooling(id: "d", name: name, coldAt: now.addingTimeInterval(59 * 60), extra: 41.8, extraPct: 25, tag: "59m"),
             Cooling(id: "e", name: "Short", coldAt: now.addingTimeInterval(60), extra: 0.01, extraPct: nil),
         ]
         p.snapshot.todayCost = 4_812

@@ -28,7 +28,8 @@ The ring fills to the exact 5-hour %.
   points of the 5-hour window per hour. Titles come from the desktop app's session records
   (`~/Library/Application Support/Claude/claude-code-sessions`, read once a minute), else the
   transcripts' `custom-title` / `agent-name` lines, else the project. When two rows in Burning now
-  and Going cold share a name (two threads in one folder), each says when it last ran.
+  and Going cold share a name (two threads in one folder), each says when it last ran ("· 4m").
+  Hover a row for its whole name and, in Burning now, its model.
 - **Going cold**: sessions idle 15+ minutes whose 1-hour prompt cache expires soon, and what
   their next message would cost on top of a warm one once it has (the whole context is
   re-written at 2x input instead of read at the cache price).
