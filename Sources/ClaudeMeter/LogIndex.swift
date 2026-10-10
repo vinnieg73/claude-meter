@@ -114,6 +114,9 @@ final class LogIndex: @unchecked Sendable {
     private var projectOfSession: [String: String] = [:]
     private var customTitles: [String: String] = [:]
     private var agentNames: [String: String] = [:]
+    /// The desktop app's titles, refound with the transcripts once a minute.
+    private let desktop = DesktopTitles()
+    private var desktopTitles: [String: String] = [:]
     /// Uptime, not the wall clock: setting the clock back would otherwise pause these.
     private var lastSaved: TimeInterval = -.infinity
     /// Recent transcripts, refound once a minute.
@@ -140,11 +143,12 @@ final class LogIndex: @unchecked Sendable {
     }()
     private let iso = ISO8601DateFormatter()
 
-    /// What the app calls each session: its title if it has one, else its project.
+    /// What the app calls each session: its desktop app title, else its own title, else its project.
     var sessionNames: [String: String] {
         var names = projectOfSession
         names.merge(agentNames) { $1 }
         names.merge(customTitles) { $1 }
+        names.merge(desktopTitles.filter { names[$0.key] != nil }) { $1 }
         return names
     }
 
@@ -159,6 +163,7 @@ final class LogIndex: @unchecked Sendable {
         let uptime = ProcessInfo.processInfo.systemUptime
         if uptime - lastDiscovery > 60 {
             discover(cutoff: cutoff)
+            desktopTitles = desktop.refresh()
             lastDiscovery = uptime
         }
         var changed = false

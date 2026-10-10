@@ -56,7 +56,7 @@ struct SessionsSection: View {
 
             VStack(spacing: 1) {
                 ForEach(rows) { b in
-                    SessionRow(name: b.name, model: b.model,
+                    SessionRow(name: b.name, model: b.model, tag: b.tag,
                                figure: Fmt.dollars(b.perHour),
                                detail: b.pctPerHour.map { "+\(Fmt.rate($0))%" },
                                fraction: top > 0 ? b.perHour / top : 0,
@@ -88,12 +88,18 @@ struct SessionsSection: View {
                     GridRow(alignment: .firstTextBaseline) {
                         // A row's modifiers land on each of its cells, so the one spoken description
                         // sits on the first cell and the others stay silent.
-                        Text(c.name).lineLimit(1).truncationMode(.tail)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityAddTraits(.isStaticText)
-                            .accessibilityLabel("\(c.name), \(cold), then plus \(extra)"
-                                                + (c.extraPct.map { ", plus \(Fmt.rate($0)) percent" } ?? ""))
+                        // The name gives way to the tag, which is short and shown whole.
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(c.name).lineLimit(1).truncationMode(.tail)
+                            if let tag = c.tag {
+                                Text(tag).font(Theme.meta).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityAddTraits(.isStaticText)
+                        .accessibilityLabel("\(c.name)\(c.tag.map { ", last ran \($0)" } ?? ""), \(cold), then plus \(extra)"
+                                            + (c.extraPct.map { ", plus \(Fmt.rate($0)) percent" } ?? ""))
                         ColdChip(text: cold)
                             .accessibilityHidden(true)
                         HStack(alignment: .firstTextBaseline, spacing: 3) {
@@ -121,6 +127,8 @@ struct SessionsSection: View {
 private struct SessionRow: View {
     let name: String
     let model: String
+    /// When the session last ran, beside the model, while another row shares its name.
+    let tag: String?
     let figure: String
     let detail: String?
     /// 0...1 of the row's width.
@@ -144,10 +152,10 @@ private struct SessionRow: View {
                     .frame(width: Self.warningWidth)
                     .accessibilityHidden(true)
             }
-            // The name gives way to the model, which is short and shown whole; only an absurd id
+            // The name gives way to the model (and tag), which are short and shown whole; only an absurd id
             // (nothing real is near 24 characters) is cut, so it can't push the name out.
             Text(name).lineLimit(1).truncationMode(.tail).layoutPriority(1)
-            Text(model.count > 24 ? String(model.prefix(23)) + "…" : model)
+            Text((model.count > 24 ? String(model.prefix(23)) + "…" : model) + (tag.map { " · \($0)" } ?? ""))
                 .font(Theme.meta).foregroundStyle(.secondary)
                 .lineLimit(1).fixedSize()
                 .padding(.leading, 2)

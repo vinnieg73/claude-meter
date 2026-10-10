@@ -25,8 +25,10 @@ The ring fills to the exact 5-hour %.
   shows the typical error. Readings come about once a minute while you work, so comparing with the
   previous one would measure almost nothing. Whole percents make ±0.5 the floor.
 - **Burning now**: each session that spent in the last 15 minutes, by title, with $/hr and
-  points of the 5-hour window per hour. Titles come from the transcripts' `custom-title` /
-  `agent-name` lines.
+  points of the 5-hour window per hour. Titles come from the desktop app's session records
+  (`~/Library/Application Support/Claude/claude-code-sessions`, read once a minute), else the
+  transcripts' `custom-title` / `agent-name` lines, else the project. When two rows in Burning now
+  and Going cold share a name (two threads in one folder), each says when it last ran.
 - **Going cold**: sessions idle 15+ minutes whose 1-hour prompt cache expires soon, and what
   their next message would cost on top of a warm one once it has (the whole context is
   re-written at 2x input instead of read at the cache price).

@@ -55,6 +55,8 @@ struct Burn: Identifiable {
     let perHour: Double
     /// Points of the 5-hour window per hour, once a cap is known.
     let pctPerHour: Double?
+    /// When the session last ran ("18m ago"), set only while another row shows the same name.
+    var tag: String? = nil
 }
 
 /// A session idle long enough to stop burning, whose prompt cache will expire before long.
@@ -66,6 +68,8 @@ struct Cooling: Identifiable {
     /// What the next message would cost on top of a warm one, once the cache is cold.
     let extra: Double
     let extraPct: Double?
+    /// When the session last ran ("18m ago"), set only while another row shows the same name.
+    var tag: String? = nil
 }
 
 /// A session eating the 5-hour window fast enough to look like a runaway loop.
@@ -730,6 +734,7 @@ final class Meter: ObservableObject {
             s.burning = burning(recent)
             s.runaways = runaways(recent)
             s.cooling = cooling(recent, now: now)
+            tagSharedNames(&s, recent, now: now)
             fillToday(&s, now: now)
             fillWeekShares(&s)
             s.capWarning = updateWarning(s.fiveHour)
@@ -1050,6 +1055,32 @@ final class Meter: ObservableObject {
             recent[t.session] = r
         }
         return recent
+    }
+
+    /// Two sessions under one name (two threads in one folder, say) would read as one session both
+    /// burning and going cold, so each such row is tagged with when its session last ran.
+    private func tagSharedNames(_ s: inout Snapshot, _ recent: [String: Recent], now: Date) {
+        // Only the rows the dropdown has room for (`SessionsSection`).
+        let shown = s.burning.prefix(4).map(\.name) + s.cooling.prefix(3).map(\.name)
+        let shared = Set(shown.filter { name in shown.filter { $0 == name }.count > 1 })
+        guard !shared.isEmpty else { return }
+        func tag(_ id: String, _ name: String) -> String? {
+            guard shared.contains(name), let at = recent[id]?.lastTurn?.at else { return nil }
+            let idle = now.timeIntervalSince(at)
+            return idle < 90 ? "just now" : Fmt.duration(idle) + " ago"
+        }
+        for i in s.burning.indices { s.burning[i].tag = tag(s.burning[i].id, s.burning[i].name) }
+        for i in s.cooling.indices { s.cooling[i].tag = tag(s.cooling[i].id, s.cooling[i].name) }
+        // Two working at once both ran "just now": those say when they started instead.
+        let labels = s.burning.prefix(4).map { "\($0.name)\u{0}\($0.tag ?? "")" }
+            + s.cooling.prefix(3).map { "\($0.name)\u{0}\($0.tag ?? "")" }
+        func started(_ id: String, _ name: String, _ tag: String?) -> String? {
+            guard let tag, labels.filter({ $0 == "\(name)\u{0}\(tag)" }).count > 1,
+                  let first = turns.first(where: { $0.session == id }) else { return tag }
+            return "started " + Fmt.when(first.at)
+        }
+        for i in s.burning.indices { s.burning[i].tag = started(s.burning[i].id, s.burning[i].name, s.burning[i].tag) }
+        for i in s.cooling.indices { s.cooling[i].tag = started(s.cooling[i].id, s.cooling[i].name, s.cooling[i].tag) }
     }
 
     private func burning(_ recent: [String: Recent]) -> [Burn] {
