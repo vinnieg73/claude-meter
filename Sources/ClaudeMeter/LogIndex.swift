@@ -286,7 +286,7 @@ final class LogIndex: @unchecked Sendable {
                 lineStart = newline + 1
                 if line.range(of: Self.usageMarker) != nil, line.range(of: Self.assistantMarker) != nil {
                     autoreleasepool {
-                        if let turn = parseTurn(Data(line), now: now), turn.at >= cutoff, keep(turn) { changed = true }
+                        if let turn = parseTurn(Data(line)), turn.at >= cutoff, keep(turn) { changed = true }
                     }
                 } else if line.count < 4096,
                           line.range(of: Self.titleMarker) != nil || line.range(of: Self.agentMarker) != nil {
@@ -314,7 +314,7 @@ final class LogIndex: @unchecked Sendable {
         return true
     }
 
-    private func parseTurn(_ line: Data, now: Date) -> Turn? {
+    private func parseTurn(_ line: Data) -> Turn? {
         guard let entry = try? decoder.decode(LogLine.self, from: line),
               entry.type == "assistant",
               let message = entry.message, var usage = message.usage,
@@ -322,7 +322,9 @@ final class LogIndex: @unchecked Sendable {
               let stamp = entry.timestamp,
               let stamped = isoFrac.date(from: stamp) ?? iso.date(from: stamp) else { return nil }
         // A clock that ran ahead leaves lines dated in the future; they happened by now at the latest.
-        let at = min(stamped, now)
+        // The real now, not `clock()`: the replay's clock stops at its newest reading, and turns logged
+        // after it keep their own times.
+        let at = min(stamped, Date())
         // Some versions logged the counts only per iteration, leaving the totals at zero.
         if usage.isEmpty, let iterations = usage.iterations, !iterations.isEmpty {
             usage = iterations.reduce(into: LogLine.Usage()) { $0.add($1) }
@@ -467,9 +469,14 @@ private struct LogLine: Decodable {
             output_tokens = (output_tokens ?? 0) + (other.output_tokens ?? 0)
             cache_read_input_tokens = (cache_read_input_tokens ?? 0) + (other.cache_read_input_tokens ?? 0)
             cache_creation_input_tokens = (cache_creation_input_tokens ?? 0) + (other.cache_creation_input_tokens ?? 0)
+            // Each part's own split: one without the 5m/1h breakdown wrote its total at 5 minutes, as
+            // `parseTurn` reads a whole turn, rather than adding nothing to a breakdown that now exists.
+            let other1h = other.cache_creation?.ephemeral_1h_input_tokens ?? 0
+            let other5m = other.cache_creation?.ephemeral_5m_input_tokens
+                ?? max(0, (other.cache_creation_input_tokens ?? 0) - other1h)
             var cc = cache_creation ?? CacheCreation()
-            cc.ephemeral_5m_input_tokens = (cc.ephemeral_5m_input_tokens ?? 0) + (other.cache_creation?.ephemeral_5m_input_tokens ?? 0)
-            cc.ephemeral_1h_input_tokens = (cc.ephemeral_1h_input_tokens ?? 0) + (other.cache_creation?.ephemeral_1h_input_tokens ?? 0)
+            cc.ephemeral_5m_input_tokens = (cc.ephemeral_5m_input_tokens ?? 0) + other5m
+            cc.ephemeral_1h_input_tokens = (cc.ephemeral_1h_input_tokens ?? 0) + other1h
             cache_creation = cc
             if other.speed == "fast" { speed = "fast" }
         }

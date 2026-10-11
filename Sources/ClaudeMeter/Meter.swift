@@ -44,7 +44,11 @@ struct WindowView {
     /// Anthropic reset it in between. No alert is raised from it; it is raised once it is measured.
     var stale = false
 
-    var level: Level { pct >= 90 ? .critical : pct >= 70 ? .warn : .normal }
+    /// From the whole percent shown, so "70%" is never drawn in the colour of 69.
+    var level: Level {
+        let shown = pct.rounded()
+        return shown >= 90 ? .critical : shown >= 70 ? .warn : .normal
+    }
 }
 
 /// A session spending right now.
@@ -415,8 +419,11 @@ final class Meter: ObservableObject {
                 // A minute at first, doubling to half an hour; a failure only you can fix (signed out,
                 // no CLI) waits five minutes: such a probe fails at once and spends nothing, so the
                 // wait only limits how often it starts, and you are noticed back soon after you log in.
-                probeFailures += 1
-                let wait = Probe.needsYou(reason) ? 300 : min(1800, 60 * pow(2, Double(probeFailures - 1)))
+                // One you fix doesn't count toward the doubling: once you've logged in, an ordinary failure
+                // starts again from a minute.
+                let needsYou = Probe.needsYou(reason)
+                probeFailures = needsYou ? 0 : probeFailures + 1
+                let wait = needsYou ? 300 : min(1800, 60 * pow(2, Double(probeFailures - 1)))
                 store.state.probeError = reason
                 store.state.probeRetryAt = clock().addingTimeInterval(wait)
             }
@@ -540,17 +547,20 @@ final class Meter: ObservableObject {
                 if !measuredNow, old.restartedAt != nil { return (old, false) }
                 // Measured now, a drop of a few points is Anthropic resetting the window's usage
                 // before its time; it happened after the last higher measurement. A smaller one is
-                // an old number re-sent. Otherwise the window keeps any such reset it had.
-                if measuredNow, new.pct < old.pct - 0.5, new.pct >= old.pct - Self.restartDrop { return (old, false) }
-                if new.pct < old.pct - Self.restartDrop {
+                // an old number re-sent, unless it fell to nothing from a point or more: a window reset
+                // early while it was still small. Otherwise the window keeps any such reset it had.
+                let toNothing = measuredNow && new.pct < 0.5 && old.pct >= 1
+                if measuredNow, !toNothing, new.pct < old.pct - 0.5, new.pct >= old.pct - Self.restartDrop { return (old, false) }
+                if new.pct < old.pct - Self.restartDrop || toNothing {
                     Self.markRestart(&new, after: old)
                 } else {
                     new.restartedAt = old.restartedAt
                     new.restartedLate = old.restartedLate
                 }
-            } else if measuredNow, new.resetsAt.addingTimeInterval(-span) < old.resetsAt.addingTimeInterval(-60) {
+            } else if new.resetsAt.addingTimeInterval(-span) < old.resetsAt.addingTimeInterval(-60) {
                 // A later window that began before the held one was due to reset (a window opens at
-                // or after the last one's reset): Anthropic ended that one early.
+                // or after the last one's reset): Anthropic ended that one early. From any source: a
+                // later window can't be an old number re-sent, so the statusline seeing it first counts.
                 Self.markRestart(&new, after: old)
             }
         }
@@ -1227,9 +1237,14 @@ final class Meter: ObservableObject {
             // the live estimate works; the logs alone where no reading covers it.
             // `reset` is the reset its readings are filed under, which is later than `end` for a window
             // Anthropic cut short; the spend runs only to `end`, the rest being the next window's.
+            // Past its last reading a window is extended at its own rate (its spend up to that reading per
+            // point it measured), not today's cap: the cap moves with how much was used off this Mac, and
+            // a window from days ago drawn with today's would peak above what its readings say.
             func peak(_ start: Date, _ end: Date, reset: Date) -> (Double, Bool) {
                 if let e = latestExact[key(reset)] {
-                    return (e.pct + cost(from: e.at, to: min(end, now)) / cap * 100, true)
+                    let before = cost(from: start, to: e.at)
+                    let own = e.pct >= 5 && before > 0 ? before / (e.pct / 100) : cap
+                    return (e.pct + cost(from: e.at, to: min(end, now)) / own * 100, true)
                 }
                 return (cost(from: start, to: min(end, now)) / cap * 100, false)
             }

@@ -41,10 +41,20 @@ enum Main {
         if args.contains("--replay") { exit(Replay.run()) }
         if args.contains("--unregister-login") { return Status.unregisterLogin() }
 
-        // Two meters would post every alert twice, probe twice, and overwrite each other's state.
-        if let id = Bundle.main.bundleIdentifier,
-           NSRunningApplication.runningApplications(withBundleIdentifier: id).contains(where: { $0 != .current }) {
-            return print("Claude Meter is already running.")
+        // Two meters would post every alert twice, probe twice, and overwrite each other's state. One
+        // that's quitting (it saves on the way out, for up to 2 seconds) is given 3 to finish, so a quick
+        // relaunch doesn't find it still listed and leave no meter at all.
+        if let id = Bundle.main.bundleIdentifier {
+            func others() -> Bool {
+                NSRunningApplication.runningApplications(withBundleIdentifier: id)
+                    .contains { $0 != .current && !$0.isTerminated }
+            }
+            var waited = 0
+            while others(), waited < 30 {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.1)) // lets the list of running apps refresh
+                waited += 1
+            }
+            if others() { return print("Claude Meter is already running.") }
         }
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory) // menu bar only, no Dock icon

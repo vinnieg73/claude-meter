@@ -4,11 +4,22 @@ Updated 2026-10-10 by Claude, from the Utilities project thread (after v0.9.8).
 
 ## Status
 
-v0.9.9 (build 22) is on GitHub (vinnieg73/claude-meter, private) and installed in `~/Applications`. Replay passes. The repo's CLAUDE.md limits work to bug fixes; features need
+v0.9.10 (build 23) is on GitHub (vinnieg73/claude-meter, private) and installed in `~/Applications`. Replay passes. The repo's CLAUDE.md limits work to bug fixes; features need
 Vinnie's OK and a dated exception note there.
 
 ## Done recently
 
+- v0.9.10: 10 fixes from the Oct 10 swarm audit (report `claude-meter-swarm-audit-2026-10-10` in project files):
+  - cache writes from per-step usage
+  - `state.json` never overwritten after a read error
+  - replay's unbacked-alert check, turn times and coverage
+  - relaunch while the old copy is still quitting
+  - colour follows the rounded %
+  - two early-reset gaps
+  - retry wait after a sign-out
+  - plan-fit verdict
+
+  History now extends past windows at their own rate instead of today's cap.
 - v0.9.9: the probe runs once a minute whenever a 5-hour window is open, local activity or not, so readings are never more than about a minute old while a window is open.
 - v0.9.8: while a 5-hour window is open, the meter probes every 5 minutes even if nothing is logged on this Mac. Before, it only probed after local activity, so usage from cloud sessions, claude.ai or the phone left it stuck (on Oct 10 it showed 25% while the real number was 45 to 51%).
 - v0.9.8: one notification when exact readings stop. It fires after an hour of Claude Code use since the last reading with none arriving, and quotes the probe's last error. Replaying a week of history: 0 false alarms. It doesn't fire on the first message after a break, since a reading follows within a minute. An hour of use while the meter was quit doesn't count. A simulated 2-hour outage in replay fired it exactly once; never seen firing for real yet.
@@ -36,6 +47,8 @@ Vinnie's OK and a dated exception note there.
 - Vinnie's Mac needs his own typed go-ahead for each commit and push.
 - The Oct 15 check's cap ranges were updated for v0.9.7's lower caps (about $144 / $1.1k). If caps move again, update `~/.claude/scheduled-tasks/claude-meter-oct-15-check`.
 - Known limit: with no 5-hour window open by this Mac's reckoning (the last reading's window ended and nothing was logged here since), the meter can't probe, because a probe would open a window. Use elsewhere then shows up only at the next message on this Mac (Sync won't probe either, for the same reason).
+- Use off this Mac (cloud sessions, claude.ai) shrinks the calibrated cap, because each reading divides local spend by a % that includes the other use. On Oct 10 it fell from about $198 to $76. The live % stays exact (a reading every minute). Burning now's %/hr and the estimate between readings run high on cloud days.
+- Tried and rejected: skipping calibrations that imply a much smaller cap (to ignore cloud use). Estimates and the pace then grew only 0.5x as fast as the readings on cloud days, so "capped at" and the cap warning would come late. Replay's growth check fails.
 - Tried and rejected: a 5-minute hold on the probe gate after a reset. It fails replay by blocking probes after real window openings.
 - The 5-hour % weights turns by API list price (`Pricing.swift`). A new model id falls back to the newest price in its family. Update the table when models change.
 - Desktop thread titles come from `~/Library/Application Support/Claude/claude-code-sessions/*/local_*.json`, an undocumented format. If it changes, rows quietly fall back to folder names.

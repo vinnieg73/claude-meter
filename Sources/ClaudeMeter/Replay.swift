@@ -65,7 +65,9 @@ extension Meter {
         let index = LogIndex()
         let newest = HistoryLog.load().readings.map(\.at).max() ?? Date()
         index.clock = { newest }
-        index.loadCache()
+        // Read from scratch, not from the app's cache: that holds only what the app's own 8 days
+        // kept, and with the horizon counted back from an older reading it would leave a stretch
+        // claimed as covered but never read.
         index.refresh()
         let all = index.turns
         coveredFrom = index.coveredFrom
@@ -293,11 +295,14 @@ extension Meter {
             let parts = a.key.split(separator: "|")
             guard parts.count == 3, let epoch = Double(parts[1]), let threshold = Double(parts[2]), threshold >= 50,
                   parts[0] == Meter.fiveHourTitle || parts[0] == Meter.weeklyTitle else { continue }
-            let measured = readings.compactMap { parts[0] == Meter.fiveHourTitle ? $0.fiveHour : $0.weekly }
+            // Readings up to the alert, and the few minutes after it the next reading takes: not one hours
+            // later that happened to reach the threshold once real use caught up.
+            let measured = readings.filter { $0.at <= a.at.addingTimeInterval(900) }
+                .compactMap { parts[0] == Meter.fiveHourTitle ? $0.fiveHour : $0.weekly }
                 .filter { Window.same($0.resetsAt, Date(timeIntervalSince1970: epoch)) }
             guard let highest = measured.map(\.pct).max() else {
                 unbacked += 1
-                report.failures.append("alert \(a.key) sent at \(a.at), but no reading measured that window")
+                report.failures.append("alert \(a.key) sent at \(a.at), but no reading had measured that window by then")
                 continue
             }
             guard highest < threshold - 3 else { continue }

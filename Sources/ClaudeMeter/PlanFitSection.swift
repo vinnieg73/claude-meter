@@ -43,7 +43,7 @@ struct PlanFitSection: View {
         let tone: Verdict.Tone = current.fits ? .fits : .trouble
         if current.fits {
             let smaller = h.plans.filter { $0.plan.multiplier < current.plan.multiplier && $0.fits }
-                .max { $0.plan.multiplier < $1.plan.multiplier }
+                .min { $0.plan.multiplier < $1.plan.multiplier }
             if let smaller { return Verdict(text: "\(smaller.plan.name) would have covered this week too.", tone: tone) }
             return Verdict(text: "\(current.plan.name) has covered this week, and this pace stays inside it.", tone: tone)
         }

@@ -213,15 +213,21 @@ final class StateStore {
     private var unreadable = false
 
     init() {
-        if let data = try? Data(contentsOf: Paths.state) {
+        do {
+            let data = try Data(contentsOf: Paths.state)
             if let saved = try? JSONCoding.decoder().decode(PersistedState.self, from: data) {
                 state = saved
             } else {
                 state = PersistedState()
                 unreadable = true
             }
-        } else {
+        } catch {
             state = PersistedState()
+            // No file yet is a first launch. Any other failure (a permission, a disk error) is a file
+            // that's there but couldn't be read: set it aside at the first save, don't overwrite it.
+            let missing = (error as NSError).domain == NSCocoaErrorDomain
+                && (error as NSError).code == NSFileReadNoSuchFileError
+            unreadable = !missing
         }
         let now = Date()
         // A reading dated in the future would block every later one; drop it and take a new one.
@@ -244,8 +250,13 @@ final class StateStore {
         guard !readOnly, let data = try? JSONCoding.encoder(pretty: true).encode(state) else { return }
         if unreadable {
             let stamp = Int(Date().timeIntervalSince1970)
-            try? FileManager.default.moveItem(at: Paths.state,
-                                              to: Paths.support.appendingPathComponent("state.unreadable-\(stamp).json"))
+            do {
+                try FileManager.default.moveItem(at: Paths.state,
+                                                 to: Paths.support.appendingPathComponent("state.unreadable-\(stamp).json"))
+            } catch {
+                // Couldn't set it aside: leave it be rather than write over it.
+                if FileManager.default.fileExists(atPath: Paths.state.path) { return }
+            }
             unreadable = false
         }
         try? data.write(to: Paths.state, options: .atomic)
