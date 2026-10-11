@@ -4,7 +4,7 @@ Updated 2026-10-11 by Claude, from the Utilities project thread (v0.9.13 on bran
 
 ## Status
 
-v0.9.13 (build 26) is committed on the local branch `fix/audit-2026-10-11`, not pushed, and **not yet built**: it was written in a container with no Swift compiler. Before merging: `scripts/build.sh`, `./scripts/replay.sh` (check the new "6. Synthetic" line passes), `scripts/render-all.sh <dir>` (Help and the History "fits" fixture changed), then `--install` and `ClaudeMeter --status`. v0.9.12 (build 25) is on GitHub (vinnieg73/claude-meter, private) and installed in `~/Applications`. Replay fails only the weekly growth check, on today's cloud-heavy data (see v0.9.12 below); it should pass again once those days age out of its 8 days. The repo's CLAUDE.md limits work to bug fixes; features need
+v0.9.13 (build 26) is merged to `main` (PR #1) and installed in `~/Applications` (2026-10-11): it compiled cleanly (one async-alternative warning in Notifier.swift), all 30 renders look right, and `--status` shows a fresh probe reading. Replay: "6. Synthetic" runs 8 checks, all passing. Four data-driven FAILs remain ("This week" shares over the weekly card on 2026-10-11, 5-hour growth 1.25x and ±2.21, weekly growth 1.17x), identical on v0.9.12 against the same history, so they come from today's cloud-heavy data, not v0.9.13; they should clear as those days age out of the 8-day replay. The repo's CLAUDE.md limits work to bug fixes; features need
 Vinnie's OK and a dated exception note there.
 
 ## Done recently
