@@ -10,6 +10,7 @@ enum HistoryLog {
     static func append(_ reading: ExactReading) {
         guard var line = try? JSONCoding.encoder().encode(reading) else { return }
         line.append(0x0A)
+        Paths.makeSupport()
         let fd = open(Paths.history.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
         guard fd >= 0 else { return }
         defer { close(fd) }

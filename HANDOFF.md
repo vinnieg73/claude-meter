@@ -4,11 +4,23 @@ Updated 2026-10-10 by Claude, from the Utilities project thread (after v0.9.8).
 
 ## Status
 
-v0.9.11 (build 24) is on GitHub (vinnieg73/claude-meter, private) and installed in `~/Applications`. Replay passes. The repo's CLAUDE.md limits work to bug fixes; features need
+v0.9.12 (build 25) is on GitHub (vinnieg73/claude-meter, private) and installed in `~/Applications`. Replay fails only the weekly growth check, on today's cloud-heavy data (see v0.9.12 below); it should pass again once those days age out of its 8 days. The repo's CLAUDE.md limits work to bug fixes; features need
 Vinnie's OK and a dated exception note there.
 
 ## Done recently
 
+- v0.9.12: 9 of the 12 'skip' findings:
+  - the menu bar cap shows the time only
+  - a late copy marks a turn fast
+  - old model ids priced right
+  - a reset alert held until notifications are allowed
+  - the shortcut message gets its own slot
+  - legacy cache marks re-read once
+  - coverage moves with discovery
+  - no folders created by read-only runs
+  - replay floors scaled for short histories
+
+  Replay's weekly growth check fails at 0.87x on today's data, identically on v0.9.11: cloud work raises the weekly % with no local spend.
 - v0.9.11: the new "Night Shift" app icon (design in `design/icon-night-shift/`, drawn by `scripts/make-icon.swift`). It also fixes 22 of the 26 open findings in `claude-meter-open-findings-2026-10-11` (project files). Not done, on purpose:
   - #9 (Going cold tier): one session in a day mixed 5m and 1h cache writes, and the new rule would have hidden it.
   - #17 (probe child leak): no orphaned probe processes after hours of once-a-minute probing, so it isn't real.

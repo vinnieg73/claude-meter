@@ -13,7 +13,7 @@ struct FooterView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             sourcesLine
-            ForEach([meter.loginError, meter.notice].compactMap { $0 }, id: \.self) { message in
+            ForEach([meter.loginError, meter.notice, meter.hotkeyNotice].compactMap { $0 }, id: \.self) { message in
                 line(message, symbol: "exclamationmark.circle.fill", tint: .red)
             }
             buttons

@@ -413,12 +413,16 @@ extension Meter {
         report.lines.append("2. Probe gate: \(gateChecks) points checked.")
         report.lines.append("3. Alerts: \(alerts.count) sent, \(duplicates) duplicate, \(unbacked) unbacked by a reading, \(missing) missing of \(owed.count) called for"
                             + (restarts.isEmpty ? "." : ", across \(restarts.count) early reset\(restarts.count == 1 ? "" : "s") (\(restarts.map(\.window).joined(separator: ", "))) that re-arm them."))
-        if openingChecks < Replay.minimum.openings || openingSkipped > openingChecks {
+        // The floors in full from three days of readings on; a newer install, with less to replay, is held
+        // to its share of them rather than failing for history it doesn't have yet.
+        let history = min(1, end.timeIntervalSince(start) / (3 * 86400))
+        func floor(_ full: Int) -> Int { Int(Double(full) * history) }
+        if openingChecks < floor(Replay.minimum.openings) || openingSkipped > openingChecks {
             report.failures.append("only \(openingChecks) window openings checked (\(openingSkipped) skipped), "
-                                   + "need \(Replay.minimum.openings)")
+                                   + "need \(floor(Replay.minimum.openings))")
         }
-        if gateChecks < Replay.minimum.gate {
-            report.failures.append("only \(gateChecks) probe gate points checked, need \(Replay.minimum.gate)")
+        if gateChecks < floor(Replay.minimum.gate) {
+            report.failures.append("only \(gateChecks) probe gate points checked, need \(floor(Replay.minimum.gate))")
         }
         let checks = store.state.checks ?? []
         if accuracyUnscored > 0 {
@@ -442,7 +446,7 @@ extension Meter {
         let weeklyNeed = min(Replay.minimum.accuracy, Int(Double(Replay.minimum.accuracy) * weeklySpan / (3.5 * 86400)))
         for (window, name, bar) in [("5h", "5-hour", Replay.accuracyBar.fiveHour), ("week", "weekly", Replay.accuracyBar.weekly)] {
             let errors = checks.filter { $0.window == window }.map { $0.estimated - $0.exact }
-            let need = window == "week" ? (weeklyNeed < 8 ? 0 : weeklyNeed) : Replay.minimum.accuracy
+            let need = window == "week" ? (weeklyNeed < 8 ? 0 : weeklyNeed) : floor(Replay.minimum.accuracy)
             if need == 0, errors.count < 8 {
                 report.lines.append("4. Accuracy, \(name): \(errors.count) checks, too few to judge (the week began too recently for the logs to teach its cap)")
                 continue

@@ -39,6 +39,15 @@ enum Pricing {
         ("claude-sonnet-4", Price(input: 3, output: 15, cacheRead: 0.30)),
         ("claude-haiku-5-5", haiku55),
         ("claude-haiku-4-5", Price(input: 1, output: 5, cacheRead: 0.10)),
+        // Older ids, so they aren't priced as the newest of their family: the "-0" aliases (a "-0"
+        // reads as a version, so the prefix rows above don't cover them) and the 3.x models.
+        ("claude-opus-4-0", Price(input: 15, output: 75, cacheRead: 1.50)),
+        ("claude-sonnet-4-0", Price(input: 3, output: 15, cacheRead: 0.30)),
+        ("claude-3-7-sonnet", Price(input: 3, output: 15, cacheRead: 0.30)),
+        ("claude-3-5-sonnet", Price(input: 3, output: 15, cacheRead: 0.30)),
+        ("claude-3-5-haiku", Price(input: 0.80, output: 4, cacheRead: 0.08)),
+        ("claude-3-opus", Price(input: 15, output: 75, cacheRead: 1.50)),
+        ("claude-3-haiku", Price(input: 0.25, output: 1.25, cacheRead: 0.03)),
     ]
 
     /// Haiku 5.5: $0.10 / $0.50 for a prompt up to 100K tokens, $0.50 / $2.50 beyond; cache reads 0.1x input.

@@ -49,6 +49,7 @@ struct Turn: Codable {
     func grows(_ other: Turn) -> Bool {
         other.output > output || other.input > input || other.cacheRead > cacheRead
             || other.write5m > write5m || other.write1h > write1h
+            || (other.fast && !fast) // a later copy may be the first to say it ran in fast mode
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -167,9 +168,10 @@ final class LogIndex: @unchecked Sendable {
     func refresh() -> Bool {
         let now = clock()
         let cutoff = now.addingTimeInterval(-horizon)
-        coveredFrom = max(coveredFrom, cutoff)
         let uptime = ProcessInfo.processInfo.systemUptime
         if uptime - lastDiscovery > 60 {
+            // Moved on with a walk of the tree, not every refresh: it says what the files found cover.
+            coveredFrom = max(coveredFrom, cutoff)
             discover(cutoff: cutoff)
             desktopTitles = desktop.refresh()
             lastDiscovery = uptime
@@ -196,7 +198,8 @@ final class LogIndex: @unchecked Sendable {
                 marks[path] = mark
                 continue
             }
-            if mark.offset > 0, let seen = mark.head, Self.head(of: path) != seen {
+            // A mark from before heads were kept (nil) can't vouch for the file either: read it again once.
+            if mark.offset > 0, Self.head(of: path) != mark.head {
                 mark = Mark(offset: 0, inode: inode)
             }
             if read(url, from: mark.offset, inode: inode, cutoff: cutoff, now: now) { changed = true }
@@ -406,12 +409,8 @@ final class LogIndex: @unchecked Sendable {
         var agentNames: [String: String]
     }
 
-    private static let cacheURL: URL = {
-        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("ClaudeMeter")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("index.plist")
-    }()
+    private static let cacheURL: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("ClaudeMeter/index.plist")
 
     /// Picks up where the last run stopped. A missing or older cache just means a full scan.
     func loadCache() {
@@ -437,6 +436,7 @@ final class LogIndex: @unchecked Sendable {
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary
         if let data = try? encoder.encode(cache) {
+            try? FileManager.default.createDirectory(at: Self.cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? data.write(to: Self.cacheURL, options: .atomic)
             lastSaved = uptime
             dirty = false

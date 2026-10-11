@@ -149,6 +149,9 @@ final class Meter: ObservableObject {
     @Published private(set) var loginError: String?
     /// A one-off message for the footer, e.g. when notifications are switched off in System Settings.
     @Published var notice: String?
+    /// The shortcut's own message (keys taken by another app), apart from `notice`, so neither
+    /// replaces the other.
+    @Published var hotkeyNotice: String?
 
     static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
     @Published var showWeeklyInTitle = UserDefaults.standard.bool(forKey: "showWeeklyInTitle") {
@@ -781,7 +784,7 @@ final class Meter: ObservableObject {
         if let f = s.fiveHour {
             var title = (f.exact ? "" : "~") + Fmt.pct(f.pct)
             if let capAt = s.capWarning {
-                title += " · cap " + Fmt.when(capAt)
+                title += " · cap " + Fmt.clock(capAt) // within 5 hours, so no weekday: the title stays short
             } else if let r = f.resetsAt {
                 title += " · " + Fmt.left(r.timeIntervalSince(now))
             }

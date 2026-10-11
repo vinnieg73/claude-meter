@@ -69,9 +69,8 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             // Also when Anthropic ended it early (the new window carries a restart): `now` is before the
             // reset it was due to.
             let early = s.fiveHour?.restartedAt != nil
-            if send, let previous = currentReset, now >= previous || early, peak >= thresholds[0] {
-                deliver(key: "reset|\(Int(previous.timeIntervalSince1970))|0",
-                        title: "Claude 5-hour window reset", body: "You're back to a full window.")
+            if post, let previous = currentReset, now >= previous || early, peak >= thresholds[0] {
+                announceReset("reset|\(Int(previous.timeIntervalSince1970))|0", send: send, now: now)
             }
             currentReset = resets
             peak = s.fiveHour?.pct ?? 0
@@ -80,9 +79,8 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             if f.restartedAt != restartSeen {
                 restartSeen = f.restartedAt
                 // The same window used up again from here: the hot one it was is over.
-                if send, let restart = f.restartedAt, peak >= thresholds[0] {
-                    deliver(key: "reset|\(Int(restart.timeIntervalSince1970))|0",
-                            title: "Claude 5-hour window reset", body: "You're back to a full window.")
+                if post, let restart = f.restartedAt, peak >= thresholds[0] {
+                    announceReset("reset|\(Int(restart.timeIntervalSince1970))|0", send: send, now: now)
                 }
                 peak = f.pct
             } else {
@@ -90,6 +88,12 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             }
         }
         guard send else { return }
+        // A reset that came while macOS wasn't letting this app notify yet (the permission prompt still
+        // up): said once it is, if that's within the hour, rather than dropped.
+        if let held = heldReset {
+            heldReset = nil
+            if now.timeIntervalSince(held.at) < 3600 { announceReset(held.key, send: true, now: now) }
+        }
 
         // Not a window nothing has measured for a while: if Anthropic reset it in between, its % is a
         // number only this Mac's spend made up (a false "weekly at 95%" went out that way on Oct 7).
@@ -176,6 +180,13 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         authorizationCheckedAt = Date()
         if allowed { deliver(key: "test", title: "Claude Meter", body: "Notifications are working. You'll hear from it at 80% and 95%.") }
         done(allowed)
+    }
+
+    private var heldReset: (key: String, at: Date)?
+
+    private func announceReset(_ key: String, send: Bool, now: Date) {
+        guard send else { return heldReset = (key, now) }
+        deliver(key: key, title: "Claude 5-hour window reset", body: "You're back to a full window.")
     }
 
     private func deliver(key: String, title: String, body: String, done: (@MainActor (Bool) -> Void)? = nil) {

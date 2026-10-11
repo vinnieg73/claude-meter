@@ -205,12 +205,12 @@ enum JSONCoding {
 }
 
 enum Paths {
-    static let support: URL = {
-        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("ClaudeMeter")
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }()
+    static let support: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("ClaudeMeter")
+    /// Made by whatever writes there, not by looking: a read-only run (the replay, --status) leaves no folder behind.
+    static func makeSupport() {
+        try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+    }
     static var state: URL { support.appendingPathComponent("state.json") }
     static var tap: URL { support.appendingPathComponent("tap.json") }
     static var history: URL { support.appendingPathComponent("history.jsonl") }
@@ -275,6 +275,7 @@ final class StateStore {
             }
             unreadable = false
         }
+        Paths.makeSupport()
         try? data.write(to: Paths.state, options: .atomic)
     }
 }

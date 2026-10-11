@@ -95,9 +95,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
             if on {
                 let key = HotKey { [weak self] in self?.toggle() }
                 self.hotKey = key
-                if !key.registered { return self.meter.notice = taken }
+                if !key.registered { return self.meter.hotkeyNotice = taken }
             }
-            if self.meter.notice == taken { self.meter.notice = nil }
+            self.meter.hotkeyNotice = nil
         }.store(in: &subscriptions)
         meter.start()
 

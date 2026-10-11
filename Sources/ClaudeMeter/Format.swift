@@ -48,6 +48,12 @@ enum Fmt {
     private static let dayTime = formatter("EEEjmm")
     private static let dateTime = formatter("MMMdjmm")
 
+    /// The time of day alone ("3:50 PM"), for a moment the context already places, like the cap
+    /// inside a 5-hour window: the menu bar title has no room for a weekday.
+    static func clock(_ date: Date) -> String {
+        time.string(from: Date(timeIntervalSince1970: (date.timeIntervalSince1970 / 60).rounded() * 60))
+    }
+
     /// "3:50 PM" today, "Wed 3:50 PM" within six days, "Sep 30, 3:50 PM" beyond.
     static func when(_ date: Date) -> String {
         // The API reports resets like 18:59:59.5; show the minute it means.
