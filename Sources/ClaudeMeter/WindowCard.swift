@@ -79,7 +79,7 @@ struct WindowCard: View {
                 Text("Next message opens a window.").foregroundStyle(.secondary)
             } else if let r = w.resetsAt {
                 Text("Resets \(Fmt.when(r))")
-                Text("in \(Fmt.duration(r.timeIntervalSinceNow))").foregroundStyle(.secondary)
+                Text("in \(Fmt.left(r.timeIntervalSinceNow))").foregroundStyle(.secondary)
             }
         }
         .lineLimit(1)

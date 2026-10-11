@@ -1,4 +1,4 @@
-// Draws Resources/AppIcon.icns: the menu bar's progress ring, lit and set into a night-blue tile.
+// Draws Resources/AppIcon.icns: Night Shift, a prompt chevron over a usage bar on a dark slab.
 // Run from the repo root: swift scripts/make-icon.swift [previewDir]
 // With a folder it also writes icon-1024.png and a contact sheet of every size there.
 //
@@ -10,32 +10,24 @@
 //  - One exception: the 1x 16px and 32px PNGs get the plate even as rounded squares, but only on a
 //    1x display (Retina draws those sizes from the @2x PNGs). The iconset leaves them out, so the
 //    system scales the @2x ones down instead.
-// So the ring sits in a rounded-square tile and the two 1x PNGs are left out. No Icon Composer
+// So the art sits in a rounded-square tile and the two 1x PNGs are left out. No Icon Composer
 // file or asset catalog needed.
 import AppKit
 import SwiftUI
 
 // MARK: - Palette (the icon's own; the app's UI uses system colours)
 
-let tileTop: UInt32 = 0x2C3568, tileBottom: UInt32 = 0x080A1A
-/// The lit arc, tail to head: gold, amber, coral. It heats up the way the meter's levels do.
-let arcStops: [(CGFloat, UInt32)] = [(0, 0xFFC95F), (0.5, 0xFF9650), (1, 0xFF4B5C)]
-let lit: CGFloat = 0.70   // how much of the ring is lit
+// Night Shift: a dark slab with a prompt chevron over a usage bar. Orange is the only colour, and it
+// marks only the amount used and its glow; everything else is grayscale. Design and exact geometry:
+// design/icon-night-shift/ (icon.svg, NOTES.md).
+let tileTop: UInt32 = 0x202126, tileBottom: UInt32 = 0x09090B
+let slabTop: UInt32 = 0x3A3B41, slabBottom: UInt32 = 0x16171A
+let fillTop: UInt32 = 0xFFB35E, fillBottom: UInt32 = 0xF08A2A
+let trackColor: UInt32 = 0x050506
 
 func rgb(_ hex: UInt32, _ alpha: CGFloat = 1) -> CGColor {
     CGColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
             blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
-}
-func lerp(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat { a + (b - a) * t }
-/// The arc's colour `t` of the way from tail to head.
-func arcColor(_ t: CGFloat) -> CGColor {
-    let hi = min(max(arcStops.firstIndex { t <= $0.0 } ?? arcStops.count - 1, 1), arcStops.count - 1)
-    let (t0, c0) = arcStops[hi - 1], (t1, c1) = arcStops[hi]
-    let k = min(max((t - t0) / (t1 - t0), 0), 1)
-    func channel(_ shift: UInt32) -> CGFloat {
-        lerp(CGFloat((c0 >> shift) & 0xFF), CGFloat((c1 >> shift) & 0xFF), k) / 255
-    }
-    return CGColor(srgbRed: channel(16), green: channel(8), blue: channel(0), alpha: 1)
 }
 
 // MARK: - Drawing
@@ -59,19 +51,6 @@ func tileShape(_ r: CGRect) -> CGPath {
     RoundedRectangle(cornerRadius: r.width * 0.225, style: .continuous).path(in: r).cgPath
 }
 
-/// Shades the inside edge of `shape`, as if it were cut into the surface.
-func innerShadow(_ g: CGContext, _ shape: CGPath, color: CGColor, offset: CGSize, blur: CGFloat) {
-    g.saveGState()
-    g.addPath(shape); g.clip()
-    let around = CGMutablePath()
-    around.addRect(shape.boundingBox.insetBy(dx: -blur * 6, dy: -blur * 6))
-    around.addPath(shape)
-    g.setShadow(offset: offset, blur: blur, color: color)
-    g.setFillColor(rgb(0x000000))
-    g.addPath(around); g.fillPath(using: .evenOdd)
-    g.restoreGState()
-}
-
 /// Draws only the shadow of `shape`, not the shape: it is moved off the canvas and the shadow's
 /// offset brings the shadow back. That leaves the caller to paint the shape itself once, with a
 /// clean edge, instead of over a fill that fringes it.
@@ -88,106 +67,81 @@ func shadowOnly(_ g: CGContext, _ shape: CGPath, color: CGColor, offset: CGSize,
 func render(_ pixels: Int) -> CGImage {
     let px = CGFloat(pixels)
     let g = bitmap(pixels)
-    let c = CGPoint(x: px / 2, y: px / 2)
-
-    // Big sizes carry the depth (glow, groove, highlights); small ones keep what survives 16px:
-    // a bolder ring, no fine shading.
-    let detail = min(max((px - 48) / 160, 0), 1)
 
     // The standard icon grid: a tile inset by ~10%, less at small sizes so it isn't tiny.
     let margin = pixels >= 128 ? (px * 100 / 1024).rounded() : px / 16
     let tile = CGRect(x: margin, y: margin, width: px - 2 * margin, height: px - 2 * margin)
-    let size = tile.width
     let tilePath = tileShape(tile)
 
-    // The tile: night-blue lit from above, a pool of light behind the ring, a soft shadow for
-    // systems that don't draw one (macOS 26+ discards it).
+    // The design's 1024 grid (y down) onto the tile (CG, y up).
+    let k = tile.width / 1024
+    func box(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGRect {
+        CGRect(x: tile.minX + x * k, y: tile.maxY - (y + h) * k, width: w * k, height: h * k)
+    }
+    func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: tile.minX + x * k, y: tile.maxY - y * k) }
+    func rounded(_ r: CGRect, _ radius: CGFloat) -> CGPath {
+        CGPath(roundedRect: r, cornerWidth: radius * k, cornerHeight: radius * k, transform: nil)
+    }
+    /// A vertical gradient over `r`, top colour to bottom.
+    func vertical(_ r: CGRect, _ colors: [CGColor], _ locations: [CGFloat]) {
+        g.drawLinearGradient(gradient(colors, locations), start: CGPoint(x: 0, y: r.maxY), end: CGPoint(x: 0, y: r.minY), options: [])
+    }
+
+    // The tile, with a soft shadow for systems that don't draw one (macOS 26+ discards it), and the
+    // orange glow pooled at its foot.
     g.saveGState()
     g.setShadow(offset: CGSize(width: 0, height: -px * 0.012), blur: px * 0.028, color: rgb(0x000000, 0.4))
     g.beginTransparencyLayer(auxiliaryInfo: nil)
     g.addPath(tilePath); g.clip()
-    g.drawLinearGradient(gradient([rgb(tileTop), rgb(tileBottom)], [0, 1]),
-                         start: CGPoint(x: 0, y: tile.maxY), end: CGPoint(x: 0, y: tile.minY), options: [])
-    let pool = CGPoint(x: c.x, y: c.y + size * 0.08)
-    g.drawRadialGradient(gradient([rgb(0x4C57AE, 0.34), rgb(0x4C57AE, 0)], [0, 1]),
-                         startCenter: pool, startRadius: 0, endCenter: pool, endRadius: size * 0.6, options: [])
+    vertical(tile, [rgb(tileTop), rgb(tileBottom)], [0, 1])
+    let glow = point(512, 840)
+    g.saveGState()
+    g.translateBy(x: glow.x, y: glow.y)
+    g.scaleBy(x: 1, y: 150.0 / 400.0) // an ellipse 400 wide by 150 high, from a round gradient
+    g.drawRadialGradient(gradient([rgb(fillBottom, 0.55), rgb(fillBottom, 0)], [0, 1]),
+                         startCenter: .zero, startRadius: 0, endCenter: .zero, endRadius: 400 * k, options: [])
+    g.restoreGState()
     g.endTransparencyLayer()
     g.restoreGState()
 
-    // The ring, clockwise from 12 o'clock like the menu bar's: outer radius, stroke, centre line.
-    let outer = lerp(0.385, 0.335, detail) * size
-    let w = lerp(0.205, 0.125, detail) * size
-    let r = outer - w / 2
-    let inner = r - w / 2
-    let start = CGFloat.pi / 2
-    let end = start - lit * 2 * .pi
-
-    let circle = CGMutablePath()
-    circle.addEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
-    let track = circle.copy(strokingWithWidth: w, lineCap: .butt, lineJoin: .round, miterLimit: 10)
-    let sweep = CGMutablePath()
-    sweep.addArc(center: c, radius: r, startAngle: start, endAngle: end, clockwise: true)
-    let arc = sweep.copy(strokingWithWidth: w, lineCap: .round, lineJoin: .round, miterLimit: 10)
-
-    // The empty track: a groove, shaded along its top edge, a thin lip catching light below. Small
-    // sizes have no shading to show it, so it is more opaque there and the ring still reads as one.
-    g.setFillColor(rgb(0x9AA6F2, lerp(0.30, 0.15, detail)))
-    g.addPath(track); g.fillPath()
-    if detail > 0 {
-        innerShadow(g, track, color: rgb(0x000000, 0.5 * detail), offset: CGSize(width: 0, height: -w * 0.08), blur: w * 0.22)
-        innerShadow(g, track, color: rgb(0xFFFFFF, 0.12 * detail), offset: CGSize(width: 0, height: w * 0.05), blur: w * 0.08)
-    }
-
-    // The lit arc's shadow lifts it off the groove, and its additive glow spills onto the tile.
-    shadowOnly(g, arc, color: rgb(0x000000, 0.45), offset: CGSize(width: 0, height: -w * 0.10), blur: w * 0.25)
+    // The slab: its shadow, then the slab itself painted once over it.
+    let slabRect = box(132, 220, 760, 584)
+    let slab = rounded(slabRect, 150)
+    shadowOnly(g, slab, color: rgb(0x000000, 0.7), offset: CGSize(width: 0, height: -30 * k), blur: 56 * k)
     g.saveGState()
-    g.setBlendMode(.plusLighter)
-    shadowOnly(g, arc, color: rgb(0xFF6A3D, 0.44 * detail + 0.12), offset: .zero, blur: w * 0.8)
+    g.addPath(slab); g.clip()
+    vertical(slabRect, [rgb(slabTop), rgb(slabBottom)], [0, 1])
     g.restoreGState()
 
-    // The arc itself, painted once: its colour in thin wedges along the sweep (the round caps run
-    // past both ends)...
-    g.saveGState()
-    g.addPath(arc); g.clip()
-    let wedges = 360
-    let overshoot = (w / 2 / r) / (lit * 2 * .pi)
-    for i in 0..<wedges {
-        let t0 = CGFloat(i) / CGFloat(wedges), t1 = CGFloat(i + 1) / CGFloat(wedges)
-        let a0 = start + (end - start) * (i == 0 ? t0 - overshoot : t0 - 0.002)
-        let a1 = start + (end - start) * (i == wedges - 1 ? t1 + overshoot : t1 + 0.002)
-        let wedge = CGMutablePath()
-        wedge.move(to: c)
-        wedge.addArc(center: c, radius: outer * 1.3, startAngle: a0, endAngle: a1, clockwise: true)
-        wedge.closeSubpath()
-        g.setFillColor(arcColor((t0 + t1) / 2))
-        g.addPath(wedge); g.fillPath()
-    }
-    // ...tube shading: the inside edge falls into shade and the outside catches the light...
-    let shade: UInt32 = 0xA33324
-    g.drawRadialGradient(gradient([rgb(shade, 0.30), rgb(shade, 0.17), rgb(shade, 0.06), rgb(shade, 0)], [0, 0.2, 0.4, 0.55]),
-                         startCenter: c, startRadius: inner, endCenter: c, endRadius: outer, options: [])
-    g.drawRadialGradient(gradient([rgb(0xFFFFFF, 0), rgb(0xFFFFFF, 0.05), rgb(0xFFFFFF, 0.11), rgb(0xFFFFFF, 0.15)], [0.45, 0.7, 0.9, 1]),
-                         startCenter: c, startRadius: inner, endCenter: c, endRadius: outer, options: [])
-    // ...the whole ring brighter at the top, deeper at the bottom...
-    g.drawLinearGradient(gradient([rgb(0xFFFFFF, 0.10), rgb(0xFFFFFF, 0), rgb(0xB02A30, 0), rgb(0xB02A30, 0.16)], [0, 0.45, 0.6, 1]),
-                         start: CGPoint(x: 0, y: c.y + outer), end: CGPoint(x: 0, y: c.y - outer), options: [])
-    if detail > 0 {   // ...and a fine highlight just inside the outer edge, strongest at the top
-        let rim = CGMutablePath()
-        let rimRadius = outer - w * 0.05
-        rim.addEllipse(in: CGRect(x: c.x - rimRadius, y: c.y - rimRadius, width: 2 * rimRadius, height: 2 * rimRadius))
+    // A thin rim of light along its top edge, where there are pixels enough to show it.
+    if pixels > 32 {
+        let rimRect = box(134, 222, 756, 580)
         g.saveGState()
-        g.addPath(rim); g.setLineWidth(w * 0.05); g.replacePathWithStrokedPath(); g.clip()
-        g.drawLinearGradient(gradient([rgb(0xFFFFFF, 0.55 * detail), rgb(0xFFFFFF, 0)], [0, 1]),
-                             start: CGPoint(x: 0, y: c.y + outer), end: CGPoint(x: 0, y: c.y), options: [])
+        g.addPath(rounded(rimRect, 148)); g.setLineWidth(5 * k); g.replacePathWithStrokedPath(); g.clip()
+        vertical(rimRect, [rgb(0xFFFFFF, 0.3), rgb(0xFFFFFF, 0)], [0, 0.3])
         g.restoreGState()
     }
-    g.restoreGState()
 
-    // A shine across the top of the tile.
+    // The prompt chevron.
+    let chevron = CGMutablePath()
+    chevron.move(to: point(282, 318)); chevron.addLine(to: point(398, 404)); chevron.addLine(to: point(282, 490))
+    g.addPath(chevron)
+    g.setStrokeColor(rgb(0xFFFFFF)); g.setLineWidth(84 * k); g.setLineCap(.round); g.setLineJoin(.round)
+    g.strokePath()
+
+    // The usage bar: a dark track, filled 72.7% in orange with a gloss on its upper half.
+    let trackRect = box(212, 548, 600, 148)
+    let track = rounded(trackRect, 74)
+    g.setFillColor(rgb(trackColor))
+    g.addPath(track); g.fillPath()
     g.saveGState()
-    g.addPath(tilePath); g.clip()
-    g.drawLinearGradient(gradient([rgb(0xFFFFFF, 0.08), rgb(0xFFFFFF, 0)], [0, 1]),
-                         start: CGPoint(x: 0, y: tile.maxY), end: CGPoint(x: 0, y: tile.maxY - size * 0.4), options: [])
+    g.addPath(track); g.clip()
+    let fill = box(212, 548, 436, 148)
+    g.clip(to: fill)
+    vertical(fill, [rgb(fillTop), rgb(fillBottom)], [0, 1])
+    let gloss = box(212, 548, 436, 74)
+    g.clip(to: gloss)
+    vertical(gloss, [rgb(0xFFFFFF, 0.42), rgb(0xFFFFFF, 0)], [0, 0.55])
     g.restoreGState()
     return g.makeImage()!
 }
@@ -222,7 +176,11 @@ iconutil.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
 iconutil.arguments = ["-c", "icns", iconset.path, "-o", "Resources/AppIcon.icns"]
 try iconutil.run()
 iconutil.waitUntilExit()
-print(iconutil.terminationStatus == 0 ? "wrote Resources/AppIcon.icns" : "iconutil failed")
+guard iconutil.terminationStatus == 0 else {
+    print("iconutil failed; Resources/AppIcon.icns is unchanged")
+    exit(1)
+}
+print("wrote Resources/AppIcon.icns")
 
 // MARK: - Preview
 

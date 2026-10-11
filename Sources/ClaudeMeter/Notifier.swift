@@ -98,7 +98,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             for t in thresholds where w.pct >= t {
                 once(w.title, resets, "\(Int(t))", now: now,
                      title: "Claude \(w.title.lowercased()) at \(Fmt.pct(w.pct))",
-                     body: "Resets \(Fmt.when(resets)), in \(Fmt.duration(resets.timeIntervalSince(now))).")
+                     body: "Resets \(Fmt.when(resets)), in \(Fmt.left(resets.timeIntervalSince(now))).")
             }
         }
 

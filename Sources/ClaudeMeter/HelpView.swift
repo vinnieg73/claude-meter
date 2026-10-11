@@ -123,7 +123,7 @@ struct HelpView: View {
             } says: {
                 Para("This session goes cold in 6 minutes. Once it has, its next message uses about $1.00 more of your limit (at pay-as-you-go prices) than it would now.")
             }
-            Para("A session shows up here after 15 minutes without a message, and only if going cold would add 50¢ or more.",
+            Para("A session shows up here after 15 minutes without a message, and only if going cold would add 50¢ or more. A session on the short 5-minute cache is already cold by then, so it never shows up.",
                  secondary: true)
             Callout(symbol: "lightbulb.fill", tint: .accentColor) {
                 Para("Still need that session? Send it something before the countdown ends.")
@@ -163,7 +163,7 @@ struct HelpView: View {
     private var notifications: some View {
         HelpSection(symbol: "bell", title: "Notifications") {
             Bullets([
-                "At 80% and 95% of each limit, once each.",
+                "At 80% and 95% of the 5-hour and weekly limits, once each. Per-model weekly rows don't alert.",
                 "When a 5-hour window that went past 80% resets, so you know you're clear.",
                 "When you're 30 minutes from hitting the 5-hour limit.",
                 "When a session runs away (see Burning now).",

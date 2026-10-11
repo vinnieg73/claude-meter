@@ -51,12 +51,27 @@ enum ShellEnv {
         process.standardOutput = out
         let exited = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in exited.signal() }
+        // Drained as it runs: a profile that prints more than a pipe holds would otherwise block on
+        // the full pipe until the timeout. Never waited to the end, though: something the profile left
+        // running in the background can hold the pipe open long after the shell has exited.
+        let lock = NSLock()
+        nonisolated(unsafe) var output = Data()
+        out.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty { handle.readabilityHandler = nil; return }
+            lock.lock(); output.append(chunk); lock.unlock()
+        }
+        defer { out.fileHandleForReading.readabilityHandler = nil }
         do { try process.run() } catch { return .some(nil) }
         guard exited.wait(timeout: .now() + 10) == .success else {
             process.terminate()
+            // Not every shell gives way to SIGTERM (an interactive bash ignores it).
+            if exited.wait(timeout: .now() + 2) == .timedOut { kill(process.processIdentifier, SIGKILL) }
             return nil
         }
-        let text = String(decoding: out.fileHandleForReading.availableData, as: UTF8.self)
+        // What it printed before exiting may still be on its way through the pipe.
+        Thread.sleep(forTimeInterval: 0.2)
+        lock.lock(); let text = String(decoding: output, as: UTF8.self); lock.unlock()
         guard let range = text.range(of: marker, options: .backwards) else { return .some(nil) }
         let value = text[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
         return .some(value.isEmpty ? nil : value)

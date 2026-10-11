@@ -286,7 +286,8 @@ final class LogIndex: @unchecked Sendable {
                 lineStart = newline + 1
                 if line.range(of: Self.usageMarker) != nil, line.range(of: Self.assistantMarker) != nil {
                     autoreleasepool {
-                        if let turn = parseTurn(Data(line)), turn.at >= cutoff, keep(turn) { changed = true }
+                        if let turn = parseTurn(Data(line)) ?? Self.tail(of: line).flatMap(parseTurn),
+                           turn.at >= cutoff, keep(turn) { changed = true }
                     }
                 } else if line.count < 4096,
                           line.range(of: Self.titleMarker) != nil || line.range(of: Self.agentMarker) != nil {
@@ -299,6 +300,14 @@ final class LogIndex: @unchecked Sendable {
         // A partial last line is left for the next pass.
         marks[url.path] = Mark(offset: offset, inode: inode, head: Self.head(of: url.path))
         return changed
+    }
+
+    /// A line that won't parse may be a write cut short with the next line appended straight after it:
+    /// the last line start inside it is that next line, whole.
+    private static let lineStart = Data("{\"parentUuid\"".utf8)
+    private static func tail(of line: Data) -> Data? {
+        guard let r = line.range(of: lineStart, options: .backwards), r.lowerBound > line.startIndex else { return nil }
+        return Data(line[r.lowerBound...])
     }
 
     /// Adds a new turn, or folds a later copy into the one already held. True if anything changed.

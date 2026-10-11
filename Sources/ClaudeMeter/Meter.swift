@@ -198,6 +198,7 @@ final class Meter: ObservableObject {
     /// The history log, read incrementally: readings so far, and how far the file was read.
     private var historyReadings: [ExactReading] = []
     private var historyEnd: UInt64 = 0
+    private var historyFile: UInt64?
     /// Uptime of the last history compaction: at launch, then daily, since the app runs for weeks.
     private var compactedAt: TimeInterval = 0
     /// When the last probe finished, whatever it found.
@@ -398,6 +399,8 @@ final class Meter: ObservableObject {
         // Stamped at launch, not when it answers: a turn logged while it runs is after the reading, so
         // the estimate carries it and the next probe is called for by it, rather than it falling
         // between the two.
+        // A window is open now, so "none is open" from an earlier Sync no longer holds, whatever this probe says.
+        if notice == Self.noWindowNotice { notice = nil }
         let launched = clock()
         lastProbe = launched
         probing = true
@@ -413,7 +416,6 @@ final class Meter: ObservableObject {
                 probeFailures = 0
                 store.state.probeError = nil
                 store.state.probeRetryAt = nil
-                if notice == Self.noWindowNotice { notice = nil }
                 absorb(reading)
             case .failed(let reason):
                 // A minute at first, doubling to half an hour; a failure only you can fix (signed out,
@@ -614,7 +616,9 @@ final class Meter: ObservableObject {
         var history: [ExactReading]?
         for (name, exactWindow, cap) in [("5h", reading.fiveHour, cal.cap5h), ("week", reading.weekly, cal.capWeek)] {
             guard fresh.contains(name), cap != nil, let exact = exactWindow, exact.pct < 99 else { continue }
-            if let last = checks.last(where: { $0.window == name }),
+            // (Not timed from a check dated ahead of the clock: it was set back since, and the spacing
+            // would hold every check off until it caught up.)
+            if let last = checks.last(where: { $0.window == name }), last.at <= clock().addingTimeInterval(60),
                reading.at.timeIntervalSince(last.at) < Self.checkEvery { continue }
             let readings = history ?? exactHistory(since: reading.at.addingTimeInterval(-Self.checkLag.upperBound))
             history = readings
@@ -779,7 +783,7 @@ final class Meter: ObservableObject {
             if let capAt = s.capWarning {
                 title += " · cap " + Fmt.when(capAt)
             } else if let r = f.resetsAt {
-                title += " · " + Fmt.duration(r.timeIntervalSince(now))
+                title += " · " + Fmt.left(r.timeIntervalSince(now))
             }
             var level = max(f.level, s.capWarning != nil ? .warn : .normal)
             if showWeeklyInTitle, let w = s.weekly {
@@ -955,11 +959,15 @@ final class Meter: ObservableObject {
 
     /// The history log, read only as far as it has grown since last time.
     private func exactHistory(since: Date) -> [ExactReading] {
-        let size = ((try? FileManager.default.attributesOfItem(atPath: Paths.history.path))?[.size] as? NSNumber)?
-            .uint64Value ?? 0
-        if size < historyEnd { // compacted or replaced: start over
+        let attributes = try? FileManager.default.attributesOfItem(atPath: Paths.history.path)
+        let size = (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
+        let file = (attributes?[.systemFileNumber] as? NSNumber)?.uint64Value
+        // Compacted or replaced: start over. A compaction writes a new file, so it shows as a new file
+        // number even when it shrank by less than was appended since the last read.
+        if size < historyEnd || file != historyFile {
             historyReadings = []
             historyEnd = 0
+            historyFile = file
         }
         if size > historyEnd {
             let (new, end) = HistoryLog.load(from: historyEnd)
@@ -1110,7 +1118,9 @@ final class Meter: ObservableObject {
             + s.cooling.prefix(3).map { "\($0.name)\u{0}\($0.tag ?? "")" }
         func started(_ id: String, _ name: String, _ tag: String?) -> String? {
             guard let tag, labels.filter({ $0 == "\(name)\u{0}\(tag)" }).count > 1,
-                  let first = turns.first(where: { $0.session == id }) else { return tag }
+                  let first = turns.first(where: { $0.session == id }),
+                  // Its first turn kept, near the edge of the 8 days the logs hold, may not be its first.
+                  first.at > coveredFrom.addingTimeInterval(Self.fiveHours) else { return tag }
             return "started " + Fmt.when(first.at)
         }
         for i in s.burning.indices { s.burning[i].tag = started(s.burning[i].id, s.burning[i].name, s.burning[i].tag) }
@@ -1206,14 +1216,24 @@ final class Meter: ObservableObject {
         let readings = exactHistory(since: since.addingTimeInterval(-Self.fiveHours))
         h.exactSince = readings.first?.at
 
-        // The latest exact reading of each window, keyed by the minute it resets.
+        // The latest exact reading of each window, keyed by the minute it resets. A reset reported a
+        // minute or so apart (two sources, rounding) is the same window, as everywhere else
+        // (`Window.same`): it joins the key already there rather than drawing a window of its own.
+        // `top` is the highest it was measured at: a window Anthropic reset early under the same reset
+        // time still peaked there before the drop.
         func key(_ d: Date) -> Int { Int((d.timeIntervalSince1970 / 60).rounded()) }
-        var latestExact: [Int: (pct: Double, at: Date)] = [:]
+        var latestExact: [Int: (pct: Double, at: Date, top: Double)] = [:]
         for r in readings {
             guard let w = r.fiveHour else { continue }
             let at = w.at ?? r.at
-            if let held = latestExact[key(w.resetsAt)], held.at >= at { continue }
-            latestExact[key(w.resetsAt)] = (w.pct, at)
+            let k = key(w.resetsAt)
+            let slot = latestExact.keys.first { abs($0 - k) <= 15 } ?? k
+            let top = max(latestExact[slot]?.top ?? 0, w.pct)
+            if let held = latestExact[slot], held.at >= at {
+                latestExact[slot]?.top = top
+                continue
+            }
+            latestExact[slot] = (w.pct, at, top)
         }
         let known = latestExact.keys.map { Date(timeIntervalSince1970: Double($0) * 60) }.sorted()
         let knownStarts = known.map { $0.addingTimeInterval(-Self.fiveHours) }
@@ -1244,7 +1264,7 @@ final class Meter: ObservableObject {
                 if let e = latestExact[key(reset)] {
                     let before = cost(from: start, to: e.at)
                     let own = e.pct >= 5 && before > 0 ? before / (e.pct / 100) : cap
-                    return (e.pct + cost(from: e.at, to: min(end, now)) / own * 100, true)
+                    return (max(e.top, e.pct + cost(from: e.at, to: min(end, now)) / own * 100), true)
                 }
                 return (cost(from: start, to: min(end, now)) / cap * 100, false)
             }
@@ -1253,6 +1273,18 @@ final class Meter: ObservableObject {
             // ones (each opens at the first message after the last closed, rounded down to 10
             // minutes), snapped to the real window where an exact reading pins one down.
             var anchor = turns.first.map { Self.windowOpening($0.at) } ?? since
+            // The first turn kept can sit mid-window (the 8-day trim cut off its start), which would shift
+            // every window after it. Begin instead at a message after five quiet hours, which certainly
+            // opened one, or at a window a reading pins down, if one comes before the week drawn.
+            if let first = turns.first?.at, first < since {
+                if let i = turns.indices.dropFirst().first(where: {
+                    turns[$0].at <= since && turns[$0].at.timeIntervalSince(turns[$0 - 1].at) >= Self.fiveHours
+                }) {
+                    anchor = Self.windowOpening(turns[i].at)
+                } else if let pinned = spans.first(where: { $0.start <= since })?.start {
+                    anchor = pinned
+                }
+            }
             while true {
                 let i = first(atOrAfter: anchor)
                 guard i < turns.count, turns[i].at <= now else { break }
@@ -1296,6 +1328,7 @@ final class Meter: ObservableObject {
             let hoursLeft = resets.timeIntervalSince(now) / 3600
             if let perDay = w.averagePerDay {
                 h.weekRate = perDay / 24
+                h.weekRateIsAverage = true
             } else if let atReset = w.atReset, hoursLeft > 0 {
                 h.weekRate = (atReset - w.pct) / hoursLeft
             }
@@ -1306,6 +1339,13 @@ final class Meter: ObservableObject {
             let from = restart ?? start
             let logged = cost(from: from, to: now) / cap * 100
             let scale = logged > 0 ? w.pct / logged : 1
+            // Nothing logged here since then (all of it used elsewhere): a straight climb to the %, not
+            // a flat line that jumps at the end.
+            func climb(_ t: Date) -> Double {
+                guard logged <= 0 else { return cost(from: from, to: t) / cap * 100 * scale }
+                let span = now.timeIntervalSince(from)
+                return span > 0 ? w.pct * max(0, t.timeIntervalSince(from)) / span : 0
+            }
             var preScale = 1.0
             if let restart, let held = exactHistory(since: start).last(where: { $0.at < restart && $0.weekly != nil })?.weekly {
                 let loggedBefore = cost(from: start, to: held.at ?? restart) / cap * 100
@@ -1319,7 +1359,7 @@ final class Meter: ObservableObject {
                 }
                 let before = restart.map { t < $0 } ?? false
                 h.weekSeries.append(PacePoint(at: t, pct: before ? cost(from: start, to: t) / cap * 100 * preScale
-                                                               : cost(from: from, to: t) / cap * 100 * scale))
+                                                               : climb(t)))
                 t.addTimeInterval(3600)
             }
             if let restart, h.weekSeries.last.map({ $0.at < restart }) ?? true {
@@ -1330,7 +1370,8 @@ final class Meter: ObservableObject {
         }
 
         let peak = h.windows.map(\.peak).max() ?? 0
-        let week = h.weekAtReset ?? h.weekNow
+        // No projection yet: the card says so ("–") rather than passing off the % so far as the % at reset.
+        let week = h.weekAtReset
         h.plans = Plan.allCases.map { p in
             let factor = plan.multiplier / p.multiplier
             var runsOut: Date?

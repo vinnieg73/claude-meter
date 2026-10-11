@@ -21,6 +21,10 @@ desktop app's thread title, and tag rows that share a name with when each last r
 in v0.9.6 (also asked for) the model moved to the row's tooltip so names fit. Scope is back to bug
 elimination.
 
+Exception (2026-10-11, asked for by the user): a new app icon, "Night Shift" (design in
+design/icon-night-shift/), drawn by scripts/make-icon.swift, done in v0.9.11. Scope is back to bug
+elimination.
+
 Exception (2026-10-10, asked for by the user): one notification when exact readings stop (an hour of
 Claude Code use with none), done in v0.9.8. Scope is back to bug elimination.
 

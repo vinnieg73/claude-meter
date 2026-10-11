@@ -172,7 +172,9 @@ enum Probe {
                     guard let w = value as? [String: Any],
                           let used = (w["utilization"] as? NSNumber)?.doubleValue,
                           let resets = (w["resetsAt"] as? NSNumber)?.doubleValue else { continue }
-                    let window = Window(pct: used * 100, resetsAt: Date(timeIntervalSince1970: resets))
+                    // Seconds, as now; milliseconds (as the tap file allows) would put the reset centuries out.
+                    let seconds = resets > 1e11 ? resets / 1000 : resets
+                    let window = Window(pct: used * 100, resetsAt: Date(timeIntervalSince1970: seconds))
                     switch key {
                     case "five_hour": r.fiveHour = window
                     case "seven_day": r.weekly = window

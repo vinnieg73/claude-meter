@@ -91,18 +91,30 @@ struct PersistedState: Codable {
     var probeRetryAt: Date?
     var tapSeen: Date?
     var notified: [String] = []
+    /// A field was there but wouldn't read, so it fell back to its default. Not saved: it tells the
+    /// store to set the file aside before writing the rest back over it.
+    var damaged = false
+
+    enum CodingKeys: String, CodingKey {
+        case lastExact, checks, calibration, probeError, probeRetryAt, tapSeen, notified
+    }
 
     init() {}
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        lastExact = try? c.decodeIfPresent(ExactReading.self, forKey: .lastExact)
-        checks = try? c.decodeIfPresent([Check].self, forKey: .checks)
-        calibration = (try? c.decodeIfPresent(Calibration.self, forKey: .calibration)) ?? Calibration()
-        probeError = try? c.decodeIfPresent(String.self, forKey: .probeError)
-        probeRetryAt = try? c.decodeIfPresent(Date.self, forKey: .probeRetryAt)
-        tapSeen = try? c.decodeIfPresent(Date.self, forKey: .tapSeen)
-        notified = (try? c.decodeIfPresent([String].self, forKey: .notified)) ?? []
+        var bad = false
+        func field<T: Decodable>(_ type: T.Type, _ key: CodingKeys) -> T? {
+            do { return try c.decodeIfPresent(type, forKey: key) } catch { bad = true; return nil }
+        }
+        lastExact = field(ExactReading.self, .lastExact)
+        checks = field([Check].self, .checks)
+        calibration = field(Calibration.self, .calibration) ?? Calibration()
+        probeError = field(String.self, .probeError)
+        probeRetryAt = field(Date.self, .probeRetryAt)
+        tapSeen = field(Date.self, .tapSeen)
+        notified = field([String].self, .notified) ?? []
+        damaged = bad
     }
 }
 
@@ -217,6 +229,8 @@ final class StateStore {
             let data = try Data(contentsOf: Paths.state)
             if let saved = try? JSONCoding.decoder().decode(PersistedState.self, from: data) {
                 state = saved
+                // What read is kept; the file as it was is set aside at the first save, not overwritten.
+                unreadable = saved.damaged
             } else {
                 state = PersistedState()
                 unreadable = true
@@ -234,6 +248,8 @@ final class StateStore {
         if let at = state.lastExact?.at, at > now.addingTimeInterval(60) { state.lastExact = nil }
         if let at = state.calibration.updatedAt, at > now.addingTimeInterval(60) { state.calibration.updatedAt = nil }
         if let at = state.probeRetryAt, at > now.addingTimeInterval(3600) { state.probeRetryAt = nil }
+        // A check dated ahead of the clock would hold off new checks for its window until the clock caught up.
+        state.checks?.removeAll { $0.at > now.addingTimeInterval(60) }
         pruneNotified()
     }
 

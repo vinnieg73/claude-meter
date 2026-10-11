@@ -1,21 +1,26 @@
 import Foundation
 
 enum Fmt {
+    /// Each unit up to where its rounding would show 1000 of it ("$1000", "1000k"), the next one from there.
     static func dollars(_ v: Double) -> String {
         if v == 0 { return "$0" }
-        if v >= 1000 { return String(format: "$%.1fk", v / 1000) }
-        if v >= 100 { return String(format: "$%.0f", v) }
+        if v >= 999_950 { return String(format: "$%.1fM", v / 1e6) }
+        if v >= 999.5 { return String(format: "$%.1fk", v / 1000) }
+        if v >= 99.995 { return String(format: "$%.0f", v) }
         return String(format: "$%.2f", v)
     }
 
     static func tokens(_ n: Int) -> String {
         let v = Double(n)
-        if v >= 1e9 { return String(format: "%.1fB", v / 1e9) }
-        if v >= 1e8 { return String(format: "%.0fM", v / 1e6) }
-        if v >= 1e6 { return String(format: "%.1fM", v / 1e6) }
+        if v >= 999_500_000 { return String(format: "%.1fB", v / 1e9) }
+        if v >= 99_950_000 { return String(format: "%.0fM", v / 1e6) }
+        if v >= 999_500 { return String(format: "%.1fM", v / 1e6) }
         if v >= 1e3 { return String(format: "%.0fk", v / 1e3) }
         return "\(n)"
     }
+
+    /// Time left: a duration, or "<1m" in the last minute rather than "0m" with seconds still to go.
+    static func left(_ seconds: TimeInterval) -> String { seconds < 60 ? "<1m" : duration(seconds) }
 
     static func pct(_ v: Double) -> String { "\(Int(v.rounded()))%" }
 

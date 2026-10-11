@@ -26,6 +26,17 @@ enum Status {
         }
     }
 
+    /// Asked with its own time limit: a macOS that doesn't answer costs this one line, not the report.
+    private static func notificationStatus() -> UNAuthorizationStatus? {
+        let answered = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var status: UNAuthorizationStatus?
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            status = settings.authorizationStatus
+            answered.signal()
+        }
+        return answered.wait(timeout: .now() + 5) == .success ? status : nil
+    }
+
     private static func report() async -> String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
         var lines = ["Claude Meter \(version)"]
@@ -39,9 +50,9 @@ enum Status {
         }
 
         if Bundle.main.bundleIdentifier != nil {
-            let settings = await UNUserNotificationCenter.current().notificationSettings()
             let state: String
-            switch settings.authorizationStatus {
+            switch notificationStatus() {
+            case nil: state = "no answer from macOS"
             case .authorized, .provisional: state = "allowed"
             case .denied: state = "denied (System Settings → Notifications → Claude Meter)"
             case .notDetermined: state = "not asked yet"

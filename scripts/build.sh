@@ -43,5 +43,11 @@ if [[ "${1:-}" == "--install" ]]; then
   # Restarted (it relaunches by itself), Notification Center looks the icon up again.
   if [[ $NEW_ICON == 1 ]]; then killall NotificationCenter 2>/dev/null || true; fi
   open "$HOME/Applications/ClaudeMeter.app"
+  # open returns at once, even for an app that crashes on launch: wait to see it running.
+  for _ in $(seq 50); do pgrep -f "$RUNNING" >/dev/null && break; sleep 0.2; done
+  if ! pgrep -f "$RUNNING" >/dev/null; then
+    echo "Installed to ~/Applications/ClaudeMeter.app, but it isn't running (crashed at launch?)" >&2
+    exit 1
+  fi
   echo "Installed to ~/Applications/ClaudeMeter.app"
 fi

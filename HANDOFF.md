@@ -4,11 +4,17 @@ Updated 2026-10-10 by Claude, from the Utilities project thread (after v0.9.8).
 
 ## Status
 
-v0.9.10 (build 23) is on GitHub (vinnieg73/claude-meter, private) and installed in `~/Applications`. Replay passes. The repo's CLAUDE.md limits work to bug fixes; features need
+v0.9.11 (build 24) is on GitHub (vinnieg73/claude-meter, private) and installed in `~/Applications`. Replay passes. The repo's CLAUDE.md limits work to bug fixes; features need
 Vinnie's OK and a dated exception note there.
 
 ## Done recently
 
+- v0.9.11: the new "Night Shift" app icon (design in `design/icon-night-shift/`, drawn by `scripts/make-icon.swift`). It also fixes 22 of the 26 open findings in `claude-meter-open-findings-2026-10-11` (project files). Not done, on purpose:
+  - #9 (Going cold tier): one session in a day mixed 5m and 1h cache writes, and the new rule would have hidden it.
+  - #17 (probe child leak): no orphaned probe processes after hours of once-a-minute probing, so it isn't real.
+  - #19 (SIGTERM): tested, and children don't inherit the ignored signal.
+  - #24 (uninstall): removing the whole tap statusLine block is correct.
+  - #23's window-count half was left.
 - v0.9.10: 10 fixes from the Oct 10 swarm audit (report `claude-meter-swarm-audit-2026-10-10` in project files):
   - cache writes from per-step usage
   - `state.json` never overwritten after a read error
@@ -37,7 +43,7 @@ Vinnie's OK and a dated exception note there.
 
 ## Open decisions (Vinnie's)
 
-- Low-priority audit leftovers are listed in the audit report (`claude-meter-audit-2026-10-09` in the project files).
+- Audit leftovers: the 12 'skip' items in `claude-meter-open-findings-2026-10-11`, plus replay's drawn-vs-group window counting at the 7-day edge (#23, second half).
 
 ## Gotchas
 

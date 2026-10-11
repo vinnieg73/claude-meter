@@ -58,7 +58,10 @@ enum Pricing {
         if let row = table.filter({ covers($0.prefix, model) }).max(by: { $0.prefix.count < $1.prefix.count }) {
             return row.price
         }
-        return families.first { model.contains($0.word) }?.price
+        if let family = families.first(where: { model.contains($0.word) }) { return family.price }
+        // A Claude model of a family this doesn't know (a new name): priced as the dearest family, so its
+        // turns move the estimate (high, until the next exact reading) instead of counting for nothing.
+        return model.hasPrefix("claude") ? families.max { $0.price.output < $1.price.output }?.price : nil
     }
 
     /// True when `model` is `prefix` itself or one of its snapshots: what follows is nothing,

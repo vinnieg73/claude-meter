@@ -83,7 +83,7 @@ struct SessionsSection: View {
             Grid(alignment: .trailing, horizontalSpacing: 6, verticalSpacing: 2) {
                 ForEach(s.cooling.prefix(3)) { c in
                     let left = c.coldAt.timeIntervalSinceNow
-                    let cold = left < 60 ? "cold in <1m" : "cold in \(Fmt.duration(left))"
+                    let cold = left <= 0 ? "cold now" : "cold in \(Fmt.left(left))"
                     let extra = Fmt.dollars(c.extra)
                     let extraPct = c.extraPct.map { "(+\(Fmt.rate($0))%)" }
                     GridRow(alignment: .firstTextBaseline) {

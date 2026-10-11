@@ -22,7 +22,7 @@ struct PlanFitSection: View {
             }
             if !h.plans.isEmpty {
                 HStack(alignment: .top, spacing: 8) {
-                    ForEach(h.plans) { PlanCard(fit: $0, judged: judged) }
+                    ForEach(h.plans) { PlanCard(fit: $0, judged: judged, complete: complete, paceLabel: h.weekRateIsAverage ? "at your average" : "at this pace") }
                 }
             }
             if let verdict {
@@ -34,6 +34,10 @@ struct PlanFitSection: View {
     /// Whether anything was measured: windows calibrated, or a weekly reading to go by. Without
     /// either, every plan "fits" only because nothing was counted, so no fit is claimed.
     private var judged: Bool { h.calibrated || h.weekNow != nil }
+    /// Both measured: the windows (calibrated) and the week. A plan is only said to fit on both; a
+    /// problem found on either is still a problem.
+    private var complete: Bool { h.calibrated && h.weekNow != nil }
+    private var pace: String { h.weekRateIsAverage ? "at your average pace" : "at this pace" }
 
     /// What happened on the current plan, and the smallest plan that would have covered it.
     private var verdict: Verdict? {
@@ -41,6 +45,9 @@ struct PlanFitSection: View {
         // Nothing measured, so every plan "covers" an empty week: say nothing of the sort.
         if !judged { return Verdict(text: "Nothing is measured yet, so no plan can be judged.", tone: .neutral) }
         let tone: Verdict.Tone = current.fits ? .fits : .trouble
+        if current.fits, !complete {
+            return Verdict(text: "Nothing has gone over on \(current.plan.name) so far, but only one of its two limits has been measured.", tone: .neutral)
+        }
         if current.fits {
             let smaller = h.plans.filter { $0.plan.multiplier < current.plan.multiplier && $0.fits }
                 .min { $0.plan.multiplier < $1.plan.multiplier }
@@ -50,7 +57,7 @@ struct PlanFitSection: View {
         var trouble: [String] = []
         if current.capped > 0 { trouble.append("\(current.capped) window\(current.capped == 1 ? "" : "s") capped") }
         if current.weekOver { trouble.append("the weekly limit is already spent") }
-        if let out = current.weekRunsOut { trouble.append("the weekly limit runs out \(Fmt.when(out)) at your average pace") }
+        if let out = current.weekRunsOut { trouble.append("the weekly limit runs out \(Fmt.when(out)) \(pace)") }
         var text = "On \(current.plan.name): " + trouble.joined(separator: ", ") + "."
         if let bigger = h.plans.filter({ $0.plan.multiplier > current.plan.multiplier && $0.fits })
             .min(by: { $0.plan.multiplier < $1.plan.multiplier }) {
@@ -73,6 +80,9 @@ private struct PlanCard: View {
     let fit: PlanFit
     /// False when nothing was measured, so there is no fit to claim.
     let judged: Bool
+    /// Both limits measured: only then is a green check earned.
+    let complete: Bool
+    let paceLabel: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -80,7 +90,7 @@ private struct PlanCard: View {
                 Text(fit.plan.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
                 if fit.current { Chip(text: "you", tint: .accentColor).fixedSize() }
                 Spacer(minLength: 4)
-                if judged {
+                if judged, complete || !fit.fits {
                     Image(systemName: fit.fits ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                         .font(.system(size: 13))
                         .foregroundStyle(fit.fits ? Color.green : Color.orange)
@@ -90,7 +100,7 @@ private struct PlanCard: View {
             .padding(.bottom, 2)
             PlanStat(label: "Capped (7 days)", value: capped, warn: fit.capped > 0)
             PlanStat(label: "Busiest window", value: busiest, warn: fit.peak >= 100)
-            PlanStat(label: "Weekly limit at your average", value: weekly, warn: fit.weekOver || fit.weekRunsOut != nil)
+            PlanStat(label: "Weekly limit \(paceLabel)", value: weekly, warn: fit.weekOver || fit.weekRunsOut != nil)
         }
         .padding(9)
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -126,6 +126,8 @@ struct History {
     var weekAtReset: Double?
     /// Points of the weekly limit per hour at the recent pace.
     var weekRate: Double?
+    /// Whether `weekRate` is the average (exact readings over days) rather than today's pace.
+    var weekRateIsAverage = false
     var plans: [PlanFit] = []
     /// When exact readings start in the history log.
     var exactSince: Date?

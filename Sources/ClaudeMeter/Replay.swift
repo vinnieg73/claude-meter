@@ -130,7 +130,14 @@ extension Meter {
                 if let held = heldWindow[name] {
                     if w.resetsAt < held.resetsAt.addingTimeInterval(-900) { continue }
                     if Window.same(held.resetsAt, w.resetsAt) {
-                        if w.pct < held.pct - Meter.restartDrop { shown.append((r.at, name)) }
+                        // As `Meter.pick` reads it: a fall of more than a few points, or to nothing from a
+                        // point or more, is a reset; a smaller one is an old number, and the higher stays held.
+                        let toNothing = w.pct < 0.5 && held.pct >= 1
+                        if w.pct < held.pct - Meter.restartDrop || toNothing {
+                            shown.append((r.at, name))
+                        } else if w.pct < held.pct - 0.5 {
+                            continue
+                        }
                     } else if w.resetsAt.addingTimeInterval(-span) < held.resetsAt.addingTimeInterval(-60) {
                         shown.append((r.at, name)) // a later window that began before the held one was due
                     }
