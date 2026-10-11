@@ -46,6 +46,7 @@ enum Pricing {
         ("claude-3-7-sonnet", Price(input: 3, output: 15, cacheRead: 0.30)),
         ("claude-3-5-sonnet", Price(input: 3, output: 15, cacheRead: 0.30)),
         ("claude-3-5-haiku", Price(input: 0.80, output: 4, cacheRead: 0.08)),
+        ("claude-3-sonnet", Price(input: 3, output: 15, cacheRead: 0.30)),
         ("claude-3-opus", Price(input: 15, output: 75, cacheRead: 1.50)),
         ("claude-3-haiku", Price(input: 0.25, output: 1.25, cacheRead: 0.03)),
     ]
@@ -64,6 +65,7 @@ enum Pricing {
     ]
 
     static func price(for model: String) -> Price? {
+        let model = bare(model)
         if let row = table.filter({ covers($0.prefix, model) }).max(by: { $0.prefix.count < $1.prefix.count }) {
             return row.price
         }
@@ -71,6 +73,13 @@ enum Pricing {
         // A Claude model of a family this doesn't know (a new name): priced as the dearest family, so its
         // turns move the estimate (high, until the next exact reading) instead of counting for nothing.
         return model.hasPrefix("claude") ? families.max { $0.price.output < $1.price.output }?.price : nil
+    }
+
+    /// The id without a vendor's prefix: Bedrock's "us.anthropic.claude-haiku-4-5-20251001-v1:0" is
+    /// "claude-haiku-4-5-20251001-v1:0", so it finds its row rather than the newest of its family.
+    static func bare(_ model: String) -> String {
+        guard let r = model.range(of: "claude-"), r.lowerBound != model.startIndex else { return model }
+        return String(model[r.lowerBound...])
     }
 
     /// True when `model` is `prefix` itself or one of its snapshots: what follows is nothing,

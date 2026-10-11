@@ -292,7 +292,9 @@ enum Fixtures {
         h.calibrated = true
         let peaks: [Double] = [12, 31, 8, 44, 22, 5, 58, 19, 37, 9, 26, 41]
         h.windows = peaks.enumerated().map { i, peak in
-            let start = now.addingTimeInterval(-Double(peaks.count - i) * 13 * 3600)
+            // The last one is still open: it began two hours ago.
+            let start = i == peaks.count - 1 ? now.addingTimeInterval(-2 * 3600)
+                : now.addingTimeInterval(-Double(peaks.count - i) * 13 * 3600)
             return HistoryWindow(start: start, end: start.addingTimeInterval(5 * 3600), peak: peak,
                                  exact: i % 3 != 1, open: i == peaks.count - 1)
         }

@@ -42,6 +42,7 @@ struct WindowView {
     /// Readings keep arriving but none has measured this window for ten minutes (a probe left it
     /// out; they come every minute), so its % is the last measurement plus this Mac's spend since, which says nothing if
     /// Anthropic reset it in between. No alert is raised from it; it is raised once it is measured.
+    /// So is a window that lapsed since the last reading: the one open now is this Mac's spend alone.
     var stale = false
 
     /// From the whole percent shown, so "70%" is never drawn in the colour of 69.
@@ -364,7 +365,8 @@ final class Meter: ObservableObject {
         guard let mtime, mtime != tapMTime else { return }
         tapMTime = mtime
         guard let reading = TapFile.read() else { return }
-        if reading.source == "tap" { store.state.tapSeen = reading.at }
+        // Not one dated in the future, which `absorb` turns away too.
+        if reading.source == "tap", reading.at <= clock().addingTimeInterval(60) { store.state.tapSeen = reading.at }
         absorb(reading)
     }
 
@@ -386,6 +388,9 @@ final class Meter: ObservableObject {
             if force { notice = Self.noWindowNotice }
             return
         }
+        // A window is open now, so "none is open" from an earlier Sync no longer holds, whatever this
+        // probe says, or whether one runs this tick at all.
+        if notice == Self.noWindowNotice { notice = nil }
         if !force {
             // A retry time far ahead was set under a clock that has since been put back.
             if let retry = store.state.probeRetryAt, now < retry, retry < now.addingTimeInterval(3600) { return }
@@ -402,8 +407,6 @@ final class Meter: ObservableObject {
         // Stamped at launch, not when it answers: a turn logged while it runs is after the reading, so
         // the estimate carries it and the next probe is called for by it, rather than it falling
         // between the two.
-        // A window is open now, so "none is open" from an earlier Sync no longer holds, whatever this probe says.
-        if notice == Self.noWindowNotice { notice = nil }
         let launched = clock()
         lastProbe = launched
         probing = true
@@ -438,17 +441,27 @@ final class Meter: ObservableObject {
     }
 
     /// A probe is a request, and a request opens a 5-hour window if none is open, moving your
-    /// reset. So only probe while this Mac's own activity shows a window is already open: the
-    /// last reading's window hasn't reset, or a message went out after it did. With no reading
-    /// to go on, only right after a message.
+    /// reset. So only probe while a window is known to be open: the last reading's window hasn't
+    /// reset (whether or not anything was logged here), or a message went out after it did. With no
+    /// reading to go on, only right after a message. Never in the last two minutes of either.
     func windowOpen(_ now: Date) -> Bool {
-        guard let latest = turns.last?.at else { return false }
-        if let resets = store.state.lastExact?.fiveHour?.resetsAt {
-            // A message after the reset opened a window, but that one ends too. Not the last two minutes
-            // before it: a probe launched then can reach the API after the reset and open the next one.
-            return now < resets.addingTimeInterval(-Self.resetMargin) || openWindow(after: resets, now: now) != nil
+        // Not the last two minutes before any reset, measured or walked: a probe launched then can
+        // reach the API after the reset and open the next window.
+        func clearOfReset(_ opened: Date) -> Bool {
+            now < opened.addingTimeInterval(Self.fiveHours - Self.resetMargin)
         }
-        return now.timeIntervalSince(latest) < 600
+        // The last reading's window first, with nothing logged here at all (use only elsewhere: cloud
+        // sessions, claude.ai) as much as with.
+        if let resets = store.state.lastExact?.fiveHour?.resetsAt {
+            // A message after the reset opened a window, but that one ends too.
+            if now < resets.addingTimeInterval(-Self.resetMargin) { return true }
+            guard let opened = openWindow(after: resets, now: now) else { return false }
+            return clearOfReset(opened)
+        }
+        // The window that message is in may have opened hours before it and be about to end.
+        guard let first = turns.first?.at, let latest = turns.last?.at, now.timeIntervalSince(latest) < 600,
+              let opened = openWindow(after: first, now: now) else { return false }
+        return clearOfReset(opened)
     }
 
     /// When the 5-hour window open at `now` opened, walking forward from a reset: each window
@@ -841,6 +854,8 @@ final class Meter: ObservableObject {
             }
             v = WindowView(title: Self.fiveHourTitle, pct: cost(from: opened, to: now) / cap * 100,
                            resetsAt: opened.addingTimeInterval(Self.fiveHours), exact: false, asOf: last?.at)
+            // Nothing has measured this window yet: its % is this Mac's spend alone, so it raises no alert.
+            v.stale = true
         } else {
             // No cap yet to estimate with, but whether any window is open is still known.
             if let resets = last?.fiveHour?.resetsAt, now >= resets, openWindow(after: resets, now: now) == nil {
@@ -851,8 +866,9 @@ final class Meter: ObservableObject {
 
         if let cap, let resets = v.resetsAt {
             // 20+ minutes of pace before projecting: a window's first minutes are mostly cache
-            // writes and would project a cap that isn't coming.
-            project(&v, cap: cap, now: now, windowStart: resets.addingTimeInterval(-Self.fiveHours),
+            // writes and would project a cap that isn't coming. Counted from an early reset, if any:
+            // the spend before it no longer counts toward this window.
+            project(&v, cap: cap, now: now, windowStart: Self.countsFrom(resets, span: Self.fiveHours, v.restartedAt),
                     lookback: 2700, minLookback: 1200)
         }
         return v
@@ -879,10 +895,13 @@ final class Meter: ObservableObject {
             v = WindowView(title: Self.weeklyTitle,
                            pct: cost(from: resets.addingTimeInterval(-Self.week), to: now) / cap * 100,
                            resetsAt: resets, exact: false, asOf: measured)
+            // Nothing has measured this week yet: if Anthropic reset it early, or the Mac slept across
+            // the reset, its % is this Mac's spend alone, so it raises no alert.
+            v.stale = true
         }
 
         if let cap, let resets = v.resetsAt {
-            project(&v, cap: cap, now: now, windowStart: resets.addingTimeInterval(-Self.week),
+            project(&v, cap: cap, now: now, windowStart: Self.countsFrom(resets, span: Self.week, v.restartedAt),
                     lookback: 86400, minLookback: 7200)
             forecast(&v, cap: cap, now: now, resets: resets)
         }
@@ -1021,6 +1040,11 @@ final class Meter: ObservableObject {
                               exact: false, asOf: $0.value.at ?? last.at) }
     }
 
+    /// Where a window's count begins: its start, or the early reset Anthropic started it again from.
+    private static func countsFrom(_ resets: Date, span: TimeInterval, _ restartedAt: Date?) -> Date {
+        max(resets.addingTimeInterval(-span), restartedAt ?? .distantPast)
+    }
+
     /// Extends recent pace to the reset: either where it lands, or when it hits the cap.
     private func project(_ v: inout WindowView, cap: Double, now: Date, windowStart: Date,
                          lookback: TimeInterval, minLookback: TimeInterval) {
@@ -1051,17 +1075,20 @@ final class Meter: ObservableObject {
     }
 
     /// The window's climb so far. The logs give its shape; the displayed % (which includes
-    /// usage the logs never see) gives its height.
+    /// usage the logs never see) gives its height. A window Anthropic reset early climbs from its
+    /// restart: the spend before that no longer counts, and is drawn flat at 0.
     private func series(_ v: inout WindowView, now: Date) {
         guard let resets = v.resetsAt, !v.idle else { return }
         let start = resets.addingTimeInterval(-Self.fiveHours)
         // A clock set back can put the window's start after now; there's nothing to draw then.
         guard start <= now else { return }
-        let lower = first(atOrAfter: start)
+        let from = min(Self.countsFrom(resets, span: Self.fiveHours, v.restartedAt), now)
+        let lower = first(atOrAfter: from)
         let upper = max(lower, first(atOrAfter: now.addingTimeInterval(1)))
         let inWindow = turns[lower..<upper]
         let total = inWindow.reduce(0) { $0 + $1.cost }
         var points = [PacePoint(at: start, pct: 0)]
+        if from > start { points.append(PacePoint(at: from, pct: 0)) }
         if total > 0 {
             // One point per 2.5 minutes is plenty for a 5-hour chart.
             var spent = 0.0
@@ -1225,7 +1252,8 @@ final class Meter: ObservableObject {
         // `top` is the highest it was measured at: a window Anthropic reset early under the same reset
         // time still peaked there before the drop.
         func key(_ d: Date) -> Int { Int((d.timeIntervalSince1970 / 60).rounded()) }
-        var latestExact: [Int: (pct: Double, at: Date, top: Double)] = [:]
+        // `restart` is the early reset its latest reading carries, if Anthropic reset it under the same time.
+        var latestExact: [Int: (pct: Double, at: Date, top: Double, restart: Date?)] = [:]
         for r in readings {
             guard let w = r.fiveHour else { continue }
             let at = w.at ?? r.at
@@ -1236,7 +1264,7 @@ final class Meter: ObservableObject {
                 latestExact[slot]?.top = top
                 continue
             }
-            latestExact[slot] = (w.pct, at, top)
+            latestExact[slot] = (w.pct, at, top, w.restartedAt)
         }
         let known = latestExact.keys.map { Date(timeIntervalSince1970: Double($0) * 60) }.sorted()
         let knownStarts = known.map { $0.addingTimeInterval(-Self.fiveHours) }
@@ -1263,10 +1291,13 @@ final class Meter: ObservableObject {
             // Past its last reading a window is extended at its own rate (its spend up to that reading per
             // point it measured), not today's cap: the cap moves with how much was used off this Mac, and
             // a window from days ago drawn with today's would peak above what its readings say.
+            // Its own rate only from as much as calibration would learn a cap from (10% and $0.50 behind
+            // it), and only from the spend since an early reset: a few points over a little spend would
+            // carry what was logged after it far past the cap. Short of that, today's cap.
             func peak(_ start: Date, _ end: Date, reset: Date) -> (Double, Bool) {
                 if let e = latestExact[key(reset)] {
-                    let before = cost(from: start, to: e.at)
-                    let own = e.pct >= 5 && before > 0 ? before / (e.pct / 100) : cap
+                    let before = cost(from: max(start, e.restart ?? .distantPast), to: e.at)
+                    let own = e.pct >= 10 && before > 0.5 ? before / (e.pct / 100) : cap
                     return (max(e.top, e.pct + cost(from: e.at, to: min(end, now)) / own * 100), true)
                 }
                 return (cost(from: start, to: min(end, now)) / cap * 100, false)

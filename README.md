@@ -71,7 +71,7 @@ once a minute while a 5-hour window is open and fills the time between from the 
 A turn is logged once per content block, and the first copy can be written mid-stream with a
 partial output count; the meter keeps the largest copy of each. Each turn is weighted by API
 list price (`Pricing.swift`); a model the table doesn't know is priced as the newest of its
-family. An exact reading fixes the
+family (a vendor's prefix, as in Bedrock's `us.anthropic.claude-…`, is ignored). An exact reading fixes the
 $-equivalent that equals 100% of each window (the *cap*); between readings the % moves by
 logged spend ÷ cap. Checked 2026-09-24: estimate 22% vs exact 23% after 12 heavy minutes.
 
@@ -97,7 +97,9 @@ minutes (a probe left the weekly out for an hour after the Oct 7 reset), its % i
 measurement plus this Mac's spend since, which says nothing if Anthropic reset it in between: on
 Oct 7 the card read 97% for a week at about 10%, and a false "weekly at 95%" went out. Such a window
 is *stale*: the card still estimates, but no 80%/95%/cap alert is raised from it until it is measured
-again, when it is raised as usual.
+again, when it is raised as usual. So is a window that has lapsed since the last reading (the Mac slept
+across the reset, say): until a reading measures the one open now, its % is this Mac's spend alone.
+After an early reset the pace ("At this pace…") and the 5-hour chart count from the restart too.
 
 ## Build
 
@@ -156,8 +158,14 @@ on a failure. It checks:
    reset's is its own, not stuck on the one it cut short), and an uncapped one doesn't peak above
    its readings.
 
+6. **Synthetic cases**: made-up states the history log may never hold, run after the replay at a
+   moment long before any real history: after an early 5-hour or weekly reset the pace and the 5-hour
+   chart count only the spend since it; a window that lapsed since its last reading is stale and
+   raises no 80%/95% alert; the probe gate keeps two minutes clear of a walked window's reset; and a
+   reading's open window is probed with nothing logged on this Mac.
+
 It also fails when it ran too little to mean anything (fewer than 8 openings, 15 gate points or
-30 accuracy checks, each scaled down when the readings span under 3 days). The weekly floor is lower the less of the week the logs cover: they reach back
+30 accuracy checks, each scaled down when the readings span under 3 days, but never below one). The weekly floor is lower the less of the week the logs cover: they reach back
 8 days, so just after a weekly reset there is little or nothing to check, and that isn't a failure.
 It's the full 30 once the week's readings span half a week, scaled down below that, and with under
 a day's worth it asks for none (and judges no fewer than 8 checks).
@@ -207,8 +215,8 @@ About $0.001 of usage per run, so at most ~$0.06/hr while you work (about 0.03 p
   signed out (or missing), the footer says so and the probe retries every 5 minutes (it fails at
   once and spends nothing); any other failure (offline, a slow machine) retries after a minute,
   doubling up to 30 minutes.
-- Not in the last two minutes before a window's reset: a probe launched then could reach the API
-  after it and open the next window.
+- Not in the last two minutes before a window's reset, whether a reading or this Mac's own messages
+  say when that is: a probe launched then could reach the API after it and open the next window.
 - Each reading is stamped when its probe starts (when it answers, if it took over 90 seconds, say
   the Mac slept), and a probe is called for
   only by activity logged after the last one started, so a turn logged while it ran is not lost
@@ -217,11 +225,12 @@ About $0.001 of usage per run, so at most ~$0.06/hr while you work (about 0.03 p
 ## Statusline tap
 
 `claude-meter-tap` (inside the app bundle) is a Claude Code statusline command. It saves the
-exact `rate_limits` block (only when it changes). The statusline redraws without new API calls
+exact `rate_limits` block only when it is newer than the one saved: a window that climbed, or a
+later window (with two sessions open, an idle one redraws the older numbers it last had). The statusline redraws without new API calls
 and stamps the time it drew, so from it only a higher % than the meter already has counts as a
 new reading, and a window it leaves out (it drops one the moment it resets) is kept as the reset
 to walk on from. It prints `Opus 5.5 · 5h 23% · 7d 28% · ctx 21%`, each percentage (the limits
-and the context) in yellow from 70% and red from 90%, plain when `NO_COLOR` is set and not empty
+and the context) in yellow from 70% and red from 90% (of the whole percent shown), plain when `NO_COLOR` is set and not empty
 (no-color.org). Registered in
 `~/.claude/settings.json`:
 
@@ -246,7 +255,8 @@ at the most). A reading dated in the future is ignored, and `at` may be in secon
 
 ## Notifications
 
-At 80% and 95% of each window, once per window, and when a 5-hour window that passed 80%
+At 80% and 95% of each window (as the card shows it, rounded), once per window, in one banner when a
+jump crosses both, and when a 5-hour window that passed 80%
 resets. Also once when exact readings stop: Claude Code in use (a message in the last 15 minutes)
 but no exact reading for an hour, when they normally come about once a minute. That usually means
 a Claude Code update changed what the probe or statusline reads, or a sign-out; the alert quotes

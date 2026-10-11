@@ -437,9 +437,9 @@ final class LogIndex: @unchecked Sendable {
         encoder.outputFormat = .binary
         if let data = try? encoder.encode(cache) {
             try? FileManager.default.createDirectory(at: Self.cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: Self.cacheURL, options: .atomic)
+            // Only a cache that was written is clean; one that wasn't is tried again at the next save.
+            if (try? data.write(to: Self.cacheURL, options: .atomic)) != nil { dirty = false }
             lastSaved = uptime
-            dirty = false
         }
     }
 }

@@ -1,14 +1,23 @@
 # Claude Meter: handoff
 
-Updated 2026-10-10 by Claude, from the Utilities project thread (after v0.9.8).
+Updated 2026-10-11 by Claude, from the Utilities project thread (v0.9.13 on branch `fix/audit-2026-10-11`).
 
 ## Status
 
-v0.9.12 (build 25) is on GitHub (vinnieg73/claude-meter, private) and installed in `~/Applications`. Replay fails only the weekly growth check, on today's cloud-heavy data (see v0.9.12 below); it should pass again once those days age out of its 8 days. The repo's CLAUDE.md limits work to bug fixes; features need
+v0.9.13 (build 26) is committed on the local branch `fix/audit-2026-10-11`, not pushed, and **not yet built**: it was written in a container with no Swift compiler. Before merging: `scripts/build.sh`, `./scripts/replay.sh` (check the new "6. Synthetic" line passes), `scripts/render-all.sh <dir>` (Help and the History "fits" fixture changed), then `--install` and `ClaudeMeter --status`. v0.9.12 (build 25) is on GitHub (vinnieg73/claude-meter, private) and installed in `~/Applications`. Replay fails only the weekly growth check, on today's cloud-heavy data (see v0.9.12 below); it should pass again once those days age out of its 8 days. The repo's CLAUDE.md limits work to bug fixes; features need
 Vinnie's OK and a dated exception note there.
 
 ## Done recently
 
+- v0.9.13 (branch `fix/audit-2026-10-11`, from the audit `tool-reviews/2026-10-11/claude-meter.md` in project files):
+  - Medium: the pace projection (5-hour and weekly), the 5-hour chart and History's peak count from an early reset (`restartedAt`), not from the window's start.
+  - Medium: a window that lapsed since the last reading is `stale`, so it raises no 80%/95%/cap alert until a reading measures it.
+  - Medium: History extends a window at its own rate only from 10% and $0.50 behind it (calibration's minimums), else today's cap.
+  - Medium: the probe gate keeps two minutes clear of a walked window's reset, and of the window a message is in when there is no reading.
+  - Medium: the statusline tap writes only a newer number (a climb, or a later window), so a second, idle session can't stamp older numbers fresh.
+  - Lows: probes run with nothing logged on this Mac while the last reading's window is open (cloud-only use); alerts by the rounded %, one banner when a jump crosses 80 and 95; "cap in ~<1m"; the no-window notice clears as soon as a window is open; a future-dated tap doesn't set tapSeen; `--status` age never negative; the tap can't crash on a huge % and colours by the rounded %; Bedrock-prefixed ids and claude-3-sonnet priced right; a failed login-shell launch is retried, not cached as unset; a failed index-cache write stays dirty; Desktop title ties go by path; uninstall.sh honours CLAUDE_CONFIG_DIR and a bare `claude-meter-tap`; render flags without --render print usage; Help's Burning now mentions the 50¢/hr floor; the "fits" fixture's open window is open.
+  - Replay: the tap's later-window early resets are expected like the meter takes them; each floor is at least one; new synthetic checks (early-reset pace and chart, lapsed windows stale with no alert, the walked-window probe margin, probing with nothing logged).
+  - Not done (see Open decisions): Medium 1 (Going cold for the 5-minute cache) and the product/display Lows.
 - v0.9.12: 9 of the 12 'skip' findings:
   - the menu bar cap shows the time only
   - a late copy marks a turn fast
@@ -55,6 +64,12 @@ Vinnie's OK and a dated exception note there.
 
 ## Open decisions (Vinnie's)
 
+- From the 2026-10-11 audit, not done in v0.9.13:
+  - Medium 1, Going cold never lists 5-minute-cache sessions: Help says so on purpose ("already cold by then"). Listing them means showing a session in Burning now and Going cold at once, or a shorter idle bar for that tier. Your call.
+  - Cache tier from any 1h write (prior #9): kept as decided in v0.9.11.
+  - Display and wording: a stale card still reading "exact"; Plan fit verdict wording, "Capped: never" and "Busiest 0%" when uncalibrated, "Exact readings logged since"; a one-day weekly average labelled an average; 99.6 printed "100%"; "~210% by reset" past the 150% pace line; the weekly project row's 0%; the open window bar past the plot edge; informational footer notices in red; the ring dot angle.
+  - Behaviour choices: Sync dropped while a probe runs; the probe-failure footer while tap readings flow; the stalled alert re-firing after 8 days, or right after wake; the weekly chart's shape before an early reset when little or nothing was logged here.
+  - Plausible, not confirmed, left alone: a held window ended early with no later message; sign-out seen only on stderr, and any "login"/"expired" error text; the runaway title placeholder; per-model rows carried over; a title line after a cut-short line; the 7-day average with a reset after the last reading. nvm searches only the newest version (known).
 - Audit leftovers: the 12 'skip' items in `claude-meter-open-findings-2026-10-11`, plus replay's drawn-vs-group window counting at the 7-day edge (#23, second half).
 
 ## Gotchas
