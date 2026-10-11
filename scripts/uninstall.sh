@@ -21,12 +21,14 @@ fi
 python3 - <<'EOF' || echo "statusline entry: couldn't update ~/.claude/settings.json; remove it by hand"
 import json, os, stat, tempfile
 # Through a symlink (a dotfiles repo, say): the real file is rewritten and the link stays a link.
-path = os.path.realpath(os.path.expanduser("~/.claude/settings.json"))
+# Claude Code's config folder: CLAUDE_CONFIG_DIR when it was moved, else ~/.claude.
+config = os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude"
+path = os.path.realpath(os.path.join(os.path.expanduser(config), "settings.json"))
 if os.path.exists(path):
     with open(path, encoding="utf-8") as f:
         settings = json.load(f)
     command = str((settings.get("statusLine") or {}).get("command", "")).strip().strip('"').strip("'")
-    if command.endswith("/claude-meter-tap"):
+    if command.endswith("/claude-meter-tap") or command == "claude-meter-tap":
         del settings["statusLine"]
         mode = stat.S_IMODE(os.stat(path).st_mode)
         fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))

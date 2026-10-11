@@ -62,7 +62,7 @@ enum ShellEnv {
             lock.lock(); output.append(chunk); lock.unlock()
         }
         defer { out.fileHandleForReading.readabilityHandler = nil }
-        do { try process.run() } catch { return .some(nil) }
+        do { try process.run() } catch { return nil } // asked again, up to three times, not taken as unset
         guard exited.wait(timeout: .now() + 10) == .success else {
             process.terminate()
             // Not every shell gives way to SIGTERM (an interactive bash ignores it).
@@ -72,7 +72,8 @@ enum ShellEnv {
         // What it printed before exiting may still be on its way through the pipe.
         Thread.sleep(forTimeInterval: 0.2)
         lock.lock(); let text = String(decoding: output, as: UTF8.self); lock.unlock()
-        guard let range = text.range(of: marker, options: .backwards) else { return .some(nil) }
+        // No marker: the profile exited before the command ran. Not an answer; asked again.
+        guard let range = text.range(of: marker, options: .backwards) else { return nil }
         let value = text[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
         return .some(value.isEmpty ? nil : value)
     }

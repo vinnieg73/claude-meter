@@ -73,7 +73,8 @@ enum Fmt {
     /// and the older order "claude-3-5-sonnet-20241022" -> "Sonnet 3.5"
     static func model(_ id: String) -> String {
         // "[1m]" and similar mark a variant, not a version.
-        let base = id.split(separator: "[").first.map(String.init) ?? id
+        // A vendor's prefix ("us.anthropic.") isn't part of the name.
+        let base = Pricing.bare(id).split(separator: "[").first.map(String.init) ?? id
         var parts = base.split(separator: "-").map(String.init)
         if parts.first == "claude" { parts.removeFirst() }
         func isVersion(_ s: String) -> Bool { s.count <= 2 && Int(s) != nil }

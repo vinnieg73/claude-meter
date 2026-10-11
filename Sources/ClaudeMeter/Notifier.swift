@@ -97,12 +97,17 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
         // Not a window nothing has measured for a while: if Anthropic reset it in between, its % is a
         // number only this Mac's spend made up (a false "weekly at 95%" went out that way on Oct 7).
+        // A window lapsed since its last reading counts as stale too: nothing has measured the one open now.
         for w in [s.fiveHour, s.weekly].compactMap({ $0 }) where !w.idle && !w.stale {
             guard let resets = w.resetsAt else { continue }
-            for t in thresholds where w.pct >= t {
+            // By the whole percent shown, so a card reading "80%" has had its 80% alert. Crossing both at
+            // once (a jump between readings) says so in one banner: the lower is recorded without its own.
+            let due = thresholds.filter { w.pct.rounded() >= $0 }
+            for t in due {
                 once(w.title, resets, "\(Int(t))", now: now,
                      title: "Claude \(w.title.lowercased()) at \(Fmt.pct(w.pct))",
-                     body: "Resets \(Fmt.when(resets)), in \(Fmt.left(resets.timeIntervalSince(now))).")
+                     body: "Resets \(Fmt.when(resets)), in \(Fmt.left(resets.timeIntervalSince(now))).",
+                     silent: t != due.last)
             }
         }
 
@@ -111,7 +116,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             let lead = capAt.timeIntervalSince(now)
             if lead > 0, lead <= 1800 {
                 once("pace", resets, "0", now: now,
-                     title: "Claude 5-hour cap in ~\(Fmt.duration(lead))",
+                     title: "Claude 5-hour cap in ~\(Fmt.left(lead))",
                      body: "At this pace you hit it at \(Fmt.when(capAt)). The window resets \(Fmt.when(resets)).")
             }
         }
@@ -138,7 +143,9 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     /// Sends an alert unless it already went out for this window (allowing for the seconds to
     /// minutes a window's reset time varies by between readings), and records it as sent only
     /// once macOS has taken it.
-    private func once(_ kind: String, _ resets: Date, _ detail: String, now: Date, title: String, body: String) {
+    /// `silent`: recorded as sent without a banner of its own (another one this tick covers it).
+    private func once(_ kind: String, _ resets: Date, _ detail: String, now: Date, title: String, body: String,
+                      silent: Bool = false) {
         let key = "\(kind)|\(Int(resets.timeIntervalSince1970))|\(detail)"
         let sent = store.state.notified.contains { stored in
             let parts = stored.split(separator: "|")
@@ -147,7 +154,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         }
         guard !sent, !pending.contains(key) else { return }
         pending.insert(key)
-        deliver(key: key, title: title, body: body) { [weak self] ok in
+        deliver(key: key, title: title, body: body, silent: silent) { [weak self] ok in
             guard let self else { return }
             self.pending.remove(key)
             guard ok else { return }
@@ -189,12 +196,14 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         deliver(key: key, title: "Claude 5-hour window reset", body: "You're back to a full window.")
     }
 
-    private func deliver(key: String, title: String, body: String, done: (@MainActor (Bool) -> Void)? = nil) {
+    private func deliver(key: String, title: String, body: String, silent: Bool = false,
+                         done: (@MainActor (Bool) -> Void)? = nil) {
         if let sink {
             sink(key)
             done?(true)
             return
         }
+        if silent { done?(true); return }
         guard let center else { done?(false); return }
         let content = UNMutableNotificationContent()
         content.title = title

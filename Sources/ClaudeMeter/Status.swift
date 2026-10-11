@@ -68,7 +68,7 @@ enum Status {
 
         let state = StateStore().state
         if let r = state.lastExact {
-            let age = Int(Date().timeIntervalSince(r.at) / 60)
+            let age = Int(max(0, Date().timeIntervalSince(r.at)) / 60) // not "-1m" for one stamped a little ahead
             let windows = [("5h", r.fiveHour), ("week", r.weekly)]
                 .compactMap { name, w in w.map { "\(name) \(Fmt.pct($0.pct))" } }
                 .joined(separator: ", ")

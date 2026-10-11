@@ -15,6 +15,7 @@ import Foundation
 ///    the early resets the meter recorded are the ones the readings show; the "This week" shares
 ///    never add up to more than the weekly card; History's windows don't overlap or peak above
 ///    their own readings.
+/// 6. Synthetic: made-up early resets, lapsed windows and probe-gate edges the log may never hold.
 /// Each reading is replayed with only the windows it measured, not ones carried over.
 @MainActor
 enum Replay {
@@ -122,24 +123,36 @@ extension Meter {
 
         // Early resets, read from the readings themselves (the same window measured lower than
         // before), for the meter's own record of them to be held against.
+        // The statusline counts as `Meter.pick` takes it: for the same window only a climb (and none once
+        // the window was reset early), but a later window from any source.
         var shown: [(at: Date, window: String)] = []
         var heldWindow: [String: Window] = [:]
-        for r in readings where r.source != "tap" {
+        var heldRestarted: [String: Bool] = [:]
+        for r in readings {
+            let tap = r.source == "tap"
             for (name, w, span) in [("5h", r.fiveHour, 5 * 3600.0), ("week", r.weekly, 7 * 86400.0)] {
                 guard let w else { continue }
                 if let held = heldWindow[name] {
                     if w.resetsAt < held.resetsAt.addingTimeInterval(-900) { continue }
                     if Window.same(held.resetsAt, w.resetsAt) {
-                        // As `Meter.pick` reads it: a fall of more than a few points, or to nothing from a
-                        // point or more, is a reset; a smaller one is an old number, and the higher stays held.
-                        let toNothing = w.pct < 0.5 && held.pct >= 1
-                        if w.pct < held.pct - Meter.restartDrop || toNothing {
-                            shown.append((r.at, name))
-                        } else if w.pct < held.pct - 0.5 {
-                            continue
+                        if tap {
+                            if w.pct <= held.pct + 0.5 || heldRestarted[name] == true { continue }
+                        } else {
+                            // As `Meter.pick` reads it: a fall of more than a few points, or to nothing from a
+                            // point or more, is a reset; a smaller one is an old number, and the higher stays held.
+                            let toNothing = w.pct < 0.5 && held.pct >= 1
+                            if w.pct < held.pct - Meter.restartDrop || toNothing {
+                                shown.append((r.at, name))
+                                heldRestarted[name] = true
+                            } else if w.pct < held.pct - 0.5 {
+                                continue
+                            }
                         }
                     } else if w.resetsAt.addingTimeInterval(-span) < held.resetsAt.addingTimeInterval(-60) {
                         shown.append((r.at, name)) // a later window that began before the held one was due
+                        heldRestarted[name] = true
+                    } else {
+                        heldRestarted[name] = false
                     }
                 }
                 heldWindow[name] = w
@@ -191,7 +204,7 @@ extension Meter {
             // (A window nothing has measured for a while raises none: see WindowView.stale.)
             for w in [snapshot.fiveHour, snapshot.weekly].compactMap({ $0 }) where !w.idle && !w.stale {
                 guard let r = w.resetsAt else { continue }
-                for threshold in [80.0, 95.0] where w.pct >= threshold { owe(w.title, "\(Int(threshold))", r) }
+                for threshold in [80.0, 95.0] where w.pct.rounded() >= threshold { owe(w.title, "\(Int(threshold))", r) }
             }
             if let f = snapshot.fiveHour, let r = f.resetsAt {
                 if !f.stale, let capAt = f.capAt, snapshot.capWarning != nil {
@@ -416,7 +429,8 @@ extension Meter {
         // The floors in full from three days of readings on; a newer install, with less to replay, is held
         // to its share of them rather than failing for history it doesn't have yet.
         let history = min(1, end.timeIntervalSince(start) / (3 * 86400))
-        func floor(_ full: Int) -> Int { Int(Double(full) * history) }
+        // At least one of each, however short: a run that checked nothing proves nothing.
+        func floor(_ full: Int) -> Int { max(1, Int(Double(full) * history)) }
         if openingChecks < floor(Replay.minimum.openings) || openingSkipped > openingChecks {
             report.failures.append("only \(openingChecks) window openings checked (\(openingSkipped) skipped), "
                                    + "need \(floor(Replay.minimum.openings))")
@@ -477,7 +491,118 @@ extension Meter {
                 report.failures.append(String(format: "%@ estimates typically off by ±%.2f, over the ±%.1f bar", name, typical, bar))
             }
         }
+        syntheticChecks(&report)
         return report
+    }
+
+    /// 6. Made-up cases the history log may never hold, run on this meter once the replay is done:
+    /// the pace and chart after an early reset count only the spend since it, a window that lapsed
+    /// since its last reading is stale and raises no threshold alert, the probe gate keeps clear of a
+    /// walked window's reset, and a reading's open window is probed with nothing logged here.
+    /// Set at a moment long before any real history, so nothing in the history log falls near it.
+    private func syntheticChecks(_ report: inout ReplayReport) {
+        let heldTurns = turns, heldState = store.state, heldClock = clock, heldCovered = coveredFrom
+        defer {
+            turns = heldTurns
+            store.state = heldState
+            clock = heldClock
+            coveredFrom = heldCovered
+        }
+        coveredFrom = .distantPast
+        let mark = Date(timeIntervalSince1970: 999_999_600) // on a 10-minute mark
+        // $15 a turn at 1M output tokens (Sonnet 4.5), $0.15 at 10k.
+        func turn(_ at: Date, output: Int) -> Turn {
+            Turn(key: "synthetic-\(Int(at.timeIntervalSince1970))", at: at, project: "synthetic", model: "claude-sonnet-4-5",
+                 session: "synthetic", input: 0, output: output, cacheRead: 0, write5m: 0, write1h: 0, fast: false)
+        }
+        func setUp(now: Date, turns made: [Turn], reading: ExactReading?, cap5h: Double?, capWeek: Double?) {
+            clock = { now }
+            turns = made.sorted { $0.at < $1.at }
+            var state = PersistedState()
+            state.lastExact = reading
+            state.calibration.cap5h = cap5h
+            state.calibration.capWeek = capWeek
+            store.state = state
+        }
+        var ran = 0
+        func expect(_ ok: Bool, _ failure: String) {
+            ran += 1
+            if !ok { report.failures.append("synthetic: " + failure) }
+        }
+
+        // An early 5-hour reset 30 minutes ago, after $30 of spend (the whole cap) that no longer counts.
+        var now = mark.addingTimeInterval(3 * 3600)
+        var restart = now.addingTimeInterval(-1800)
+        setUp(now: now,
+              turns: [turn(now.addingTimeInterval(-2400), output: 1_000_000), turn(now.addingTimeInterval(-2100), output: 1_000_000),
+                      turn(now.addingTimeInterval(-600), output: 10_000)],
+              reading: ExactReading(at: now.addingTimeInterval(-60), source: "probe",
+                                    fiveHour: Window(pct: 2, resetsAt: now.addingTimeInterval(2 * 3600),
+                                                     at: now.addingTimeInterval(-60), restartedAt: restart)),
+              cap5h: 30, capWeek: nil)
+        recompute()
+        if let f = snapshot.fiveHour {
+            expect(f.capAt == nil && (f.atReset ?? 0) < 100,
+                   "5-hour pace after an early reset counts the spend before it (lands at \(f.atReset ?? -1)%)")
+            let charted = f.series.filter { $0.at < restart }.map(\.pct).max() ?? 0
+            expect(charted == 0, "5-hour chart after an early reset climbs to \(charted)% before it")
+        } else {
+            expect(false, "no 5-hour card for a window open after an early reset")
+        }
+
+        // An early weekly reset 3 hours ago, after $30 of spend (the whole cap) that no longer counts.
+        restart = now.addingTimeInterval(-3 * 3600)
+        setUp(now: now,
+              turns: [turn(now.addingTimeInterval(-5 * 3600), output: 1_000_000), turn(now.addingTimeInterval(-4 * 3600), output: 1_000_000),
+                      turn(now.addingTimeInterval(-3600), output: 10_000)],
+              reading: ExactReading(at: now.addingTimeInterval(-60), source: "probe",
+                                    weekly: Window(pct: 1, resetsAt: now.addingTimeInterval(3 * 86400),
+                                                   at: now.addingTimeInterval(-60), restartedAt: restart)),
+              cap5h: nil, capWeek: 30)
+        recompute()
+        if let w = snapshot.weekly {
+            expect(w.capAt == nil && (w.atReset ?? 0) < 100,
+                   "weekly pace after an early reset counts the spend before it (lands at \(w.atReset ?? -1)%)")
+        } else {
+            expect(false, "no weekly card for a week open after an early reset")
+        }
+
+        // Both windows lapsed an hour ago (the Mac slept across the resets); $15 logged since, past both caps.
+        setUp(now: now,
+              turns: [turn(now.addingTimeInterval(-1200), output: 1_000_000)],
+              reading: ExactReading(at: now.addingTimeInterval(-4200), source: "probe",
+                                    fiveHour: Window(pct: 50, resetsAt: now.addingTimeInterval(-3600), at: now.addingTimeInterval(-4200)),
+                                    weekly: Window(pct: 50, resetsAt: now.addingTimeInterval(-3600), at: now.addingTimeInterval(-4200))),
+              cap5h: 10, capWeek: 10)
+        recompute()
+        let lapsed = [snapshot.fiveHour, snapshot.weekly].compactMap { $0 }
+        expect(lapsed.count == 2 && lapsed.allSatisfy { $0.stale && !$0.idle },
+               "a window lapsed since its last reading isn't marked stale")
+        var keys: [String] = []
+        let notifier = Notifier(store: store) { keys.append($0) }
+        notifier.check(snapshot, now: now, post: true)
+        let thresholds = keys.filter { $0.hasPrefix(Meter.fiveHourTitle + "|") || $0.hasPrefix(Meter.weeklyTitle + "|") }
+        expect(thresholds.isEmpty, "a lapsed window nothing has measured raised \(thresholds.joined(separator: ", "))")
+
+        // The probe gate near the end of a window walked from a message (none of it measured).
+        setUp(now: mark,
+              turns: [turn(mark.addingTimeInterval(30), output: 10_000)],
+              reading: ExactReading(at: mark.addingTimeInterval(-7200), source: "probe",
+                                    fiveHour: Window(pct: 10, resetsAt: mark.addingTimeInterval(-3600), at: mark.addingTimeInterval(-7200))),
+              cap5h: 10, capWeek: nil)
+        expect(windowOpen(mark.addingTimeInterval(4 * 3600)), "probe blocked inside a window walked from a message")
+        expect(!windowOpen(mark.addingTimeInterval(5 * 3600 - 60)),
+               "probe would run a minute before a walked window's reset, and could open the next one")
+
+        // Use only away from this Mac: the reading's window is open, nothing is logged here.
+        now = mark
+        setUp(now: now, turns: [],
+              reading: ExactReading(at: now.addingTimeInterval(-120), source: "probe",
+                                    fiveHour: Window(pct: 10, resetsAt: now.addingTimeInterval(3600), at: now.addingTimeInterval(-120))),
+              cap5h: nil, capWeek: nil)
+        expect(windowOpen(now), "no probe while the last reading's window is open, with nothing logged on this Mac")
+
+        report.lines.append("6. Synthetic: \(ran) checks (early-reset pace and chart, lapsed windows, probe gate).")
     }
 
     /// The history log saves each reading as the meter held it, windows carried over from earlier

@@ -37,6 +37,9 @@ enum Main {
             exit(Preview.render(to: args[i + 1], dark: args.contains("--dark"), history: args.contains("--history"),
                                 help: args.contains("--help-page"), fixture: fixture) ? 0 : 1)
         }
+        // The render options without --render would otherwise start the live app.
+        let renderOnly: Set = ["--dark", "--history", "--help-page", "--icons", "--fixture"]
+        if args.dropFirst().contains(where: { renderOnly.contains($0) }) { misused() }
         if args.contains("--status") { return Status.print() }
         if args.contains("--replay") { exit(Replay.run()) }
         if args.contains("--unregister-login") { return Status.unregisterLogin() }

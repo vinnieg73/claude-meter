@@ -94,7 +94,7 @@ struct HelpView: View {
 
     private var burning: some View {
         HelpSection(symbol: "flame.fill", title: "Burning now", tint: .orange) {
-            Para("Every session that used Claude in the last 15 minutes, by name. A runaway stays here with its ⚠ for 30 minutes, even once it has gone quiet. If two share a name, each also says when it last ran. Hover a row for its whole name and the model it runs on.")
+            Para("Every session that used Claude in the last 15 minutes at 50¢ an hour or more (at pay-as-you-go prices), by name. A runaway stays here with its ⚠ for 30 minutes, even once it has gone quiet. If two share a name, each also says when it last ran. Hover a row for its whole name and the model it runs on.")
             BarRow(name: "Fix login bug", value: "$4.12/hr", detail: "+2.5%", fraction: 0.55)
                 .padding(.vertical, 2)
             Bullets([

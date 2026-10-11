@@ -34,9 +34,11 @@ final class DesktopTitles {
             next[url.path] = (mtime, record?.cliSessionId, record?.title)
         }
         read = next
-        // Oldest first, so where two records share a session id the newer title wins, the same every time.
+        // Oldest first, so where two records share a session id the newer title wins, the same every time
+        // (records written in the same instant go by path, not by the dictionary's order).
         var titles: [String: String] = [:]
-        for r in read.values.sorted(by: { $0.mtime < $1.mtime }) {
+        let ordered = read.sorted { $0.value.mtime != $1.value.mtime ? $0.value.mtime < $1.value.mtime : $0.key < $1.key }
+        for r in ordered.map(\.value) {
             guard let id = r.id, let title = r.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else { continue }
             titles[id] = title
         }
