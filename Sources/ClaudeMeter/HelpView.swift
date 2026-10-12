@@ -111,6 +111,16 @@ struct HelpView: View {
     private var burning: some View {
         HelpSection(symbol: "flame.fill", title: "Burning now", tint: .orange) {
             Para("Every session that used Claude in the last 15 minutes at 50¢ an hour or more (at pay-as-you-go prices), by name. A runaway stays here with its ⚠ for 30 minutes, even once it has gone quiet. If two share a name, each also says when it last ran. Hover a row for its whole name and the model it runs on.")
+            Sample {
+                HStack(spacing: 4) {
+                    ForEach(Array([ModelFamily.opus, .sonnet, .haiku, .fable].enumerated()), id: \.offset) { _, f in
+                        Mascot(pose: .run, color: f.full)
+                    }
+                    Mascot(pose: .asleep, color: ModelFamily.opus.muted)
+                }
+            } says: {
+                Para("Each session has a mascot in its model's colour: purple Opus, orange Sonnet, teal Haiku, pink Fable. A bobbing mascot is working (Burning now, and the crew at the top of the dropdown). Eyes shut in a dimmer colour means idle and going cold. The still ones on the limit cards just label them.")
+            }
             BarRow(name: "Fix login bug", value: "$4.12/hr", detail: "+2.5%", fraction: 0.55)
                 .padding(.vertical, 2)
             Bullets([
@@ -127,13 +137,10 @@ struct HelpView: View {
         HelpSection(symbol: "snowflake", title: "Going cold", tint: .cyan) {
             Para("Claude keeps a conversation warm for about an hour after your last message. After that it goes cold, and the next message uses more of your limit, because the whole conversation has to be sent again.")
             Sample {
-                HStack(spacing: 5) {
-                    Chip(text: "cold in 6m", symbol: "snowflake", tint: .cyan)
-                    HStack(spacing: 3) {
-                        Text("then").font(Theme.meta).foregroundStyle(.secondary)
-                        Text("+$1.00").font(Theme.row)
-                    }
-                    .monospacedDigit()
+                HStack(spacing: 4) {
+                    Chip(text: "cold in 6m", tint: .cyan)
+                    Text("then").font(Theme.row).foregroundStyle(.secondary)
+                    Text("+$1.00").font(Theme.row).monospacedDigit()
                 }
                 .fixedSize()
             } says: {

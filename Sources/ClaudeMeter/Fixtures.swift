@@ -5,7 +5,7 @@ import Foundation
 /// by the running app.
 @MainActor
 enum Fixtures {
-    static let popover = ["calm", "warn", "critical", "idle", "empty", "loading", "trouble", "week", "long", "nofable"]
+    static let popover = ["calm", "warn", "critical", "idle", "empty", "loading", "trouble", "week", "long", "nofable", "samename"]
     static let history = ["fits", "uncalibrated"]
 
     /// `weekScope` is the Today / This week picker; `notice` stands in for the meter's own.
@@ -27,6 +27,7 @@ enum Fixtures {
         case "week": week
         case "long": long
         case "nofable": nofable
+        case "samename": samename
         default: nil
         }
     }
@@ -156,10 +157,11 @@ enum Fixtures {
             Burn(id: "a", name: "Pocket Saloon", model: "Opus 5.5", perHour: 8.71, pctPerHour: 5.3),
             Burn(id: "b", name: "Frontier Universe", model: "Opus 5.5", perHour: 6.54, pctPerHour: 4.0),
             Burn(id: "c", name: "Claude Meter", model: "Sonnet 5.5", perHour: 1.20, pctPerHour: 0.7),
+            Burn(id: "h", name: "Shift Hours", model: "Fable 5.1", perHour: 0.90, pctPerHour: 0.5, fable: true),
         ]
         s.cooling = [
-            Cooling(id: "d", name: "Five Card Poker", coldAt: now.addingTimeInterval(6 * 60), extra: 1.00, extraPct: 0.6),
-            Cooling(id: "e", name: "Pocket Saloon", coldAt: now.addingTimeInterval(39 * 60), extra: 5.75, extraPct: 3.5),
+            Cooling(id: "d", name: "Five Card Poker", coldAt: now.addingTimeInterval(6 * 60), extra: 1.00, extraPct: 0.6, model: "Fable 5.1"),
+            Cooling(id: "e", name: "Pocket Saloon", coldAt: now.addingTimeInterval(39 * 60), extra: 5.75, extraPct: 3.5, model: "Opus 5.5"),
         ]
         s.activeCount = 4
         s.todayCost = 139
@@ -197,9 +199,9 @@ enum Fixtures {
                             weekCost: 318, weekTokens: 260_000_000, weekPts: 21, todayCost: 6.2)
         s.runaways = [Runaway(id: "a", name: "Frontier Universe", pct: 23)]
         s.cooling = [
-            Cooling(id: "d", name: "Five Card Poker", coldAt: now.addingTimeInterval(4 * 60), extra: 1.00, extraPct: 0.6),
-            Cooling(id: "e", name: "Pocket Saloon", coldAt: now.addingTimeInterval(21 * 60), extra: 5.75, extraPct: 3.5),
-            Cooling(id: "g", name: "Claude Meter", coldAt: now.addingTimeInterval(52 * 60), extra: 2.10, extraPct: 1.3),
+            Cooling(id: "d", name: "Five Card Poker", coldAt: now.addingTimeInterval(4 * 60), extra: 1.00, extraPct: 0.6, model: "Haiku 4.5"),
+            Cooling(id: "e", name: "Pocket Saloon", coldAt: now.addingTimeInterval(21 * 60), extra: 5.75, extraPct: 3.5, model: "Opus 5.5"),
+            Cooling(id: "g", name: "Claude Meter", coldAt: now.addingTimeInterval(52 * 60), extra: 2.10, extraPct: 1.3, model: "Fable 5.1"),
         ]
         s.activeCount = 6
         s.todayCost = 212
@@ -281,17 +283,38 @@ enum Fixtures {
             Burn(id: "b", name: "Another session with a very long custom title", model: "Opus 5.5", perHour: 312, pctPerHour: 38),
             Burn(id: "c", name: "Pocket Saloon", model: "Haiku 4.5", perHour: 0.04, pctPerHour: 0.02),
             Burn(id: "f", name: "Claude Meter", model: "claude-experimental-9", perHour: 12.5, pctPerHour: 7.6),
+            Burn(id: "i", name: "Shift Hours", model: "Fable 5.1", perHour: 2.1, pctPerHour: 1.3, fable: true),
+            Burn(id: "j", name: "Surge", model: "Opus 5.5", perHour: 1.4, pctPerHour: 0.8),
+            Burn(id: "k", name: "Parlay refresh", model: "Haiku 4.5", perHour: 0.6, pctPerHour: 0.4),
         ]
         p.snapshot.runaways = [Runaway(id: "a", name: name, pct: 64), Runaway(id: "b", name: "Another", pct: 21)]
         p.snapshot.cooling = [
-            Cooling(id: "d", name: name, coldAt: now.addingTimeInterval(59 * 60), extra: 41.8, extraPct: 25, tag: "59m"),
-            Cooling(id: "e", name: "Short", coldAt: now.addingTimeInterval(60), extra: 0.01, extraPct: nil),
+            Cooling(id: "d", name: name, coldAt: now.addingTimeInterval(59 * 60), extra: 41.8, extraPct: 25, tag: "started 9:41 PM", model: "Sonnet 5.5"),
+            Cooling(id: "e", name: "Short", coldAt: now.addingTimeInterval(60), extra: 0.01, extraPct: nil, model: "claude-experimental-9"),
         ]
         p.snapshot.todayCost = 4_812
         p.snapshot.todayTokens = 1_420_000_000
         p.snapshot.projects = [Row(id: name, cost: 4_100, tokens: 0), Row(id: "Pocket Saloon", cost: 690, tokens: 0),
                                Row(id: "x", cost: 22, tokens: 0), Row(id: "Claude Meter", cost: 0.004, tokens: 0)]
         p.snapshot.daily = days([1200, 4_812, 300, 0, 0, 2_200, 4_812])
+        return p
+    }
+
+    /// Several threads in one folder, all named alike, as the desktop app's Remote Control sessions
+    /// are: tagged rows in both lists, so the names must still read.
+    private static var samename: Popover {
+        var p = calm
+        let name = "Remote Control session"
+        p.snapshot.burning = [
+            Burn(id: "a", name: name, model: "Opus 5.5", perHour: 16.83, pctPerHour: 7.6, tag: "started Sun 9:32 PM"),
+            Burn(id: "b", name: name, model: "Opus 5.5", perHour: 9.76, pctPerHour: 4.4, tag: "started 12:13 AM"),
+            Burn(id: "c", name: "Claude Meter", model: "Fable 5.1", perHour: 4.12, pctPerHour: 2.5, fable: true),
+        ]
+        p.snapshot.cooling = [
+            Cooling(id: "d", name: name, coldAt: now.addingTimeInterval(20 * 60), extra: 2.51, extraPct: 1.4, tag: "39m", model: "Opus 5.5"),
+            Cooling(id: "e", name: name, coldAt: now.addingTimeInterval(27 * 60), extra: 1.70, extraPct: 1.0, tag: "32m", model: "Sonnet 5.5"),
+            Cooling(id: "f", name: name, coldAt: now.addingTimeInterval(32 * 60), extra: 2.24, extraPct: 1.3, tag: "27m", model: "Haiku 4.5"),
+        ]
         return p
     }
 

@@ -39,6 +39,14 @@ The ring fills to the exact 5-hour %.
 - **Going cold**: sessions idle 15+ minutes whose 1-hour prompt cache expires soon, and what
   their next message would cost on top of a warm one once it has (the whole context is
   re-written at 2x input instead of read at the cache price).
+- **Mascots**: the Claude Code mascot (the worker band's pixels, drawn in `Mascot.swift`) in each
+  session's model colour: purple Opus, orange Sonnet, teal Haiku, pink Fable, yellow for anything
+  else. A running crew in the header ("3 working", one per Burning now row, five at most), a bobbing
+  mascot on each Burning now row, a small eyes-shut one in a dimmed colour on each Going cold row,
+  and still ones labelling the limit cards. Going cold rows take two lines (the name, then when it
+  goes cold and the extra cost), and a Burning now row's last-ran tag sits under its name, so names
+  read whole. They move only while the
+  dropdown is open, never under Reduce Motion. The menu bar keeps its ring.
 - **Today / This week**: spend by project today, or each project's share of the weekly
   limit, plus what the logs can't account for (chat, other devices).
 

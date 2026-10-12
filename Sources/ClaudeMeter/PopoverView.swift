@@ -47,7 +47,7 @@ struct PopoverView: View {
 
 // MARK: - Header
 
-/// The menu bar's ring and the title, and how many sessions are active.
+/// The menu bar's ring and the title, and the sessions working now.
 private struct PopoverHeader: View {
     let s: Snapshot
 
@@ -61,8 +61,8 @@ private struct PopoverHeader: View {
                 .font(.system(size: 13, weight: .semibold))
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
-            if s.activeCount > 0 {
-                ActivePill(count: s.activeCount)
+            if !s.burning.isEmpty {
+                WorkingPill(burning: s.burning)
             }
         }
         .padding(.horizontal, 2)
@@ -105,22 +105,35 @@ private struct HeaderRing: View {
     }
 }
 
-/// "6 active" with a green dot, in a capsule.
-private struct ActivePill: View {
-    let count: Int
+/// A running mascot per burning session, in its model's colour (five at most, then "+2"), and
+/// "3 working", in a capsule.
+private struct WorkingPill: View {
+    let burning: [Burn]
+
+    private static let shown = 5
 
     var body: some View {
+        let extra = burning.count - Self.shown
         HStack(spacing: 4) {
-            Circle().fill(Color.green).frame(width: 6, height: 6).accessibilityHidden(true)
-            Text("\(count) active").monospacedDigit()
+            HStack(spacing: 2) {
+                ForEach(Array(burning.prefix(Self.shown).enumerated()), id: \.offset) { i, b in
+                    Mascot(pose: .run, color: ModelFamily(model: b.model).full, phase: Double(i) * Mascot.stagger)
+                }
+            }
+            if extra > 0 {
+                Text("+\(extra)").monospacedDigit()
+            }
+            Text("\(burning.count) working").monospacedDigit()
         }
         .font(Theme.meta)
-        .foregroundStyle(Color.primary.opacity(0.7))
+        .lineLimit(1)
+        .fixedSize()
+        .foregroundStyle(.secondary)
         .padding(.horizontal, 7)
         .padding(.vertical, 2)
-        .background(Capsule().fill(Color.green.opacity(0.12)))
+        .background(Capsule().fill(Theme.track))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(count) active")
+        .accessibilityLabel("\(burning.count) working")
     }
 }
 

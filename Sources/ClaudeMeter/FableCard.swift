@@ -6,12 +6,13 @@ import SwiftUI
 struct FableCard: View {
     let f: FableView
 
+    /// Help's symbol for this card (the card itself wears a Fable mascot).
     static let symbol = "sparkles"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             if let w = f.limit {
-                WindowCard(w: w, tint: Theme.fable, symbol: Self.symbol)
+                WindowCard(w: w, tint: Theme.fable)
             } else {
                 titleRow
                 Text(f.noLimit ? "No separate Fable limit on your plan. Fable counts toward the limits above."
@@ -35,7 +36,7 @@ struct FableCard: View {
     /// The title alone, when there is no limit to put a number on.
     private var titleRow: some View {
         HStack(spacing: 0) {
-            ModuleTitle(symbol: Self.symbol, title: "Fable", tint: Theme.fable)
+            MascotTitle(colors: [ModelFamily.fable.full], title: "Fable")
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 0)
         }

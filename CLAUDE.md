@@ -32,6 +32,17 @@ Exception (2026-10-11, asked for by the user): a Fable card showing the separate
 (read from `claude -p /usage`) and this Mac's Fable share of the overall windows, pink, with a Help
 section, done in v0.9.14. Scope is back to bug elimination.
 
+Exception (2026-10-12, asked for by the user): Claude Code mascots in the dropdown ("Option C" from
+a mockup the user approved), drawn in `Mascot.swift`: a running crew in the header, still mascots on the
+limit cards, running ones in Burning now and eyes-shut ones in Going cold, coloured by model family,
+moving only while the dropdown is open. The menu bar is unchanged. Done in v0.9.16; v0.9.17 (also asked for) made
+Going cold two-line rows and put Burning now tags under the name so names read. Scope is back to
+bug elimination.
+
 Before calling a fix done, run `./scripts/replay.sh` and confirm PASS. It replays the real history
 log and transcripts through the working tree (read-only) and checks window openings, the probe
 gate, duplicate alerts and accuracy. If a fix guards something the replay doesn't cover, say so.
+
+## Lessons
+
+- Anything that widens a Going cold or Burning now row can push the whole dropdown past 340 pt (it shifts and clips at both edges): check the `long` fixture, which carries the longest tags and amounts (v0.9.16).

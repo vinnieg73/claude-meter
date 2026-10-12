@@ -71,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     private let meter = Meter()
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
+    private let popoverState = PopoverState()
     private var subscriptions: Set<AnyCancellable> = []
     private var historyWindow: NSWindow?
     private var helpWindow: NSWindow?
@@ -85,8 +86,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
         popover.behavior = .transient
         popover.delegate = self
-        let host = NSHostingController(rootView: PopoverView(meter: meter, openHistory: { [weak self] in self?.openHistory() },
-                                                                   openHelp: { [weak self] in self?.openHelp() }))
+        let host = NSHostingController(rootView: PopoverRoot(state: popoverState) {
+            PopoverView(meter: self.meter, openHistory: { [weak self] in self?.openHistory() },
+                        openHelp: { [weak self] in self?.openHelp() })
+        })
         host.sizingOptions = .preferredContentSize // the popover follows the content as sections come and go
         popover.contentViewController = host
 
@@ -215,7 +218,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
     /// Opened from the shortcut, the meter took the focus from whatever you were in; closing
     /// the dropdown hands it back rather than leaving your keystrokes going nowhere.
+    /// The mascots run only while the dropdown is open.
+    func popoverWillShow(_ notification: Notification) {
+        popoverState.open = true
+    }
+
     func popoverDidClose(_ notification: Notification) {
+        popoverState.open = false
         if NSApp.isActive, historyWindow?.isVisible != true, helpWindow?.isVisible != true { NSApp.hide(nil) }
     }
 

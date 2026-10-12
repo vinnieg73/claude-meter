@@ -77,6 +77,8 @@ struct Cooling: Identifiable {
     let extraPct: Double?
     /// When the session last ran ("18m"), set only while another row shows the same name.
     var tag: String? = nil
+    /// The model of its last turn ("Opus 5.5"), for its mascot's colour.
+    var model = ""
 }
 
 /// A session eating the 5-hour window fast enough to look like a runaway loop.
@@ -1341,7 +1343,7 @@ final class Meter: ObservableObject {
             guard extra >= 0.5 else { return nil }
             return Cooling(id: session, name: names[session] ?? t.project,
                            coldAt: t.at.addingTimeInterval(ttl), extra: extra,
-                           extraPct: cap.map { extra / $0 * 100 })
+                           extraPct: cap.map { extra / $0 * 100 }, model: Fmt.model(t.model))
         }
         .sorted { $0.coldAt < $1.coldAt }
     }

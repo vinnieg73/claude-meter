@@ -6,12 +6,17 @@ import SwiftUI
 struct SessionsSection: View {
     let s: Snapshot
 
-    /// Where a row's text starts, from the module's edge: `BarRow`'s padding, or, when the list keeps
-    /// a column for the warning, in line with the module title's text (its symbol column and gap).
+    /// Where every row's mascot starts, from the module's edge, so both lists' mascots line up. A
+    /// runaway's warning goes after the mascot, in a column Burning now keeps while any row has one.
     fileprivate enum Inset {
-        static let plain: CGFloat = 6
-        static let warned: CGFloat = 13 + 5
+        static let lead: CGFloat = 2
+        static let warning: CGFloat = 8
+        static let gap: CGFloat = 6
     }
+
+    /// The row mascots' scale: 2 points a unit, 32 x 20.
+    fileprivate static let mascotScale: CGFloat = 2
+    fileprivate static var mascotWidth: CGFloat { CGFloat(Mascot.width) * mascotScale }
 
     var body: some View {
         let rows = Array(s.burning.prefix(4))
@@ -44,7 +49,7 @@ struct SessionsSection: View {
         return VStack(alignment: .leading, spacing: 2) {
             // Last baseline: the title's own, not its symbol's.
             HStack(alignment: .lastTextBaseline, spacing: 8) {
-                ModuleTitle(symbol: "flame.fill", title: "Burning now", tint: .orange)
+                Text("Burning now").font(Theme.title)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
                 Text("\(Fmt.dollars(total))/hr" + (s.calibrated ? " · +\(Fmt.rate(pct))%/hr" : ""))
@@ -55,8 +60,8 @@ struct SessionsSection: View {
             .help("Spend over the last 15 minutes. %/hr is of the 5-hour window.")
 
             VStack(spacing: 1) {
-                ForEach(rows) { b in
-                    SessionRow(name: b.name, model: b.model, tag: b.tag, fable: b.fable,
+                ForEach(Array(rows.enumerated()), id: \.element.id) { i, b in
+                    SessionRow(phase: Double(i) * Mascot.stagger,name: b.name, model: b.model, tag: b.tag, fable: b.fable,
                                figure: Fmt.dollars(b.perHour),
                                detail: b.pctPerHour.map { "+\(Fmt.rate($0))%" },
                                fraction: top > 0 ? b.perHour / top : 0,
@@ -72,61 +77,76 @@ struct SessionsSection: View {
     private func cooling(warned: Bool) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 0) {
-                ModuleTitle(symbol: "snowflake", title: "Going cold", tint: .cyan)
+                Text("Going cold").font(Theme.title)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
             }
             .help("Idle sessions whose prompt cache expires soon. After that, their next message "
                   + "re-writes the whole context instead of reading it from cache.")
 
-            // A grid, so the chips and the costs line up from row to row.
-            Grid(alignment: .trailing, horizontalSpacing: 6, verticalSpacing: 2) {
-                ForEach(s.cooling.prefix(3)) { c in
-                    let left = c.coldAt.timeIntervalSinceNow
-                    let cold = left <= 0 ? "cold now" : "cold in \(Fmt.left(left))"
-                    let extra = Fmt.dollars(c.extra)
-                    let extraPct = c.extraPct.map { "(+\(Fmt.rate($0))%)" }
-                    GridRow(alignment: .firstTextBaseline) {
-                        // A row's modifiers land on each of its cells, so the one spoken description
-                        // sits on the first cell and the others stay silent.
-                        // The name gives way to the tag, which is short and shown whole.
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text(c.name).lineLimit(1).truncationMode(.tail)
-                            if let tag = c.tag {
-                                Text("· \(tag)").font(Theme.meta).foregroundStyle(.secondary).lineLimit(1).fixedSize()
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .help(c.name + (c.tag.map { "\n" + tagTip($0) } ?? ""))
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityAddTraits(.isStaticText)
-                        .accessibilityLabel("\(c.name)\(c.tag.map { ", " + tagTip($0) } ?? ""), \(cold), then plus \(extra)"
-                                            + (c.extraPct.map { ", plus \(Fmt.rate($0)) percent" } ?? ""))
-                        ColdChip(text: cold)
-                            .accessibilityHidden(true)
-                        HStack(alignment: .firstTextBaseline, spacing: 3) {
-                            Text("then").font(Theme.meta).foregroundStyle(.secondary)
-                            Text("+\(extra)")
-                            if let extraPct {
-                                Text(extraPct).font(Theme.meta).foregroundStyle(.secondary)
-                            }
-                        }
-                        .monospacedDigit()
-                        .fixedSize()
-                        .accessibilityHidden(true)
-                    }
-                    .font(Theme.row)
-                }
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(s.cooling.prefix(3)) { c in ColdRow(c: c) }
             }
-            .padding(.leading, warned ? Inset.warned : Inset.plain)
+            .padding(.leading, Inset.lead)
             .padding(.trailing, 6)
         }
     }
 }
 
-/// A burning session: its share of the spend drawn behind it (the same bar as `BarRow`, pink for
-/// Fable), the model in its tooltip, and a warning ahead of it for a runaway.
+/// A session going cold, on two lines so its name reads whole: a sleeping mascot in its model's
+/// muted colour and the name (with any tag), then under the name when it goes cold and what its
+/// next message would cost on top of a warm one. The model is in the tooltip.
+private struct ColdRow: View {
+    let c: Cooling
+
+    /// The mascot's width and the gap after it: where the second line starts.
+    private static let gap: CGFloat = 5
+    private static var indent: CGFloat { CGFloat(Mascot.width) + gap }
+
+    var body: some View {
+        let left = c.coldAt.timeIntervalSinceNow
+        let cold = left <= 0 ? "cold now" : "cold in \(Fmt.left(left))"
+        let extra = Fmt.dollars(c.extra)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: Self.gap) {
+                Mascot(pose: .asleep, color: ModelFamily(model: c.model).sleeping)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(c.name).lineLimit(1).truncationMode(.tail).layoutPriority(1)
+                    if let tag = c.tag {
+                        Text("· \(tag)").font(Theme.meta).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                    }
+                }
+                .font(Theme.row)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                ColdChip(text: cold)
+                Text("then").foregroundStyle(.secondary)
+                Text("+\(extra)")
+                if let pct = c.extraPct {
+                    Text("(+\(Fmt.rate(pct))%)").font(Theme.meta).foregroundStyle(.secondary)
+                }
+            }
+            .font(Theme.row)
+            .monospacedDigit()
+            .lineLimit(1)
+            .padding(.leading, Self.indent)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .help(c.name + (c.model.isEmpty ? "" : " · \(c.model)") + (c.tag.map { "\n" + tagTip($0) } ?? ""))
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isStaticText)
+        .accessibilityLabel("\(c.name)\(c.tag.map { ", " + tagTip($0) } ?? ""), \(cold), then plus \(extra)"
+                            + (c.extraPct.map { ", plus \(Fmt.rate($0)) percent" } ?? ""))
+    }
+}
+
+/// A burning session: its running mascot in its model's colour, its share of the spend drawn behind
+/// its name (the same bar as `BarRow`, pink for Fable), the model in its tooltip, and a warning
+/// ahead of the name for a runaway.
 private struct SessionRow: View {
+    /// Where its mascot's stride starts, so the rows don't run in lockstep.
+    let phase: Double
     let name: String
     let model: String
     /// When the session last ran, after the name, while another row shares its name.
@@ -142,28 +162,30 @@ private struct SessionRow: View {
     /// Whether the list keeps a column for the warning (some row in it has one).
     let warned: Bool
 
-    private static let gap: CGFloat = 6
-    private static let warningWidth: CGFloat = 8
+    private static let gap = SessionsSection.Inset.gap
 
     var body: some View {
         let tint = warning != nil ? Theme.color(.warn) : fable ? Theme.fable : Theme.color(.normal)
-        HStack(alignment: .firstTextBaseline, spacing: Self.gap) {
+        HStack(alignment: .center, spacing: Self.gap) {
+            Mascot(pose: .run, color: ModelFamily(model: model).full, scale: SessionsSection.mascotScale, phase: phase)
             if warned {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 9))
                     .foregroundStyle(Theme.color(.warn))
                     .opacity(warning == nil ? 0 : 1)
-                    .frame(width: Self.warningWidth)
+                    .frame(width: SessionsSection.Inset.warning)
                     .accessibilityHidden(true)
             }
-            // The name has the row to itself (the model is in the tooltip); only the tag, short and shown
-            // whole, sits after it.
-            Text(name).lineLimit(1).truncationMode(.tail).layoutPriority(1)
-            if let tag {
-                Text("· \(tag)").font(Theme.meta).foregroundStyle(.secondary)
-                    .lineLimit(1).fixedSize()
-                    .padding(.leading, 2)
+            // The name has the line to itself (the model is in the tooltip); a tag, which tells same-named
+            // rows apart, goes under it so a long one ("started Sun 9:32 PM") never squeezes the name.
+            VStack(alignment: .leading, spacing: 0) {
+                Text(name).lineLimit(1).truncationMode(.tail)
+                if let tag {
+                    Text(tagTip(tag))
+                        .font(Theme.meta).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
+            .layoutPriority(1)
             Spacer(minLength: 4)
             HStack(alignment: .firstTextBaseline, spacing: 0) {
                 Text(figure).monospacedDigit()
@@ -181,8 +203,7 @@ private struct SessionRow: View {
             }
         }
         .font(Theme.row)
-        .padding(.leading, warned ? SessionsSection.Inset.warned - Self.gap - Self.warningWidth
-                                  : SessionsSection.Inset.plain)
+        .padding(.leading, SessionsSection.Inset.lead)
         .padding(.trailing, 6)
         .padding(.vertical, 1)
         .background {
@@ -191,11 +212,13 @@ private struct SessionRow: View {
                 if warning != nil {
                     RoundedRectangle(cornerRadius: 4, style: .continuous).fill(tint.opacity(0.07))
                 }
+                // The bar starts where the mascot ends, so it never sits behind it.
                 GeometryReader { geo in
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
                         .fill(tint.opacity(warning == nil ? 0.14 : 0.12))
                         .frame(width: max(4, geo.size.width * min(fraction, 1)))
                 }
+                .padding(.leading, SessionsSection.Inset.lead + SessionsSection.mascotWidth + 2)
             }
         }
         .modifier(Tip(text: tip))

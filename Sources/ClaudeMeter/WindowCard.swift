@@ -6,12 +6,8 @@ struct WindowCard: View {
     let w: WindowView
     /// The card's own colour while its level is normal: the accent unless given (the Fable card's pink).
     var tint: Color? = nil
-    /// The card's own symbol, unless given: the clock for the 5-hour window, the calendar for the weekly one.
-    var symbol: String? = nil
 
     private var color: Color { w.level == .normal ? (tint ?? Theme.color(.normal)) : Theme.color(w.level) }
-
-    private var glyph: String { symbol ?? (w.title.hasPrefix("Weekly") ? "calendar" : "clock") }
 
     /// "exact · 2m ago", or "est. ±0.7 · 12m ago" counting from the last exact reading.
     private var status: String? {
@@ -55,9 +51,9 @@ struct WindowCard: View {
 
     private var titleRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            ModuleTitle(symbol: glyph, title: w.title, tint: tint ?? .secondary)
+            MascotTitle(colors: MascotTitle.colors(for: w.title), title: w.title)
                 .lineLimit(1)
-                // The stack reports its symbol's baseline first; sit the title text on the hero's.
+                // The stack reports its mascots' bottom first; sit the title text on the hero's.
                 .alignmentGuide(.firstTextBaseline) { $0[.lastTextBaseline] }
             Spacer(minLength: 0)
             // Nothing is open while idle, so its 0% stays quiet rather than taking the level colour.
