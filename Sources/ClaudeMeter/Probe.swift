@@ -25,22 +25,41 @@ enum Probe {
         }
     }
 
-    private static func runNow() -> Outcome {
-        guard let claude = binary() else { return .failed(notFound) }
+    /// What launching claude came to: no CLI, one that wouldn't start, or one that ran (to the end, or
+    /// to the minute's limit) and what it wrote.
+    private enum Launch {
+        case notFound, couldntStart
+        case ran(output: Data, errors: Data, timedOut: Bool)
+    }
+
+    /// The headless turn: Haiku, no tools, a one-line system prompt, no saved session, none of your settings.
+    private static let turnArguments = [
+        "-p", "ok", "--model", "haiku",
+        "--system-prompt", "Reply with the single word ok.",
+        "--tools", "", "--strict-mcp-config", "--no-session-persistence",
+        // Your own settings would run your hooks (a "done" sound, say) on every probe.
+        "--setting-sources", "", "--settings", #"{"disableAllHooks":true}"#,
+        "--output-format", "stream-json", "--verbose",
+    ]
+
+    /// Claude Code's usage report (`/usage`): a local command, so no model request, nothing spent and no
+    /// window opened. It comes as text inside the one JSON object `--output-format json` prints.
+    private static let usageArguments = [
+        "-p", "/usage", "--model", "haiku",
+        "--tools", "", "--strict-mcp-config", "--no-session-persistence",
+        "--setting-sources", "", "--settings", #"{"disableAllHooks":true}"#,
+        "--output-format", "json",
+    ]
+
+    private static func launch(_ arguments: [String]) -> Launch {
+        guard let claude = binary() else { return .notFound }
         // An empty folder, so no CLAUDE.md or project settings load.
         let dir = Paths.support.appendingPathComponent("probe")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
         let process = Process()
         process.executableURL = claude
-        process.arguments = [
-            "-p", "ok", "--model", "haiku",
-            "--system-prompt", "Reply with the single word ok.",
-            "--tools", "", "--strict-mcp-config", "--no-session-persistence",
-            // Your own settings would run your hooks (a "done" sound, say) on every probe.
-            "--setting-sources", "", "--settings", #"{"disableAllHooks":true}"#,
-            "--output-format", "stream-json", "--verbose",
-        ]
+        process.arguments = arguments
         process.currentDirectoryURL = dir
         var env = ProcessInfo.processInfo.environment
         // Any of these would move the call off the subscription (the desktop app sets ANTHROPIC_BASE_URL):
@@ -77,7 +96,7 @@ enum Probe {
         let exited = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in exited.signal() }
 
-        do { try process.run() } catch { return .failed(couldntStart) }
+        do { try process.run() } catch { return .couldntStart }
         let timedOut = exited.wait(timeout: .now() + 60) == .timedOut
         if timedOut {
             // Its children too, found now: once claude dies they belong to launchd.
@@ -94,17 +113,149 @@ enum Probe {
         out.fileHandleForReading.readabilityHandler = nil
         err.fileHandleForReading.readabilityHandler = nil
 
-        var outcome = parse(output.data)
-        if timedOut, case .failed(let reason) = outcome, reason == Self.silent {
-            outcome = .failed("Claude Code didn't answer within a minute (offline?)")
+        return .ran(output: output.data, errors: errors.data, timedOut: timedOut)
+    }
+
+    private static func runNow() -> Outcome {
+        switch launch(turnArguments) {
+        case .notFound: return .failed(notFound)
+        case .couldntStart: return .failed(couldntStart)
+        case .ran(let output, let errors, let timedOut):
+            var outcome = parse(output)
+            if timedOut, case .failed(let reason) = outcome, reason == Self.silent {
+                outcome = .failed(Self.noAnswer)
+            }
+            // Nothing usable and nothing said why: pass on what claude wrote to stderr.
+            if case .failed(let reason) = outcome, reason == Self.silent, let line = lastLine(of: errors) {
+                return .failed(line)
+            }
+            return outcome
         }
-        // Nothing usable and nothing said why: pass on what claude wrote to stderr.
-        if case .failed(let reason) = outcome, reason == Self.silent,
-           let line = String(decoding: errors.data, as: UTF8.self)
-               .split(separator: "\n").last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) {
-            return .failed(String(line.prefix(100)))
+    }
+
+    private static let noAnswer = "Claude Code didn't answer within a minute (offline?)"
+
+    /// The last non-blank line claude wrote to stderr, cut to 100 characters.
+    private static func lastLine(of errors: Data) -> String? {
+        String(decoding: errors, as: UTF8.self).split(separator: "\n")
+            .last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty })
+            .map { String($0.prefix(100)) }
+    }
+
+    // MARK: Usage report
+
+    /// A limit as the usage report lists it: "Current week (Fable): 7% used · resets Oct 14 at 3pm (America/New_York)".
+    struct UsageLimit {
+        /// What the line's parentheses hold ("all models", "Fable", "Sonnet only"), or its first word ("session").
+        let name: String
+        let pct: Double
+        /// The reset, when its text could be read; the text as printed either way, so two limits that
+        /// reset together can be told to.
+        let resetsAt: Date?
+        let resetText: String?
+    }
+
+    enum UsageOutcome {
+        case limits([UsageLimit])
+        case failed(String)
+    }
+
+    /// The limits Claude Code's own usage report lists. The probe's `rate_limit_event` doesn't carry the
+    /// separate weekly Fable limit (it did for a week in September 2026, as `seven_day_fable`); the
+    /// report does, as text. A local command: no model request, nothing spent, no window opened.
+    static func usage() async -> UsageOutcome {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async { continuation.resume(returning: usageNow()) }
         }
-        return outcome
+    }
+
+    private static func usageNow() -> UsageOutcome {
+        switch launch(usageArguments) {
+        case .notFound: return .failed(notFound)
+        case .couldntStart: return .failed(couldntStart)
+        case .ran(let output, let errors, let timedOut):
+            switch parseUsage(output) {
+            case .limits(let limits): return .limits(limits)
+            case .failed(let reason):
+                if timedOut, reason == Self.noReport { return .failed(noAnswer) }
+                if reason == Self.noReport, let line = lastLine(of: errors) { return .failed(line) }
+                return .failed(reason)
+            }
+        }
+    }
+
+    private static let noReport = "no usage report from Claude Code"
+
+    /// The `result` of the one JSON object `--output-format json` prints, read line by line. A report
+    /// with no limit lines at all (an error, a wording change) is a failure, never a plan with no limits.
+    static func parseUsage(_ data: Data) -> UsageOutcome {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let text = obj["result"] as? String else { return .failed(noReport) }
+        if obj["is_error"] as? Bool == true {
+            let lower = text.lowercased()
+            if ["login", "authenticat", "oauth", "expired", "credential", "unauthorized"].contains(where: lower.contains) {
+                return .failed(signedOut)
+            }
+            return .failed(String(text.prefix(80)))
+        }
+        let limits = parseUsageText(text)
+        return limits.isEmpty ? .failed(noReport) : .limits(limits)
+    }
+
+    private static let usageLine = try! NSRegularExpression(
+        pattern: #"^Current (session|week)(?: \(([^)]+)\))?: (\d+(?:\.\d+)?)% used(?:\s*·\s*resets (.+?))?\s*$"#,
+        options: [.anchorsMatchLines])
+
+    /// "Current week (Fable): 7% used · resets Oct 14 at 3pm (America/New_York)", one limit per such line.
+    static func parseUsageText(_ text: String, now: Date = Date()) -> [UsageLimit] {
+        let whole = NSRange(text.startIndex..., in: text)
+        return usageLine.matches(in: text, range: whole).compactMap { m in
+            func group(_ i: Int) -> String? {
+                guard let r = Range(m.range(at: i), in: text) else { return nil }
+                return String(text[r])
+            }
+            guard let kind = group(1), let pct = group(3).flatMap(Double.init) else { return nil }
+            let reset = group(4)
+            return UsageLimit(name: group(2) ?? kind, pct: pct,
+                              resetsAt: reset.flatMap { parseReset($0, now: now) }, resetText: reset)
+        }
+    }
+
+    private static let resetText = try! NSRegularExpression(
+        pattern: #"^([A-Za-z]{3})[a-z]*\.? (\d{1,2})(?:,? (\d{4}))? at (\d{1,2})(?::(\d{2}))?\s*([AaPp][Mm])?(?:\s*\(([^)]+)\))?"#)
+    private static let months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+
+    /// "Oct 14 at 3pm (America/New_York)" as a moment: that date in that zone (this Mac's zone when none
+    /// is given), this year, or next once this year's is well past. Nil for any other wording.
+    static func parseReset(_ text: String, now: Date = Date()) -> Date? {
+        let whole = NSRange(text.startIndex..., in: text)
+        guard let m = resetText.firstMatch(in: text, range: whole) else { return nil }
+        func group(_ i: Int) -> String? {
+            guard let r = Range(m.range(at: i), in: text) else { return nil }
+            return String(text[r])
+        }
+        guard let month = group(1).flatMap({ months.firstIndex(of: $0.lowercased()) }),
+              let day = group(2).flatMap(Int.init), var hour = group(4).flatMap(Int.init) else { return nil }
+        let minute = group(5).flatMap(Int.init) ?? 0
+        if let ampm = group(6)?.lowercased() {
+            guard (1...12).contains(hour) else { return nil }
+            hour = hour % 12 + (ampm == "pm" ? 12 : 0)
+        }
+        guard hour < 24, minute < 60 else { return nil }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = group(7).flatMap(TimeZone.init(identifier:)) ?? .current
+        var parts = DateComponents()
+        parts.year = group(3).flatMap(Int.init) ?? cal.component(.year, from: now)
+        parts.month = month + 1
+        parts.day = day
+        parts.hour = hour
+        parts.minute = minute
+        guard let date = cal.date(from: parts) else { return nil }
+        guard group(3) == nil else { return date }
+        // No year printed: the year that puts it nearest now (a reset is days away at most; read at the
+        // turn of a year, "Dec 31 at 11pm" and "Jan 2 at 3pm" fall either side of it).
+        return [-1, 0, 1].compactMap { cal.date(byAdding: .year, value: $0, to: date) }
+            .min { abs($0.timeIntervalSince(now)) < abs($1.timeIntervalSince(now)) } ?? date
     }
 
     /// Every process under `pid`, children first found, then theirs.

@@ -76,6 +76,14 @@ enum Status {
         } else {
             lines.append("last exact reading: none")
         }
+        if let f = state.fable {
+            let age = Int(max(0, Date().timeIntervalSince(f.at ?? state.fableChecked ?? Date())) / 60)
+            var line = "fable limit: \(Fmt.pct(f.pct)) of its week, \(age)m ago"
+            if let none = state.fableNone, none > (f.at ?? .distantPast) { line += " (the last report listed no Fable limit)" }
+            lines.append(line)
+        } else {
+            lines.append("fable limit: " + (state.fableNone != nil ? "none on this plan" : "not read yet"))
+        }
         if let error = state.probeError { lines.append("probe: failing (\(error))") }
         let caps = [("5h", state.calibration.cap5h), ("week", state.calibration.capWeek)]
             .compactMap { name, cap in cap.map { "\(name) \(Fmt.dollars($0))" } }

@@ -56,7 +56,7 @@ struct SessionsSection: View {
 
             VStack(spacing: 1) {
                 ForEach(rows) { b in
-                    SessionRow(name: b.name, model: b.model, tag: b.tag,
+                    SessionRow(name: b.name, model: b.model, tag: b.tag, fable: b.fable,
                                figure: Fmt.dollars(b.perHour),
                                detail: b.pctPerHour.map { "+\(Fmt.rate($0))%" },
                                fraction: top > 0 ? b.perHour / top : 0,
@@ -124,13 +124,15 @@ struct SessionsSection: View {
     }
 }
 
-/// A burning session: its share of the spend drawn behind it (the same bar as `BarRow`), the model in
-/// its tooltip, and a warning ahead of it for a runaway.
+/// A burning session: its share of the spend drawn behind it (the same bar as `BarRow`, pink for
+/// Fable), the model in its tooltip, and a warning ahead of it for a runaway.
 private struct SessionRow: View {
     let name: String
     let model: String
     /// When the session last ran, after the name, while another row shares its name.
     let tag: String?
+    /// Runs on Fable: its bar is pink, the limit's colour.
+    let fable: Bool
     let figure: String
     let detail: String?
     /// 0...1 of the row's width.
@@ -144,7 +146,7 @@ private struct SessionRow: View {
     private static let warningWidth: CGFloat = 8
 
     var body: some View {
-        let tint = Theme.color(warning == nil ? .normal : .warn)
+        let tint = warning != nil ? Theme.color(.warn) : fable ? Theme.fable : Theme.color(.normal)
         HStack(alignment: .firstTextBaseline, spacing: Self.gap) {
             if warned {
                 Image(systemName: "exclamationmark.triangle.fill")

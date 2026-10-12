@@ -22,6 +22,10 @@ enum Theme {
     static let track = Color.primary.opacity(0.08)
     static let quiet = Color.primary.opacity(0.16)
 
+    /// Fable's colour: the one limit that is a model's own, and the sessions running on it. Used
+    /// nowhere else, so pink always means Fable.
+    static let fable = Color.pink
+
     /// Orange and cyan for small text. The system colours are too pale to read at 9–11pt on a light
     /// surface (about 2:1), so the light appearance gets a deeper shade of the same hue (about 3.3:1
     /// for orange, 5:1 for cyan); dark keeps the system colour. Resolved per appearance, so they

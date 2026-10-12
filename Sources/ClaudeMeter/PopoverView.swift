@@ -27,6 +27,9 @@ struct PopoverView: View {
                         ExtrasRows(extras: s.extras)
                     }
                 }
+                if let f = s.fable {
+                    Module { FableCard(f: f) }
+                }
                 if !s.burning.isEmpty || !s.cooling.isEmpty {
                     Module { SessionsSection(s: s) }
                 }

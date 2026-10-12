@@ -5,7 +5,7 @@ import Foundation
 /// by the running app.
 @MainActor
 enum Fixtures {
-    static let popover = ["calm", "warn", "critical", "idle", "empty", "loading", "trouble", "week", "long"]
+    static let popover = ["calm", "warn", "critical", "idle", "empty", "loading", "trouble", "week", "long", "nofable"]
     static let history = ["fits", "uncalibrated"]
 
     /// `weekScope` is the Today / This week picker; `notice` stands in for the meter's own.
@@ -26,6 +26,7 @@ enum Fixtures {
         case "trouble": trouble
         case "week": week
         case "long": long
+        case "nofable": nofable
         default: nil
         }
     }
@@ -97,6 +98,12 @@ enum Fixtures {
         return w
     }
 
+    /// The Fable limit as the usage report gave it: exact, read 4 minutes ago.
+    private static func fable(_ pct: Double, left: TimeInterval) -> WindowView {
+        WindowView(title: Meter.fableTitle, pct: pct, resetsAt: now.addingTimeInterval(left), exact: true,
+                   asOf: now.addingTimeInterval(-240))
+    }
+
     private static func days(_ costs: [Double]) -> [DayBar] {
         let today = Calendar.current.startOfDay(for: now)
         return costs.enumerated().map { i, cost in
@@ -123,14 +130,17 @@ enum Fixtures {
         s.fiveHour = fiveHour(34, left: 2.83 * 3600, exact: true, landing: 48)
         s.weekly = weekly(41, left: 3.2 * 86400, landing: 78, projection: "7-day pace: ~78% at reset · today's: ~70%",
                           budget: "Budget ~18%/day to the reset · 7-day average 11%/day")
-        s.burning = [Burn(id: "a", name: "Claude Meter", model: "Opus 5.5", perHour: 4.12, pctPerHour: 2.5)]
+        s.fable = FableView(limit: fable(7, left: 3.2 * 86400), fiveHourCost: 1.1, fiveHourPts: 2.8,
+                            weekCost: 6.2, weekTokens: 2_300_000, weekPts: 0.9, todayCost: 2.2)
+        s.burning = [Burn(id: "a", name: "Claude Meter", model: "Fable 5.1", perHour: 4.12, pctPerHour: 2.5, fable: true)]
         s.activeCount = 1
         s.todayCost = 21.4
         s.todayTokens = 48_000_000
         s.cacheHit = 0.96
         s.projects = [Row(id: "Claude Meter", cost: 14.2, tokens: 0), Row(id: "Pocket Saloon", cost: 6.9, tokens: 0),
                       Row(id: "Five Card Poker", cost: 0.3, tokens: 0)]
-        s.models = [Row(id: "Opus 5.5", cost: 20.9, tokens: 0), Row(id: "Haiku 4.5", cost: 0.5, tokens: 0)]
+        s.models = [Row(id: "Opus 5.5", cost: 18.7, tokens: 0), Row(id: "Fable 5.1", cost: 2.2, tokens: 0),
+                    Row(id: "Haiku 4.5", cost: 0.5, tokens: 0)]
         s.daily = days([88, 140, 52, 12, 0, 96, 21.4])
         return Popover(snapshot: s)
     }
@@ -140,6 +150,8 @@ enum Fixtures {
         s.fiveHour = fiveHour(78, left: 70 * 60, landing: 96)
         s.weekly = weekly(73, left: 16.3 * 3600, landing: 80, projection: "7-day pace: ~80% at reset · today's: ~84%",
                           budget: "Budget ~40%/day to the reset · 7-day average 11%/day")
+        s.fable = FableView(limit: fable(74, left: 16.3 * 3600), fiveHourCost: 0, fiveHourPts: 0,
+                            weekCost: 212, weekTokens: 180_000_000, weekPts: 14, todayCost: 0)
         s.burning = [
             Burn(id: "a", name: "Pocket Saloon", model: "Opus 5.5", perHour: 8.71, pctPerHour: 5.3),
             Burn(id: "b", name: "Frontier Universe", model: "Opus 5.5", perHour: 6.54, pctPerHour: 4.0),
@@ -179,8 +191,10 @@ enum Fixtures {
             Burn(id: "a", name: "Frontier Universe", model: "Opus 5.5", perHour: 48.2, pctPerHour: 29),
             Burn(id: "b", name: "Pocket Saloon", model: "Opus 5.5", perHour: 9.1, pctPerHour: 5.5),
             Burn(id: "c", name: "Pocket Saloon", model: "Opus 5.5", perHour: 6.5, pctPerHour: 3.9),
-            Burn(id: "f", name: "Claude Meter", model: "Fable 5.1", perHour: 3.2, pctPerHour: 1.9),
+            Burn(id: "f", name: "Claude Meter", model: "Fable 5.1", perHour: 3.2, pctPerHour: 1.9, fable: true),
         ]
+        s.fable = FableView(limit: fable(92, left: 1.6 * 86400), fiveHourCost: 6.2, fiveHourPts: 3.7,
+                            weekCost: 318, weekTokens: 260_000_000, weekPts: 21, todayCost: 6.2)
         s.runaways = [Runaway(id: "a", name: "Frontier Universe", pct: 23)]
         s.cooling = [
             Cooling(id: "d", name: "Five Card Poker", coldAt: now.addingTimeInterval(4 * 60), extra: 1.00, extraPct: 0.6),
@@ -205,6 +219,7 @@ enum Fixtures {
                                 idle: true)
         s.weekly = weekly(22, left: 5.1 * 86400, exact: true, landing: 51, projection: "7-day pace: ~51% at reset",
                           budget: "Budget ~15%/day to the reset · 7-day average 6.4%/day")
+        s.fable = FableView(limit: fable(0, left: 5.1 * 86400), weekCost: 0, weekPts: 0)
         s.todayCost = 3.1
         s.todayTokens = 6_200_000
         s.cacheHit = 0.91
@@ -277,6 +292,14 @@ enum Fixtures {
         p.snapshot.projects = [Row(id: name, cost: 4_100, tokens: 0), Row(id: "Pocket Saloon", cost: 690, tokens: 0),
                                Row(id: "x", cost: 22, tokens: 0), Row(id: "Claude Meter", cost: 0.004, tokens: 0)]
         p.snapshot.daily = days([1200, 4_812, 300, 0, 0, 2_200, 4_812])
+        return p
+    }
+
+    /// A plan with no separate Fable limit: the card says so over this Mac's Fable use.
+    private static var nofable: Popover {
+        var p = calm
+        p.snapshot.fable = FableView(limit: nil, noLimit: true, fiveHourCost: 1.1, fiveHourPts: 2.8,
+                                     weekCost: 6.2, weekTokens: 2_300_000, weekPts: 0.9, todayCost: 2.2)
         return p
     }
 

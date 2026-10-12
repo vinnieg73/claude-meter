@@ -1,14 +1,27 @@
 # Claude Meter: handoff
 
-Updated 2026-10-11 by Claude, from the Utilities project thread (v0.9.13 on branch `fix/audit-2026-10-11`).
+Updated 2026-10-11 (late evening) by Claude, from the Utilities project thread "Fable usage in Claude Meter" (v0.9.14, uncommitted on `main`).
 
 ## Status
 
-v0.9.13 (build 26) is merged to `main` (PR #1) and installed in `~/Applications` (2026-10-11): it compiled cleanly (one async-alternative warning in Notifier.swift), all 30 renders look right, and `--status` shows a fresh probe reading. Replay: "6. Synthetic" runs 8 checks, all passing. Four data-driven FAILs remain ("This week" shares over the weekly card on 2026-10-11, 5-hour growth 1.25x and ±2.21, weekly growth 1.17x), identical on v0.9.12 against the same history, so they come from today's cloud-heavy data, not v0.9.13; they should clear as those days age out of the 8-day replay. The repo's CLAUDE.md limits work to bug fixes; features need
-Vinnie's OK and a dated exception note there.
+v0.9.14 (build 27) is built and installed in `~/Applications` (2026-10-11 ~22:20) but NOT committed or pushed: Vinnie's own typed go-ahead is needed for both. It adds the Fable card (the dated exception is in CLAUDE.md). It compiled cleanly, all 32 renders (a new `nofable` fixture) look right in light and dark, replay gives the same verdict as v0.9.13 on the same history (three data-driven FAILs, all from the cloud-heavy Oct 11 data: "This week" shares over the weekly card, 5-hour growth 1.22x, 5-hour ±1.93; the weekly-growth FAIL from the earlier handoff has cleared), and `--status` on the installed app showed "fable limit: 9% of its week, 0m ago" within a minute of launch. The repo's CLAUDE.md limits work to bug fixes; features need Vinnie's OK and a dated exception note there.
+
+Another thread, "Claude Meter workbench", also works on this app (a 20x retune due around Oct 14). Pull before starting and keep changes separate.
 
 ## Done recently
 
+- v0.9.14: the Fable card (asked for by Vinnie 2026-10-11). What was found first:
+  - The probe's `rate_limit_event` carries no Fable window today. It did Sep 25–30, 2026 (246 readings, every one at 0%, key `seven_day_fable`, filed as "Weekly · Fable" in `extras`), and none since. The Claude Code binary (2.1.293) knows `seven_day_opus`, `seven_day_sonnet`, `seven_day_overage_included` and a `model_scoped` array for the statusline, described as "additive: absent when … served from cached data", so the tap can't be relied on for it either (GitHub anthropics/claude-code#88137 asks for `seven_day_fable` there).
+  - Anthropic's support article "Using Claude Code with your Pro or Max plan" says "Max plans also have a separate weekly limit for Fable." `claude -p /usage --output-format json` prints it: "Current week (Fable): 9% used · resets Oct 14 at 2:59pm (America/New_York)", as a local command (`total_cost_usd` 0, `duration_api_ms` 0): no model request, so it costs nothing and never opens a 5-hour window.
+  - The logs have Fable turns (`claude-fable-5-1`), already priced in `Pricing.swift` ($10 / $50 per M, cache reads $0.25).
+  What was built:
+  - `Probe.launch(_:)` runs claude with any arguments (the Haiku turn and the usage report share it, same env and timeout); `Probe.usage()` parses the report's "Current … : N% used · resets …" lines (`parseUsageText`, `parseReset`). A report with limits but no Fable line = a plan without one; no limit lines at all = a failure, never "no limit".
+  - `Meter.refreshFable` runs from `sync()`, not behind the probe's window gate (the report opens no window): every 5 minutes with a Fable turn in the last 15 minutes, every 30 otherwise, at once when the held reading's week has ended, and on Sync; failures back off a minute doubling to 30, and the retry time alone decides the next try. The reading is `state.fable` (a `Window`) with `state.fableChecked` (last report read) and `state.fableNone` (last report that listed limits but no Fable line); nothing goes to `history.jsonl`. A report without the Fable line never wipes a reading still in its week (Claude Code's cached answers leave the per-model limits out). The Fable reset is snapped to the weekly window's when within 15 minutes, and the window's stands in when the text can't be read (the report floors the Fable week to "2:59pm" while the all-models week says "3pm").
+  - If the probe ever reports `seven_day_fable` again, `absorb` takes it as the Fable reading too, and `ExtrasRows` hides the Fable row so it isn't shown twice.
+  - `FableCard` (new file): the Fable limit as a `WindowCard` with `tint: Theme.fable` (pink) and the `sparkles` symbol; orange/red still take over at 70/90. Under it "This Mac: ~3% of the 5-hour window · ~1% of the week ($6.20)": this Mac's Fable spend as points of each overall window (spend ÷ calibrated cap), "$ · tok this week" before calibration, "no Fable use this week" when the limit has a number but this Mac added nothing. With no limit: "No separate Fable limit on your plan. Fable counts toward the limits above." The card shows when a limit is known for the week or Fable was used here this week.
+  - `Turn.fable` (derived, not cached), `Burn.fable`: a Fable session's bar in Burning now is pink. `Theme.fable = .pink` is used nowhere else.
+  - Help: a Fable section after Weekly; Notifications and Sources bullets updated. README: dropdown bullet, sources table row, a "Usage report" subsection. `--status` prints the Fable line. Fixtures: calm (7%), warn (74%), critical (92%), idle (0%, no local use), `nofable`.
+  - Not done, on purpose: no 80%/95% notifications for the Fable limit (not asked for; Help says so); no Fable estimate between readings (the exact number is shown as of its reading, so no Fable cap is calibrated); nothing in History or Plan fit; the report's 5-hour and weekly numbers are not used as readings.
 - v0.9.13 (branch `fix/audit-2026-10-11`, from the audit `tool-reviews/2026-10-11/claude-meter.md` in project files):
   - Medium: the pace projection (5-hour and weekly), the 5-hour chart and History's peak count from an early reset (`restartedAt`), not from the window's start.
   - Medium: a window that lapsed since the last reading is `stale`, so it raises no 80%/95%/cap alert until a reading measures it.
@@ -58,11 +71,14 @@ Vinnie's OK and a dated exception note there.
 
 ## Next steps
 
-1. Oct 15: a scheduled read-only check re-runs replay after the Oct 7 early-reset data ages out.
-2. Nov 4: a scheduled check confirms the weekly reset after DST ended.
-3. Every Monday 9 AM: the weekly replay check reports PASS or FAIL. Scheduled tasks run while the Claude app is open, and a missed one runs at the next launch.
+1. Commit and push v0.9.14 once Vinnie gives the word (the diff is in the working tree on `main`; the version and build are already bumped).
+2. Oct 15: a scheduled read-only check re-runs replay after the Oct 7 early-reset data ages out.
+3. Nov 4: a scheduled check confirms the weekly reset after DST ended.
+4. Every Monday 9 AM: the weekly replay check reports PASS or FAIL. Scheduled tasks run while the Claude app is open, and a missed one runs at the next launch.
 
 ## Open decisions (Vinnie's)
+
+- Fable (v0.9.14): whether the Fable limit should notify at 80% and 95% like the other two (it blocks Fable when it fills; today it only shows). Whether to also use the usage report's 5-hour and weekly numbers: it is a free reading that never opens a window, which the probe can't offer with no window open (the "Known limit" below), but it prints whole percents and the probe gives `unifiedWindows` fractions, so it was left out of calibration for now.
 
 - From the 2026-10-11 audit, not done in v0.9.13:
   - Medium 1, Going cold never lists 5-minute-cache sessions: Help says so on purpose ("already cold by then"). Listing them means showing a session in Burning now and Going cold at once, or a shorter idle bar for that tier. Your call.
@@ -73,6 +89,10 @@ Vinnie's OK and a dated exception note there.
 - Audit leftovers: the 12 'skip' items in `claude-meter-open-findings-2026-10-11`, plus replay's drawn-vs-group window counting at the 7-day edge (#23, second half).
 
 ## Gotchas
+
+- The Fable reading comes from `claude -p /usage`, parsed as text ("Current week (Fable): 9% used · resets Oct 14 at 2:59pm (America/New_York)"). A wording change in Claude Code would stop it quietly: the card would read "Waiting for a Fable reading." and `--status` "fable limit: not read yet" or an old reading. Check `Probe.usageLine` and `parseReset` first then. The report sometimes prints the Fable reset floored to the minute (2:59pm); the meter snaps it to the weekly window's reset when within 15 minutes.
+- The usage report is a local command: `claude -p /usage` makes no model request (the result shows `total_cost_usd` 0, `num_turns` 0, `duration_api_ms` 0) and does not open a 5-hour window, so `refreshFable` is not behind the probe gate at all: it launches claude every 30 minutes while the app runs (every 5 with Fable in use here), about 3 seconds of CPU each time.
+- A second-opinion review of the v0.9.14 diff found six issues (a Fable line whose reset couldn't be read showed "no separate limit"; a report without the Fable line wiped a good reading; the window gate; the retry backoff never binding; the year guess at a year's turn; future-dated `fable` fields on a clock set back). All six are fixed in the installed build.
 
 - Before calling anything done, run `./scripts/replay.sh` (must PASS). For view changes, also run `scripts/render-all.sh <dir>` and check light and dark. Replay doesn't exercise `Probe.swift`, so after an install confirm `ClaudeMeter --status` shows a fresh probe reading.
 - `scripts/build.sh --install` kills and relaunches the menu bar app. A plain `build.sh` only writes `build/`.

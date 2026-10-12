@@ -60,6 +60,8 @@ struct Burn: Identifiable {
     let perHour: Double
     /// Points of the 5-hour window per hour, once a cap is known.
     let pctPerHour: Double?
+    /// Runs on Fable, the model with a limit of its own: its bar is pink.
+    var fable = false
     /// When the session last ran ("18m"), set only while another row shows the same name.
     var tag: String? = nil
 }
@@ -104,11 +106,29 @@ struct DayBar: Identifiable {
     let cost: Double
 }
 
+/// The Fable card: Anthropic's separate weekly Fable limit, and this Mac's Fable use.
+struct FableView {
+    /// The limit as last read, exact as of then. Nil when none is known for the week.
+    var limit: WindowView?
+    /// Claude Code's usage report lists no Fable limit: the plan has none, so Fable only counts in
+    /// the overall limits.
+    var noLimit = false
+    /// This Mac's Fable spend in the open 5-hour window and this week, and as points of each window
+    /// once its cap is known. Nil where the window isn't known.
+    var fiveHourCost: Double?
+    var fiveHourPts: Double?
+    var weekCost: Double?
+    var weekTokens = 0
+    var weekPts: Double?
+    var todayCost = 0.0
+}
+
 struct Snapshot {
     var loaded = false
     var fiveHour: WindowView?
     var weekly: WindowView?
     var extras: [WindowView] = []
+    var fable: FableView?
     var calibrated = false
     var burning: [Burn] = []
     var runaways: [Runaway] = []
@@ -213,6 +233,12 @@ final class Meter: ObservableObject {
     private var probeFailures = 0
     /// What takes a reading; swapped for a fake where the probe can't be run.
     var probe: () async -> Probe.Outcome = { await Probe.run() }
+    /// What reads the usage report for the Fable limit; swappable like `probe`.
+    var usage: () async -> Probe.UsageOutcome = { await Probe.usage() }
+    private var fableRunning = false
+    private var fableLaunched: Date?
+    private var fableFailures = 0
+    private var fableRetryAt: Date?
 
     private static let fiveHours: TimeInterval = 5 * 3600
     private static let week: TimeInterval = 7 * 86400
@@ -220,11 +246,15 @@ final class Meter: ObservableObject {
     private static let burnLookback: TimeInterval = 900
     /// An exact reading at most this often, and only after new activity.
     private static let probeEvery: TimeInterval = 60
+    /// The usage report, for the Fable limit: this often while Fable is in use on this Mac, and while it isn't.
+    private static let fableEveryBusy: TimeInterval = 300
+    private static let fableEveryQuiet: TimeInterval = 1800
     /// A single session using this much of the 5-hour window within 30 minutes is flagged.
     private static let runawayPct: Double = 20
     /// The cards' titles, which the alerts are also filed under.
     static let fiveHourTitle = "5-hour window"
     static let weeklyTitle = "Weekly · all models"
+    static let fableTitle = "Weekly · Fable"
     /// Bump when the cost of a turn changes meaning, so calibration relearns instead of drifting.
     /// 2: the largest copy of each turn counts (0.8).
     /// Not for a price change on a model that is a sliver of the spend (Haiku 5.5 in 0.9.2 was 0.1% of
@@ -384,6 +414,7 @@ final class Meter: ObservableObject {
             if force { notice = Self.loadingNotice }
             return
         }
+        refreshFable(force: force, now: now)
         guard windowOpen(now) else {
             if force { notice = Self.noWindowNotice }
             return
@@ -438,6 +469,73 @@ final class Meter: ObservableObject {
             store.save()
             recompute()
         }
+    }
+
+    /// Reads the separate weekly Fable limit from Claude Code's own usage report. The probe's limits
+    /// don't carry it (they did for a week in September, filed as "Weekly · Fable"); `claude -p /usage`
+    /// lists it, and being a local command it makes no model request, so it costs nothing and never
+    /// opens a window, which is why it isn't behind the probe's window gate: Fable use on claude.ai or
+    /// the phone moves it too. Every 5 minutes with Fable in use on this Mac, every 30 otherwise, at once
+    /// when the held reading's week has ended, and on Sync whatever the timing. A failure waits a minute,
+    /// doubling to half an hour, and that wait alone says when the next try is.
+    private func refreshFable(force: Bool, now: Date) {
+        guard !fableRunning else { return }
+        if !force {
+            if let retry = fableRetryAt, retry <= now.addingTimeInterval(3600) {
+                guard now >= retry else { return }
+            } else {
+                // Timed from the last report read or the last launch, whichever is later; neither if it is
+                // ahead of a clock that has since been put back.
+                let checked = store.state.fableChecked.flatMap { $0 <= now.addingTimeInterval(60) ? $0 : nil }
+                let launched = fableLaunched.flatMap { $0 <= now ? $0 : nil }
+                if let since = [checked, launched].compactMap({ $0 }).max() {
+                    // The held reading's week has ended and no report has been read since.
+                    let lapsed = store.state.fable.map { now >= $0.resetsAt && (checked ?? .distantPast) < $0.resetsAt } ?? false
+                    let busy = turns.reversed().prefix { now.timeIntervalSince($0.at) <= Self.burnLookback }.contains { $0.fable }
+                    let every = busy ? Self.fableEveryBusy : Self.fableEveryQuiet
+                    guard lapsed || now.timeIntervalSince(since) >= every else { return }
+                }
+            }
+        }
+        let launched = clock()
+        fableLaunched = launched
+        fableRunning = true
+        Task {
+            let outcome = await usage()
+            fableRunning = false
+            switch outcome {
+            case .limits(let limits):
+                fableFailures = 0
+                fableRetryAt = nil
+                takeFable(limits, at: launched)
+            case .failed:
+                fableFailures += 1
+                fableRetryAt = clock().addingTimeInterval(min(1800, 60 * pow(2, Double(fableFailures - 1))))
+            }
+            store.save()
+            recompute()
+        }
+    }
+
+    /// Files the Fable limit from a usage report: the line named Fable, with its reset read from the text.
+    /// The Fable week ends with the weekly window, and the report floors the Fable reset to the minute
+    /// ("2:59pm" against the all-models week's "3pm", for the same moment), so a reset within a quarter
+    /// hour of the weekly window's is that one, and the window's stands in when the text couldn't be read.
+    /// A report with no Fable line among its limits is noted (a plan without the limit, or a report served
+    /// from Claude Code's cache, which leaves the per-model limits out); a reading still in its week is kept
+    /// either way, and so is one whose new reset couldn't be placed at all.
+    private func takeFable(_ limits: [Probe.UsageLimit], at: Date) {
+        store.state.fableChecked = at
+        guard let fable = limits.first(where: { $0.name.lowercased().contains("fable") }) else {
+            store.state.fableNone = at
+            return
+        }
+        store.state.fableNone = nil
+        let held = (store.state.lastExact?.weekly?.resetsAt).flatMap { $0 > at ? $0 : nil }
+        var resets = fable.resetsAt
+        if let held, resets == nil || Window.same(resets, held) { resets = held }
+        guard let resets, resets > at else { return }
+        store.state.fable = Window(pct: fable.pct, resetsAt: resets, at: at).normalized
     }
 
     /// A probe is a request, and a request opens a 5-hour window if none is open, moving your
@@ -523,6 +621,13 @@ final class Meter: ObservableObject {
         } else {
             if reading.fiveHour != nil { fresh.insert("5h") }
             if reading.weekly != nil { fresh.insert("week") }
+        }
+        // A per-model bucket for Fable (the probe carried one for a week in September): the newest
+        // reading of that limit there is, when this reading measured it itself.
+        if let w = reading.extras.first(where: { $0.key.lowercased().contains("fable") })?.value,
+           abs((w.at ?? reading.at).timeIntervalSince(reading.at)) < 1 {
+            store.state.fable = Window(pct: w.pct, resetsAt: w.resetsAt, at: reading.at)
+            store.state.fableChecked = reading.at
         }
         // Nothing new in it (a statusline redrawing old numbers): not a reading.
         guard !fresh.isEmpty else { return }
@@ -779,6 +884,7 @@ final class Meter: ObservableObject {
             tagSharedNames(&s, recent, now: now)
             fillToday(&s, now: now)
             fillWeekShares(&s)
+            s.fable = fable(s, now: now)
             s.capWarning = updateWarning(s.fiveHour)
             // In use for an hour since the last reading (its first message after it an hour old, and one
             // in the last 15 minutes) yet nothing exact, when readings come about once a minute while you
@@ -1165,7 +1271,7 @@ final class Meter: ObservableObject {
             let perHour = r.last15 / (Self.burnLookback / 3600)
             guard perHour >= 0.5 || flagged.contains(session) else { return nil }
             return Burn(id: session, name: names[session] ?? "…", model: Fmt.model(t.model),
-                        perHour: perHour, pctPerHour: cap.map { perHour / $0 * 100 })
+                        perHour: perHour, pctPerHour: cap.map { perHour / $0 * 100 }, fable: t.fable)
         }
         .sorted { a, b in
             let (fa, fb) = (flagged.contains(a.id), flagged.contains(b.id))
@@ -1232,6 +1338,50 @@ final class Meter: ObservableObject {
             .sorted { $0.pct > $1.pct }
         let elsewhere = w.pct - s.weekShares.reduce(0) { $0 + $1.pct }
         s.weekElsewhere = elsewhere >= 2 ? elsewhere : nil
+    }
+
+    // MARK: Fable
+
+    /// The Fable card: the separate weekly Fable limit as last read, or that the plan has none, over
+    /// this Mac's Fable use as a part of the overall windows. Nil when there is nothing to say: no
+    /// limit known for the week and no Fable use on this Mac this week.
+    private func fable(_ s: Snapshot, now: Date) -> FableView? {
+        var f = FableView()
+        if let w = store.state.fable, now < w.resetsAt {
+            f.limit = WindowView(title: Self.fableTitle, pct: w.pct, resetsAt: w.resetsAt, exact: true, asOf: w.at)
+        } else if let none = store.state.fableNone, none > (store.state.fable?.at ?? .distantPast) {
+            // The last report listed limits but no Fable one, and no reading has come since.
+            f.noLimit = true
+        }
+        let cal = store.state.calibration
+        if let w = s.fiveHour, !w.idle, let resets = w.resetsAt {
+            let spend = fableSpend(from: Self.countsFrom(resets, span: Self.fiveHours, w.restartedAt), to: now)
+            f.fiveHourCost = spend.cost
+            f.fiveHourPts = cal.cap5h.map { spend.cost / $0 * 100 }
+        }
+        // The week is the weekly window's (from an early reset, if it had one), or the Fable limit's own
+        // when there is no weekly reading.
+        if let end = s.weekly?.resetsAt ?? store.state.fable?.resetsAt, now < end {
+            let spend = fableSpend(from: Self.countsFrom(end, span: Self.week, s.weekly?.restartedAt), to: now)
+            f.weekCost = spend.cost
+            f.weekTokens = spend.tokens
+            f.weekPts = cal.capWeek.map { spend.cost / $0 * 100 }
+        }
+        f.todayCost = fableSpend(from: Calendar.current.startOfDay(for: now), to: now).cost
+        let used = (f.weekCost ?? 0) > 0 || f.todayCost > 0
+        return f.limit != nil || used ? f : nil
+    }
+
+    /// This Mac's Fable turns in a span: their $-equivalent and tokens.
+    private func fableSpend(from: Date, to: Date) -> (cost: Double, tokens: Int) {
+        var cost = 0.0, tokens = 0
+        let a = first(atOrAfter: from), b = first(atOrAfter: to)
+        guard b > a else { return (0, 0) }
+        for t in turns[a..<b] where t.fable {
+            cost += t.cost
+            tokens += t.tokens
+        }
+        return (cost, tokens)
     }
 
     // MARK: History

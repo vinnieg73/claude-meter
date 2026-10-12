@@ -13,6 +13,12 @@ The ring fills to the exact 5-hour %.
 
 - **5-hour window**: %, reset time, a chart of the window so far with a dashed pace line to
   the reset, and where that pace lands (or when it hits the cap).
+- **Weekly · Fable**: Max plans have a separate weekly limit for Fable. Its card (pink) shows that
+  limit as Claude Code's own usage report last gave it, exact as of then, and under it this Mac's
+  Fable use as points of the overall windows ("This Mac: ~3% of the 5-hour window · ~1% of the week
+  ($6.20)"). A plan without the limit gets "No separate Fable limit on your plan" instead. The card
+  appears when a limit is known or Fable was used here this week. In Burning now a Fable session's
+  bar is pink. The Fable limit raises no notifications.
 - **Weekly**: the same without the chart, plus per-model weekly buckets when a reading has them.
   The forecast leads with your average pace (from exact readings only: this week's average
   until the history log covers 3+ days, then a 7-day average) and gives today's pace second,
@@ -65,6 +71,7 @@ once a minute while a 5-hour window is open and fills the time between from the 
 |---|---|---|
 | `~/.claude/projects/**/*.jsonl` | every Claude Code turn on this Mac: model, tokens, project | continuously (tailed every 10s); `CLAUDE_CONFIG_DIR` is honoured, read from your login shell since apps don't inherit it, and symlinked project folders are followed |
 | probe | Claude Code's `rate_limit_event` (exact) | once a minute while a window is already open, whether or not anything was logged here (use this Mac can't see, like cloud sessions or claude.ai, moves it too); with no window open, only after a message here, since a probe would open one; **Sync** on demand |
+| usage report | `claude -p /usage`: the weekly Fable limit (exact); the probe's `rate_limit_event` doesn't carry it (it did Sep 25–30, 2026, as `seven_day_fable`) | a local command, so nothing spent and no window opened, and not behind the probe's window gate: every 5 minutes while Fable is in use here, every 30 otherwise, when the held reading's week ends, and on **Sync** |
 | statusline tap | Claude Code's own `rate_limits` (exact) | whenever a **terminal** `claude` session redraws its statusline |
 | `tap.json` drop-in | any exact reading, from anywhere | when written |
 
@@ -221,6 +228,19 @@ About $0.001 of usage per run, so at most ~$0.06/hr while you work (about 0.03 p
   the Mac slept), and a probe is called for
   only by activity logged after the last one started, so a turn logged while it ran is not lost
   and an answer that was turned away is not asked for again while you're idle.
+
+### Usage report
+
+The same launch with `-p /usage --output-format json` prints Claude Code's usage report as text
+inside one JSON object: "Current session: 46% used…", "Current week (all models): 40% used…",
+"Current week (Fable): 7% used · resets Oct 14 at 3pm (America/New_York)". It is a local command
+(no model request, `total_cost_usd` 0), so it costs nothing and never opens a window. The meter
+reads the Fable line's % and reset (the reset text is parsed; failing that, the weekly window's
+reset is used, since the Fable week ends with it) into `fable` in `state.json`; `fableChecked` says
+when the report was last read, and `fableNone` when it last listed limits but no Fable line (a plan
+without the limit, or a report served from Claude Code's cache, which leaves the per-model limits
+out; a reading still in its week is kept). The 5-hour and weekly numbers in it are not used (the
+probe has them, with `unifiedWindows`' precision).
 
 ## Statusline tap
 

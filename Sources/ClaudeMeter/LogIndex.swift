@@ -16,6 +16,8 @@ struct Turn: Codable {
     let fast: Bool
     /// API-list-price equivalent. Derived, not stored, so a pricing change reaches cached turns.
     let cost: Double
+    /// On Fable, the model with a weekly limit of its own. Derived too.
+    let fable: Bool
 
     var cacheWrite: Int { write5m + write1h }
     var tokens: Int { input + output + cacheRead + cacheWrite }
@@ -35,6 +37,7 @@ struct Turn: Codable {
         self.fast = fast
         cost = Pricing.cost(model: model, input: input, output: output, cacheRead: cacheRead,
                             write5m: write5m, write1h: write1h, fast: fast)
+        fable = Pricing.bare(model).lowercased().contains("fable")
     }
 
     /// The same turn with the larger of each count. Copies written mid-stream carry a partial

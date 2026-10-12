@@ -26,6 +26,7 @@ struct HelpView: View {
             menuBar
             fiveHour
             weekly
+            fable
             accuracy
             burning
             cold
@@ -77,6 +78,21 @@ struct HelpView: View {
                 "Budget: how much you can use per day and still last until the reset, next to what you normally use. It turns orange when you're using more than that.",
                 "Some weeks also show a separate limit per model, in rows underneath.",
             ])
+        }
+    }
+
+    private var fable: some View {
+        HelpSection(symbol: FableCard.symbol, title: "Fable", tint: Theme.fable) {
+            Para("Max plans have a separate weekly limit just for Fable, Anthropic's most capable model. This card is that limit: how much of it you've used, when it resets, and how fresh the reading is. It only climbs when you use Fable, on any device.")
+            Bullets([
+                "The number and the bar are the Fable limit itself, straight from Anthropic. Pink is Fable's colour. It still turns orange at 70% and red at 90%.",
+                "\"This Mac: ~3% of the 5-hour window · ~1% of the week ($2.20)\" is Fable's part of your overall limits, worked out from this Mac's Claude Code records: how much of the 5-hour window and of the week went to Fable, and what that use would cost at pay-as-you-go prices.",
+                "In Burning now, a session running on Fable has a pink bar.",
+            ])
+            Para("The reading comes from Claude Code's own usage report (the same numbers as typing /usage): every 5 minutes while Fable is in use on this Mac, every 30 otherwise, and on Sync. It costs nothing and never starts a 5-hour window. The Fable limit doesn't send notifications.",
+                 secondary: true)
+            Para("If your plan has no separate Fable limit, the card says so, and Fable simply counts toward the 5-hour and weekly limits above. The card appears once Fable has been used this week.",
+                 secondary: true)
         }
     }
 
@@ -163,7 +179,7 @@ struct HelpView: View {
     private var notifications: some View {
         HelpSection(symbol: "bell", title: "Notifications") {
             Bullets([
-                "At 80% and 95% of the 5-hour and weekly limits, once each. Per-model weekly rows don't alert.",
+                "At 80% and 95% of the 5-hour and weekly limits, once each. Per-model weekly rows and the Fable limit don't alert.",
                 "When a 5-hour window that went past 80% resets, so you know you're clear.",
                 "When you're 30 minutes from hitting the 5-hour limit.",
                 "When a session runs away (see Burning now).",
@@ -198,6 +214,7 @@ struct HelpView: View {
             Bullets([
                 "Exact readings come from Anthropic, once a minute while a 5-hour window is open, so use on other devices shows up too. None while no window is open, since asking would start one. Each uses a tiny sliver of your limit.",
                 "In between, the meter estimates from Claude Code's own records on this Mac.",
+                "The Fable limit comes from Claude Code's usage report, which costs nothing to read.",
                 "It can't see claude.ai chat, the phone app or your other computers. The next exact reading catches up, and until then the meter leans toward showing a bit too much rather than too little.",
             ])
             Callout(symbol: "exclamationmark.triangle.fill", tint: .orange) {

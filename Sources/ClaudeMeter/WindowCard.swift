@@ -4,11 +4,14 @@ import SwiftUI
 /// A limit window: its %, the chart or bar, when it resets, and where the pace takes it.
 struct WindowCard: View {
     let w: WindowView
+    /// The card's own colour while its level is normal: the accent unless given (the Fable card's pink).
+    var tint: Color? = nil
+    /// The card's own symbol, unless given: the clock for the 5-hour window, the calendar for the weekly one.
+    var symbol: String? = nil
 
-    private var color: Color { Theme.color(w.level) }
+    private var color: Color { w.level == .normal ? (tint ?? Theme.color(.normal)) : Theme.color(w.level) }
 
-    /// The clock for the 5-hour window, the calendar for the weekly one.
-    private var symbol: String { w.title.hasPrefix("Weekly") ? "calendar" : "clock" }
+    private var glyph: String { symbol ?? (w.title.hasPrefix("Weekly") ? "calendar" : "clock") }
 
     /// "exact · 2m ago", or "est. ±0.7 · 12m ago" counting from the last exact reading.
     private var status: String? {
@@ -52,7 +55,7 @@ struct WindowCard: View {
 
     private var titleRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            ModuleTitle(symbol: symbol, title: w.title)
+            ModuleTitle(symbol: glyph, title: w.title, tint: tint ?? .secondary)
                 .lineLimit(1)
                 // The stack reports its symbol's baseline first; sit the title text on the hero's.
                 .alignmentGuide(.firstTextBaseline) { $0[.lastTextBaseline] }
@@ -209,10 +212,13 @@ private struct WindowBar: View {
 struct ExtrasRows: View {
     let extras: [WindowView]
 
+    /// Fable's bucket has a card of its own (`FableCard`), so it isn't listed here as well.
+    private var rows: [WindowView] { extras.filter { !$0.title.lowercased().contains("fable") } }
+
     var body: some View {
-        if !extras.isEmpty {
+        if !rows.isEmpty {
             VStack(spacing: 2) {
-                ForEach(extras, id: \.title) { x in
+                ForEach(rows, id: \.title) { x in
                     // Carried over from an older reading: say how old.
                     let age = x.asOf.map { Date().timeIntervalSince($0) } ?? 0
                     HStack(spacing: 6) {

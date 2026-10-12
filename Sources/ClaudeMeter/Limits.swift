@@ -91,12 +91,19 @@ struct PersistedState: Codable {
     var probeRetryAt: Date?
     var tapSeen: Date?
     var notified: [String] = []
+    /// The separate weekly Fable limit, as Claude Code's usage report last listed it (the probe's limits
+    /// don't carry it); when that report was last read, whatever it held; and when it last listed limits
+    /// but no Fable one (a plan without the limit, or a report served from Claude Code's cache, which
+    /// leaves the per-model limits out).
+    var fable: Window?
+    var fableChecked: Date?
+    var fableNone: Date?
     /// A field was there but wouldn't read, so it fell back to its default. Not saved: it tells the
     /// store to set the file aside before writing the rest back over it.
     var damaged = false
 
     enum CodingKeys: String, CodingKey {
-        case lastExact, checks, calibration, probeError, probeRetryAt, tapSeen, notified
+        case lastExact, checks, calibration, probeError, probeRetryAt, tapSeen, notified, fable, fableChecked, fableNone
     }
 
     init() {}
@@ -114,6 +121,9 @@ struct PersistedState: Codable {
         probeRetryAt = field(Date.self, .probeRetryAt)
         tapSeen = field(Date.self, .tapSeen)
         notified = field([String].self, .notified) ?? []
+        fable = field(Window.self, .fable)
+        fableChecked = field(Date.self, .fableChecked)
+        fableNone = field(Date.self, .fableNone)
         damaged = bad
     }
 }
@@ -248,6 +258,9 @@ final class StateStore {
         if let at = state.lastExact?.at, at > now.addingTimeInterval(60) { state.lastExact = nil }
         if let at = state.calibration.updatedAt, at > now.addingTimeInterval(60) { state.calibration.updatedAt = nil }
         if let at = state.probeRetryAt, at > now.addingTimeInterval(3600) { state.probeRetryAt = nil }
+        if let at = state.fableChecked, at > now.addingTimeInterval(60) { state.fableChecked = nil }
+        if let at = state.fableNone, at > now.addingTimeInterval(60) { state.fableNone = nil }
+        if let at = state.fable?.at, at > now.addingTimeInterval(60) { state.fable = nil }
         // A check dated ahead of the clock would hold off new checks for its window until the clock caught up.
         state.checks?.removeAll { $0.at > now.addingTimeInterval(60) }
         pruneNotified()

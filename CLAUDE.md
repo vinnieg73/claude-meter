@@ -28,6 +28,10 @@ elimination.
 Exception (2026-10-10, asked for by the user): one notification when exact readings stop (an hour of
 Claude Code use with none), done in v0.9.8. Scope is back to bug elimination.
 
+Exception (2026-10-11, asked for by the user): a Fable card showing the separate weekly Fable limit
+(read from `claude -p /usage`) and this Mac's Fable share of the overall windows, pink, with a Help
+section, done in v0.9.14. Scope is back to bug elimination.
+
 Before calling a fix done, run `./scripts/replay.sh` and confirm PASS. It replays the real history
 log and transcripts through the working tree (read-only) and checks window openings, the probe
 gate, duplicate alerts and accuracy. If a fix guards something the replay doesn't cover, say so.
