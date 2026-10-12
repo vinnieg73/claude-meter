@@ -249,6 +249,9 @@ final class Meter: ObservableObject {
     /// The usage report, for the Fable limit: this often while Fable is in use on this Mac, and while it isn't.
     private static let fableEveryBusy: TimeInterval = 300
     private static let fableEveryQuiet: TimeInterval = 1800
+    /// The usage report this often while no 5-hour window is known to be open: it is what shows a window
+    /// opened away from this Mac, and until one is seen the meter can't probe.
+    private static let reportEveryIdle: TimeInterval = 300
     /// A single session using this much of the 5-hour window within 30 minutes is flagged.
     private static let runawayPct: Double = 20
     /// The cards' titles, which the alerts are also filed under.
@@ -271,7 +274,7 @@ final class Meter: ObservableObject {
         "Notifications are blocked for Claude Meter. Turn them on in the settings pane that just opened."
     private static let loadingNotice = "Still reading your Claude Code logs. Try Sync again in a moment."
     private static let noWindowNotice =
-        "No 5-hour window is open, and a probe would start one. It will sync after your next message."
+        "No 5-hour window is open, and a probe would start one. It will sync once one opens, here or elsewhere."
 
     func start() {
         _ = notifier // set as the notification delegate before anything is posted
@@ -402,7 +405,8 @@ final class Meter: ObservableObject {
 
     /// Runs the probe once a minute while a window is open, whether or not anything was logged here:
     /// use this Mac can't see (cloud sessions, claude.ai, the phone) moves it too, and a probe is a
-    /// tiny Haiku turn. With no window open it waits for a message here: a probe would open one.
+    /// tiny Haiku turn. With no window open it waits for one to open: a message here, or a window the usage report lists
+    /// (opened elsewhere). A probe would open one.
     /// Forced (Sync) runs regardless of timing. Either way, never when it would open a window.
     /// A failure waits before trying again: a minute, doubling to half an hour, or five minutes
     /// when only you can fix it (signed out).
@@ -475,7 +479,8 @@ final class Meter: ObservableObject {
     /// don't carry it (they did for a week in September, filed as "Weekly · Fable"); `claude -p /usage`
     /// lists it, and being a local command it makes no model request, so it costs nothing and never
     /// opens a window, which is why it isn't behind the probe's window gate: Fable use on claude.ai or
-    /// the phone moves it too. Every 5 minutes with Fable in use on this Mac, every 30 otherwise, at once
+    /// the phone moves it too. Every 5 minutes with Fable in use on this Mac or no window known to be open
+    /// (the report's 5-hour line is how a window opened elsewhere is found), every 30 otherwise, at once
     /// when the held reading's week has ended, and on Sync whatever the timing. A failure waits a minute,
     /// doubling to half an hour, and that wait alone says when the next try is.
     private func refreshFable(force: Bool, now: Date) {
@@ -492,7 +497,7 @@ final class Meter: ObservableObject {
                     // The held reading's week has ended and no report has been read since.
                     let lapsed = store.state.fable.map { now >= $0.resetsAt && (checked ?? .distantPast) < $0.resetsAt } ?? false
                     let busy = turns.reversed().prefix { now.timeIntervalSince($0.at) <= Self.burnLookback }.contains { $0.fable }
-                    let every = busy ? Self.fableEveryBusy : Self.fableEveryQuiet
+                    let every = busy ? Self.fableEveryBusy : !windowOpen(now) ? Self.reportEveryIdle : Self.fableEveryQuiet
                     guard lapsed || now.timeIntervalSince(since) >= every else { return }
                 }
             }
@@ -507,7 +512,13 @@ final class Meter: ObservableObject {
             case .limits(let limits):
                 fableFailures = 0
                 fableRetryAt = nil
+                let wasOpen = windowOpen(clock())
                 takeFable(limits, at: launched)
+                // A window opened away from this Mac: probe now rather than at the next tick.
+                if !wasOpen, windowOpen(clock()) {
+                    store.save()
+                    sync(force: false)
+                }
             case .failed:
                 fableFailures += 1
                 fableRetryAt = clock().addingTimeInterval(min(1800, 60 * pow(2, Double(fableFailures - 1))))
@@ -526,6 +537,9 @@ final class Meter: ObservableObject {
     /// either way, and so is one whose new reset couldn't be placed at all.
     private func takeFable(_ limits: [Probe.UsageLimit], at: Date) {
         store.state.fableChecked = at
+        // The 5-hour line's reset, for the probe gate. The report prints it to the minute, floored, so the
+        // real reset is that or a little later and the gate's margin still holds.
+        store.state.sessionResets = limits.first { $0.name.lowercased() == "session" }?.resetsAt.flatMap { $0 > at ? $0 : nil }
         guard let fable = limits.first(where: { $0.name.lowercased().contains("fable") }) else {
             store.state.fableNone = at
             return
@@ -540,17 +554,23 @@ final class Meter: ObservableObject {
 
     /// A probe is a request, and a request opens a 5-hour window if none is open, moving your
     /// reset. So only probe while a window is known to be open: the last reading's window hasn't
-    /// reset (whether or not anything was logged here), or a message went out after it did. With no
-    /// reading to go on, only right after a message. Never in the last two minutes of either.
+    /// reset (whether or not anything was logged here), the usage report lists a later one (opened
+    /// away from this Mac), or a message went out after it did. With no reading to go on, the report's
+    /// window or right after a message. Never in the last two minutes of any.
     func windowOpen(_ now: Date) -> Bool {
         // Not the last two minutes before any reset, measured or walked: a probe launched then can
         // reach the API after the reset and open the next window.
         func clearOfReset(_ opened: Date) -> Bool {
             now < opened.addingTimeInterval(Self.fiveHours - Self.resetMargin)
         }
+        // The window the usage report lists, unless the last reading's is that one or a later one: a
+        // report read before an early reset can still list the window it ended.
+        let measured = store.state.lastExact?.fiveHour?.resetsAt
+        if let listed = store.state.sessionResets, now < listed.addingTimeInterval(-Self.resetMargin),
+           measured.map({ listed > $0.addingTimeInterval(Self.resetMargin) }) ?? true { return true }
         // The last reading's window first, with nothing logged here at all (use only elsewhere: cloud
         // sessions, claude.ai) as much as with.
-        if let resets = store.state.lastExact?.fiveHour?.resetsAt {
+        if let resets = measured {
             // A message after the reset opened a window, but that one ends too.
             if now < resets.addingTimeInterval(-Self.resetMargin) { return true }
             guard let opened = openWindow(after: resets, now: now) else { return false }

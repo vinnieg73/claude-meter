@@ -602,6 +602,20 @@ extension Meter {
               cap5h: nil, capWeek: nil)
         expect(windowOpen(now), "no probe while the last reading's window is open, with nothing logged on this Mac")
 
+        // A window opened away from this Mac after the last reading's ended: the usage report lists it.
+        setUp(now: now, turns: [],
+              reading: ExactReading(at: now.addingTimeInterval(-7200), source: "probe",
+                                    fiveHour: Window(pct: 66, resetsAt: now.addingTimeInterval(-1800), at: now.addingTimeInterval(-7200))),
+              cap5h: nil, capWeek: nil)
+        expect(!windowOpen(now), "probe allowed with no window open anywhere")
+        store.state.sessionResets = now.addingTimeInterval(4 * 3600)
+        expect(windowOpen(now), "no probe in a window the usage report lists, opened away from this Mac")
+        expect(!windowOpen(now.addingTimeInterval(4 * 3600 - 60)),
+               "probe would run a minute before the report's window resets, and could open the next one")
+        // A report listing the reading's own window adds nothing once that window has ended.
+        store.state.sessionResets = now.addingTimeInterval(-1800)
+        expect(!windowOpen(now), "an ended window from the usage report let a probe through")
+
         report.lines.append("6. Synthetic: \(ran) checks (early-reset pace and chart, lapsed windows, probe gate).")
     }
 

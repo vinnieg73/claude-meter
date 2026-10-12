@@ -258,7 +258,7 @@ enum Fixtures {
         s.models = [Row(id: "Opus 5.5", cost: 17.8, tokens: 0)]
         s.daily = days([60, 75, 30, 0, 44, 52, 17.8])
         return Popover(snapshot: s,
-                       notice: "No 5-hour window is open, and a probe would start one. It will sync after your next message.")
+                       notice: "No 5-hour window is open, and a probe would start one. It will sync once one opens, here or elsewhere.")
     }
 
     private static var week: Popover {

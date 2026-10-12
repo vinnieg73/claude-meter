@@ -98,12 +98,16 @@ struct PersistedState: Codable {
     var fable: Window?
     var fableChecked: Date?
     var fableNone: Date?
+    /// The 5-hour reset the usage report last listed ("Current session: … resets …"), nil when it listed
+    /// none. The report counts use from everywhere and opens no window, so it is how the meter learns a
+    /// window was opened away from this Mac (a cloud session, claude.ai) and that a probe is safe.
+    var sessionResets: Date?
     /// A field was there but wouldn't read, so it fell back to its default. Not saved: it tells the
     /// store to set the file aside before writing the rest back over it.
     var damaged = false
 
     enum CodingKeys: String, CodingKey {
-        case lastExact, checks, calibration, probeError, probeRetryAt, tapSeen, notified, fable, fableChecked, fableNone
+        case lastExact, checks, calibration, probeError, probeRetryAt, tapSeen, notified, fable, fableChecked, fableNone, sessionResets
     }
 
     init() {}
@@ -124,6 +128,7 @@ struct PersistedState: Codable {
         fable = field(Window.self, .fable)
         fableChecked = field(Date.self, .fableChecked)
         fableNone = field(Date.self, .fableNone)
+        sessionResets = field(Date.self, .sessionResets)
         damaged = bad
     }
 }
@@ -261,6 +266,8 @@ final class StateStore {
         if let at = state.fableChecked, at > now.addingTimeInterval(60) { state.fableChecked = nil }
         if let at = state.fableNone, at > now.addingTimeInterval(60) { state.fableNone = nil }
         if let at = state.fable?.at, at > now.addingTimeInterval(60) { state.fable = nil }
+        // No 5-hour window resets more than five hours out.
+        if let at = state.sessionResets, at > now.addingTimeInterval(5 * 3600 + 60) { state.sessionResets = nil }
         // A check dated ahead of the clock would hold off new checks for its window until the clock caught up.
         state.checks?.removeAll { $0.at > now.addingTimeInterval(60) }
         pruneNotified()
