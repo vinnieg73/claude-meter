@@ -1,10 +1,10 @@
 # Claude Meter: handoff
 
-Updated 2026-10-11 (late evening) by Claude, from the Utilities project thread "Fable usage in Claude Meter" (v0.9.14, uncommitted on `main`).
+Updated 2026-10-11 (late evening) by Claude, from the Utilities project thread "Fable usage in Claude Meter" (v0.9.14 on `main`).
 
 ## Status
 
-v0.9.14 (build 27) is built and installed in `~/Applications` (2026-10-11 ~22:20) but NOT committed or pushed: Vinnie's own typed go-ahead is needed for both. It adds the Fable card (the dated exception is in CLAUDE.md). It compiled cleanly, all 32 renders (a new `nofable` fixture) look right in light and dark, replay gives the same verdict as v0.9.13 on the same history (three data-driven FAILs, all from the cloud-heavy Oct 11 data: "This week" shares over the weekly card, 5-hour growth 1.22x, 5-hour ±1.93; the weekly-growth FAIL from the earlier handoff has cleared), and `--status` on the installed app showed "fable limit: 9% of its week, 0m ago" within a minute of launch. The repo's CLAUDE.md limits work to bug fixes; features need Vinnie's OK and a dated exception note there.
+v0.9.14 (build 27) is committed and pushed to `main` (c813cc4, with Vinnie's go-ahead) and installed in `~/Applications` (2026-10-11 ~22:30). It adds the Fable card (the dated exception is in CLAUDE.md). It compiled cleanly, all 32 renders (a new `nofable` fixture) look right in light and dark, replay gives the same verdict as v0.9.13 on the same history (three data-driven FAILs, all from the cloud-heavy Oct 11 data: "This week" shares over the weekly card, 5-hour growth 1.22x, 5-hour ±1.93; the weekly-growth FAIL from the earlier handoff has cleared), and `--status` on the installed app showed "fable limit: 9% of its week, 0m ago" within a minute of launch. The repo's CLAUDE.md limits work to bug fixes; features need Vinnie's OK and a dated exception note there.
 
 Another thread, "Claude Meter workbench", also works on this app (a 20x retune due around Oct 14). Pull before starting and keep changes separate.
 
@@ -71,10 +71,9 @@ Another thread, "Claude Meter workbench", also works on this app (a 20x retune d
 
 ## Next steps
 
-1. Commit and push v0.9.14 once Vinnie gives the word (the diff is in the working tree on `main`; the version and build are already bumped).
-2. Oct 15: a scheduled read-only check re-runs replay after the Oct 7 early-reset data ages out.
-3. Nov 4: a scheduled check confirms the weekly reset after DST ended.
-4. Every Monday 9 AM: the weekly replay check reports PASS or FAIL. Scheduled tasks run while the Claude app is open, and a missed one runs at the next launch.
+1. Oct 15: a scheduled read-only check re-runs replay after the Oct 7 early-reset data ages out.
+2. Nov 4: a scheduled check confirms the weekly reset after DST ended.
+3. Every Monday 9 AM: the weekly replay check reports PASS or FAIL. Scheduled tasks run while the Claude app is open, and a missed one runs at the next launch.
 
 ## Open decisions (Vinnie's)
 
