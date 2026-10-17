@@ -1,10 +1,10 @@
 # Claude Meter: handoff
 
-Updated 2026-10-14 ~16:30 UTC by Claude, from the Utilities project thread "Claude Meter 20x retune" (v0.9.18).
+Updated 2026-10-17 ~20:45 UTC by Claude, from the Utilities project thread "Claude Meter 20x retune" (v0.9.18).
 
 ## Status
 
-v0.9.18 (build 31): the Max 20x retune. Installed 2026-10-17 ~07:05Z (the wait for the Oct 14 reset was overrun: the session stopped and nobody installed until Vinnie asked on Oct 17). Committed and pushed to `main` on 2026-10-17 (Vinnie typed "commit and push the 20x meter retune"). Plan setting still `max5x`: Vinnie switches it in History → Plan fit → Your plan (or OKs a `defaults write`).
+v0.9.18 (build 31): the Max 20x retune. Installed 2026-10-17 ~07:05Z (the wait for the Oct 14 reset was overrun: the session stopped and nobody installed until Vinnie asked on Oct 17). Committed and pushed to `main` on 2026-10-17 (Vinnie typed "commit and push the 20x meter retune"). Plan setting set to `max20x` on 2026-10-17 ~20:45Z (Vinnie said "set the plan"; app quit, `defaults write`, relaunched, since `Meter.plan` is read once at launch).
 - State at install: the old build had already relearned the weekly cap after the Oct 14 reset (no fake restart in the new week): `capWeek` $794, basisWeek 2. The basis bump will replace it with the next qualifying weekly reading. `cap5h` is $94, down from $278 on Oct 14; not looked into (cloud use the logs can't see pulls it down).
 - Replay on Oct 17 history, old code vs v0.9.18: weekly ±0.49 → ±0.17, the "This week" shares FAIL (819 steps, Oct 12 to 15) gone, the fake early reset gone. Weekly growth reads 5.29× → -0.28× and still FAILs; with ±0.17 error and bias -0.05 that looks like the growth ratio summing tiny per-check moves (measured growth just over its 5-point floor), not a wrong cap. Inferred, not checked. 5-hour growth 1.46× FAILs the same in both.
 - No written retune spec existed (the "Claude Meter workbench" thread never mentions 20x). Scope taken: fix what the Oct 11 upgrade to Max 20x left wrong. Plan fit's multipliers (Pro 1, Max 5x 5, Max 20x 20) are left alone: the measured 5-hour cap went from about $144 on 5x to $278 on 20x (about 1.9x, not 4x), but that is three days of data mixed with cloud use, not enough to override the official ratio.
