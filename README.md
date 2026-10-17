@@ -81,7 +81,7 @@ once a minute while a 5-hour window is open and fills the time between from the 
 | probe | Claude Code's `rate_limit_event` (exact) | once a minute while a window is already open, whether or not anything was logged here (use this Mac can't see, like cloud sessions or claude.ai, moves it too); with no window open, only once one opens, from a message here or a window Claude Code's usage report lists (checked every 5 minutes, for use elsewhere), since a probe would open one; **Sync** on demand |
 | usage report | `claude -p /usage`: the weekly Fable limit (exact); the probe's `rate_limit_event` doesn't carry it (it did Sep 25–30, 2026, as `seven_day_fable`) | a local command, so nothing spent and no window opened, and not behind the probe's window gate: every 5 minutes while Fable is in use here, every 30 otherwise, when the held reading's week ends, and on **Sync** |
 | statusline tap | Claude Code's own `rate_limits` (exact) | whenever a **terminal** `claude` session redraws its statusline |
-| `tap.json` drop-in | any exact reading, from anywhere | when written |
+| `tap.json` drop-in | any exact reading, from anywhere (Claude Dashboard writes one as `source: "dashboard"`); counted like the statusline tap (it can raise a window or start a later one, never lower one), since a drop-in is dated when written and can carry an older number | when written |
 
 A turn is logged once per content block, and the first copy can be written mid-stream with a
 partial output count; the meter keeps the largest copy of each. Each turn is weighted by API

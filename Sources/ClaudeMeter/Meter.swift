@@ -266,6 +266,9 @@ final class Meter: ObservableObject {
     /// the tokens, $1.44 against $3.71 over a week): relearning both caps would show for hours to fix
     /// a change smaller than their rounding.
     private static let costBasis = 2
+    /// The weekly cap's own basis (bump it with `costBasis` too), bumped alone to relearn only it. 3: a stale drop-in faked an early reset
+    /// on Oct 12 (see `absorb`), and counting the week from there taught a cap of $150 instead of four figures.
+    private static let weekBasis = 3
 
     /// A 5-hour window opens at its first message rounded down to the 10-minute mark (every
     /// window in the history log starts on :x0:00, 0-9 minutes before its first message).
@@ -621,7 +624,11 @@ final class Meter: ObservableObject {
             // Windows saved before they carried their own time were measured with their reading.
             func dated(_ w: Window?) -> Window? { w.map { var d = $0; d.at = d.at ?? last.at; return d } }
             var isFresh = false
-            let measuredNow = reading.source != "tap"
+            // Only the probe measures at its reading's time. Everything from tap.json (the statusline, and
+            // Claude Dashboard relaying sessions' statuslines) is stamped when written and can carry an old
+            // number: on Oct 12 the dashboard dropped in weekly 50% while the week was at 59%, which read
+            // as an early reset and taught a weekly cap of $150.
+            let measuredNow = reading.source == "probe"
             (reading.fiveHour, isFresh) = pick(reading.fiveHour, over: dated(last.fiveHour), span: Self.fiveHours,
                                                measuredNow: measuredNow)
             if isFresh { fresh.insert("5h") }
@@ -674,7 +681,7 @@ final class Meter: ObservableObject {
 
     /// The newer of two measurements of a window, and whether it's the new one. A window the
     /// new reading lacks carries over while it hasn't reset. `measuredNow`: the number was
-    /// measured at the reading's time (a probe, a drop-in), not carried by the statusline.
+    /// measured at the reading's time (a probe), not carried by the statusline or a drop-in.
     private func pick(_ new: Window?, over old: Window?, span: TimeInterval, measuredNow: Bool) -> (Window?, Bool) {
         // A window the new reading lacks is kept, reset or not: still running, or the last known
         // reset to walk on from. (The statusline drops a window the moment it resets.)
@@ -819,8 +826,8 @@ final class Meter: ObservableObject {
         }
         if fresh.contains("week"), let w = r.weekly,
            let cap = impliedCap(w, span: Self.week, at: w.at ?? r.at, minPct: 5, minSpend: 2) {
-            c.capWeek = blend(c.basisWeek == Self.costBasis ? c.capWeek : nil, cap, pct: w.pct)
-            c.basisWeek = Self.costBasis
+            c.capWeek = blend(c.basisWeek == Self.weekBasis ? c.capWeek : nil, cap, pct: w.pct)
+            c.basisWeek = Self.weekBasis
             changed = true
         }
         if changed {

@@ -129,7 +129,7 @@ extension Meter {
         var heldWindow: [String: Window] = [:]
         var heldRestarted: [String: Bool] = [:]
         for r in readings {
-            let tap = r.source == "tap"
+            let tap = r.source != "probe" // as `Meter.absorb` takes it: only the probe measures now
             for (name, w, span) in [("5h", r.fiveHour, 5 * 3600.0), ("week", r.weekly, 7 * 86400.0)] {
                 guard let w else { continue }
                 if let held = heldWindow[name] {
