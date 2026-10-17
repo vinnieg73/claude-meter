@@ -1,8 +1,18 @@
 # Claude Meter: handoff
 
-Updated 2026-10-17 ~20:45 UTC by Claude, from the Utilities project thread "Claude Meter 20x retune" (v0.9.18).
+Updated 2026-10-17 ~23:15 UTC by Claude, from the Utilities project thread "Real session names in Claude Meter" (v0.9.19).
 
 ## Status
+
+v0.9.19 (build 32): real names for Remote Control sessions. Installed 2026-10-17 ~23:25Z, committed and pushed to `main` together with the unpushed v0.9.18 HANDOFF commit 560f467 (Vinnie typed "push and ship"). After install `--status` showed 0.9.19 and a probe reading 0m old (5h 81%, week 56%).
+- Bug: Burning now and Going cold showed "Remote Control session (from a project)" for most Remote Control rows. That's the desktop app's placeholder title in its session record (`claude-code-sessions/*/local_*.json`); on 2026-10-17, 40 of 75 Remote Control records had it. v0.9.5 took any desktop title over the project, so the placeholder won.
+- The real name (the project thread's title) is not on this Mac in any readable form. Searched for three placeholder sessions' thread titles and ids: the desktop records, the transcripts (wake envelopes carry only the thread id), `~/.claude.json`, `~/.claude/{sessions,state,session-env,cache,tasks,history.jsonl}` (`sessions/*.json` holds the same placeholder as `name`), `Application Support/Claude/{claude-code,config.json,ccd-ids.json,Local Storage}`, and `~/Library/Caches`. The only hits were thread ids inside the claude.ai web view's IndexedDB (Chromium leveldb, compressed; titles didn't grep), which is too fragile to read. The title lives on Claude's servers. The placeholder sessions also never call the thread status/label tools, so there are no headers to borrow. Their opening messages are mostly acks ("go with 1", "Commit freely"), so they're not used.
+- Fix (`DesktopTitles.swift`, `LogIndex.sessionNames`): a title starting "Remote Control session" counts as no title. Order is now desktop title > `custom-title` > `agent-name` > the record's `postTurnSummary.status_detail` (the app's one-line summary of the last turn; first letter capitalised only when the first word is plain lowercase) > project. The summary is used only for placeholder-titled records. 33 of the 40 placeholder records have a summary; the rest show the folder, and the last-ran tag tells same-folder rows apart.
+- Checked: a live off-screen render (`ClaudeMeter --render`, read-only) with the old installed build vs the new one: "Remote Control sessi…" ×2 and "Remote Control session (from a project)" became "claude-dashboard", "Waiting on cloud page…" and "NHL refresh + model rebuild done, HANDOFF pus…"; real titles ("Real session names in…", "MacBook bottlenecks and ideal config") unchanged. `./scripts/replay.sh` gives the same three data FAILs on HEAD and on this tree (History 26 of 27 windows, 5-hour growth 1.36×, weekly growth 0.11×); replay doesn't touch names. No view changed, so no render-all.
+- Downside: a summary describes the last turn, so a row's name can change when a turn ends. If the desktop app starts saving real thread titles, they win automatically.
+- CLAUDE.md has a dated exception for this.
+
+### v0.9.18
 
 v0.9.18 (build 31): the Max 20x retune. Installed 2026-10-17 ~07:05Z (the wait for the Oct 14 reset was overrun: the session stopped and nobody installed until Vinnie asked on Oct 17). Committed and pushed to `main` on 2026-10-17 (Vinnie typed "commit and push the 20x meter retune"). Plan setting set to `max20x` on 2026-10-17 ~20:45Z (Vinnie said "set the plan"; app quit, `defaults write`, relaunched, since `Meter.plan` is read once at launch).
 - State at install: the old build had already relearned the weekly cap after the Oct 14 reset (no fake restart in the new week): `capWeek` $794, basisWeek 2. The basis bump will replace it with the next qualifying weekly reading. `cap5h` is $94, down from $278 on Oct 14; not looked into (cloud use the logs can't see pulls it down).
@@ -143,4 +153,5 @@ The "Claude Meter workbench" thread's 20x retune is this v0.9.18.
 - Tried and rejected: a 5-minute hold on the probe gate after a reset. It fails replay by blocking probes after real window openings.
 - The 5-hour % weights turns by API list price (`Pricing.swift`). A new model id falls back to the newest price in its family. Update the table when models change.
 - Desktop thread titles come from `~/Library/Application Support/Claude/claude-code-sessions/*/local_*.json`, an undocumented format. If it changes, rows quietly fall back to folder names.
+- The app's Remote Control placeholder title is matched by prefix ("Remote Control session"). If the app changes that wording, the placeholder shows again; check one record's `title` first.
 - Keep the folder at `~/Code/Claude Meter`. Scheduled checks and Claude Code history depend on that path.

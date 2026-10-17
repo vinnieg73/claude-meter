@@ -39,6 +39,10 @@ moving only while the dropdown is open. The menu bar is unchanged. Done in v0.9.
 Going cold two-line rows and put Burning now tags under the name so names read. Scope is back to
 bug elimination.
 
+Exception (2026-10-17, asked for by the user): Remote Control sessions the desktop app left on its
+placeholder title are named by the app's summary of their last turn, else their project, done in
+v0.9.19. Scope is back to bug elimination.
+
 Before calling a fix done, run `./scripts/replay.sh` and confirm PASS. It replays the real history
 log and transcripts through the working tree (read-only) and checks window openings, the probe
 gate, duplicate alerts and accuracy. If a fix guards something the replay doesn't cover, say so.
@@ -46,4 +50,5 @@ gate, duplicate alerts and accuracy. If a fix guards something the replay doesn'
 ## Lessons
 
 - Anything that widens a Going cold or Burning now row can push the whole dropdown past 340 pt (it shifts and clips at both edges): check the `long` fixture, which carries the longest tags and amounts (v0.9.16).
+- Since v0.9.5 any desktop app title beat the project, so its placeholder "Remote Control session (from a project)" named most Remote Control rows; a title source can hold placeholders, not just names (v0.9.19).
 - Only the probe measures at its reading's time. A tap.json drop-in from another tool (Claude Dashboard, Oct 12) carried an old weekly 50% while the week was at 59%; taken as measured it faked an early reset and taught a weekly cap of $150. Drop-ins now count like the statusline (v0.9.18).

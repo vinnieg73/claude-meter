@@ -128,7 +128,7 @@ final class LogIndex: @unchecked Sendable {
     private var agentNames: [String: String] = [:]
     /// The desktop app's titles, refound with the transcripts once a minute.
     private let desktop = DesktopTitles()
-    private var desktopTitles: [String: String] = [:]
+    private var desktopNames = DesktopTitles.Names()
     /// Uptime, not the wall clock: setting the clock back would otherwise pause these.
     private var lastSaved: TimeInterval = -.infinity
     /// Recent transcripts, refound once a minute.
@@ -155,12 +155,14 @@ final class LogIndex: @unchecked Sendable {
     }()
     private let iso = ISO8601DateFormatter()
 
-    /// What the app calls each session: its desktop app title, else its own title, else its project.
+    /// What the app calls each session: its desktop app title, else its own title, else the desktop
+    /// app's summary of its last turn (a Remote Control session the app never titled), else its project.
     var sessionNames: [String: String] {
         var names = projectOfSession
+        names.merge(desktopNames.summaries.filter { names[$0.key] != nil }) { $1 }
         names.merge(agentNames) { $1 }
         names.merge(customTitles) { $1 }
-        names.merge(desktopTitles.filter { names[$0.key] != nil }) { $1 }
+        names.merge(desktopNames.titles.filter { names[$0.key] != nil }) { $1 }
         return names
     }
 
@@ -176,7 +178,7 @@ final class LogIndex: @unchecked Sendable {
             // Moved on with a walk of the tree, not every refresh: it says what the files found cover.
             coveredFrom = max(coveredFrom, cutoff)
             discover(cutoff: cutoff)
-            desktopTitles = desktop.refresh()
+            desktopNames = desktop.refresh()
             lastDiscovery = uptime
         }
         var changed = false

@@ -33,7 +33,10 @@ The ring fills to the exact 5-hour %.
 - **Burning now**: each session that spent in the last 15 minutes, by title, with $/hr and
   points of the 5-hour window per hour. Titles come from the desktop app's session records
   (`~/Library/Application Support/Claude/claude-code-sessions`, read once a minute), else the
-  transcripts' `custom-title` / `agent-name` lines, else the project. When two rows in Burning now
+  transcripts' `custom-title` / `agent-name` lines, else the project. A Remote Control session the
+  app never titled ("Remote Control session (from a project)"; its thread's title is only on
+  Claude's servers) goes by the app's one-line summary of its last turn (`postTurnSummary`), else
+  the project. When two rows in Burning now
   and Going cold share a name (two threads in one folder), each says when it last ran ("· 4m").
   Hover a row for its whole name and, in Burning now, its model.
 - **Going cold**: sessions idle 15+ minutes whose 1-hour prompt cache expires soon, and what
