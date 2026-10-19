@@ -7,7 +7,7 @@ Updated 2026-10-19 ~18:05 UTC by Claude, from the Utilities project thread (v0.9
 v0.9.24 (build 37): shorter menu bar title, so Claude Meter fits beside the 58 pt Vitals dials (178.5 pt between the
 notch edge at 848.5 and Vitals). Vinnie picked option 1 of three (via the coordinator): with the weekly % in the title,
 the 5-hour % is left to the ring. Installed 2026-10-19 ~18:00Z; `--status` 0.9.24, weekly in title on, a reading 1m old.
-**Not committed yet**: waits for Vinnie's "Commit and push the Vitals dials and the Claude Meter change".
+Committed and pushed to `main` as 485a009 on 2026-10-19 ~19:35Z (Vinnie typed "Save commit and push").
 - Title (`Meter.recompute`): week on → `<time> wk <week>` ("2h50m wk 41%", "cap 10:49 wk ~100%"); with no time part it
   keeps the 5-hour % ("34% wk 41%"). Week off → as before ("34% · 2h50m"). Cap time everywhere in the title is
   `Fmt.bareClock` (no AM/PM; always within 5 hours); `Fmt.clock` removed. One space before "wk" (was two).
