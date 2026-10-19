@@ -1,10 +1,23 @@
 # Claude Meter: handoff
 
-Updated 2026-10-19 ~01:15 UTC by Claude, from the Utilities project thread about the menu bar icons and the notch (v0.9.21).
+Updated 2026-10-19 ~03:02 UTC by Claude, from the Utilities project thread about the menu bar icons and the notch (v0.9.22).
 
 ## Status
 
-v0.9.21 (build 34): a narrower fixed slot so Vitals fits. Installed 2026-10-19 ~01:14Z; `--status` showed 0.9.21 and a
+v0.9.22 (build 35): back to a status item that fits its text. Installed 2026-10-19 ~03:00Z; `--status` showed 0.9.22
+and a probe reading 1m old.
+- Why: Vinnie didn't like the fixed slot being longer than what it shows ("I want it to go back to the way it was,
+  dynamically adjusting"). The `variableLength` item is back; MenuBar.swift, Meter.swift and HelpView.swift are as in
+  v0.9.19 (the cap form shows the weekly % again). Kept: `autosaveName` "ClaudeMeter", `render` skipping snapshots that
+  change nothing shown, tabular digits (width changes only when the character count does), `--status-log` /
+  `--status-test`. CLAUDE.md's dated exception became a dated note.
+- Checked: `--status-log --status-test` for 2 min: the button (and its window) is always the text's fitting width + 16 pt
+  of the menu bar's own padding, e.g. "$0.42 today" 112, "8% · 4h52m" 113, "34% · 2h50m  wk 41%" 177,
+  "~100% · 4h59m  wk ~100%" 209, "~100% · cap 10:49 AM  wk ~100%" 250. No blank slot. Replay: the same two data FAILs.
+- Vitals (fixed 34 pt) sits to this item's right, so these width changes move the icons on its left, not Vitals.
+  After install Vitals logged window x 1100.
+
+Before this: v0.9.21 (build 34): a narrower fixed slot so Vitals fits. Installed 2026-10-19 ~01:14Z; `--status` showed 0.9.21 and a
 probe reading 0m old (5h 13%, week 68%).
 - Why: with v0.9.20's 234 pt slot, Vinnie couldn't see Vitals at all (screenshot): macOS's own overflow (the « at the
   notch, MenuBarAgent, not a third-party manager) took it.

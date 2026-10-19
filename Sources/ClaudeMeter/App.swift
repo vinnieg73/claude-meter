@@ -127,37 +127,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     }
 
     /// What the status item last showed, so a snapshot that changes none of it leaves the button alone.
-    private var shown: (title: String, pct: Double, level: Level, width: CGFloat)?
+    private var shown: (title: String, pct: Double, level: Level)?
 
     private func render(_ s: Snapshot) {
         guard let button = statusItem.button else { return }
         var s = s
         if statusTest { s = Self.testSnapshot() }
-        // One length for every title (re-measured only when the weekly setting changes), so the menu
-        // bar never re-lays out and other icons don't slide in and out from behind the notch.
-        let weekly = meter.showWeeklyInTitle
-        if weekly != fixedFor {
-            fixedFor = weekly
-            statusItem.length = MenuBar.fixedWidth(for: button, weekly: weekly)
-            shown = nil
-        }
         let pct = (s.menuPct * 10).rounded() / 10 // finer than the ring can show
-        if let shown, shown.title == s.menuTitle, shown.pct == pct, shown.level == s.level,
-           shown.width == statusItem.length { return }
-        MenuBar.apply(s, to: button, width: statusItem.length)
-        shown = (s.menuTitle, pct, s.level, statusItem.length)
+        if let shown, shown.title == s.menuTitle, shown.pct == pct, shown.level == s.level { return }
+        MenuBar.apply(s, to: button)
+        shown = (s.menuTitle, pct, s.level)
         if statusLog {
-            let f = button.window?.frame ?? .zero // in screen coordinates
-            print(String(format: "%@  length %.1f  button %.1f  fits %.1f  window x %.1f w %.1f  %@", ISO8601DateFormatter().string(from: Date()),
-                         statusItem.length, button.frame.width, button.fittingSize.width, f.minX, f.width, s.menuTitle))
-            fflush(stdout)
+            let title = s.menuTitle
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { // once the menu bar has laid it out
+                let f = button.window?.frame ?? .zero // in screen coordinates
+                print(String(format: "%@  button %.1f  fits %.1f  window x %.1f w %.1f  %@", ISO8601DateFormatter().string(from: Date()),
+                             button.frame.width, button.fittingSize.width, f.minX, f.width, title))
+                fflush(stdout)
+            }
         }
     }
 
-    private var fixedFor: Bool?
-
-    /// `--status-log`: print the item's length and button width each time it changes (to check it never
-    /// moves). `--status-test`: show the preview's titles in turn instead of the real one.
+    /// `--status-log`: print the item's button and window width each time it changes (to check it fits
+    /// its text). `--status-test`: show the preview's titles in turn instead of the real one.
     private let statusLog = CommandLine.arguments.contains("--status-log")
     private let statusTest = CommandLine.arguments.contains("--status-test")
     private static var testIndex = 0
@@ -169,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
             ("Claude", 0, .normal), ("$0.42 today", 0, .normal), ("8% · 4h52m", 8, .normal),
             ("~62% · 1h05m", 62, .normal), ("31% · " + cap, 31, .warn), ("~94% · " + cap, 94, .critical),
             ("100% · 12m", 100, .critical), ("34% · 2h50m  wk 41%", 34, .normal), ("~78% · 1h10m  wk ~42%", 78, .warn), ("~100% · " + cap, 100, .critical),
-            ("~100% · " + am, 100, .critical), ("~100% · 4h59m  wk ~100%", 100, .warn),
+            ("~100% · " + am + "  wk ~100%", 100, .critical), ("~100% · 4h59m  wk ~100%", 100, .warn),
         ]
         testIndex += 1
         let t = titles[testIndex % titles.count]

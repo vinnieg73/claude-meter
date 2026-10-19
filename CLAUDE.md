@@ -47,9 +47,9 @@ Before calling a fix done, run `./scripts/replay.sh` and confirm PASS. It replay
 log and transcripts through the working tree (read-only) and checks window openings, the probe
 gate, duplicate alerts and accuracy. If a fix guards something the replay doesn't cover, say so.
 
-Exception (2026-10-19, asked for by the user): Vinnie couldn't see Vitals because the menu bar was full. The status item
-has a fixed 193 pt slot (the time form with the weekly %), so the cap form leaves the weekly % out while it shows; the
-item has an autosaveName so a ⌘-drag sticks. Done in v0.9.21. Scope is back to bug elimination.
+Note (2026-10-19, asked for by the user): the status item fits its text (variable length), as before v0.9.20. A fixed
+slot (v0.9.20–21) left blank space that Vinnie disliked; v0.9.22 went back. Kept: autosaveName, skipping redraws that
+change nothing, tabular digits (the width only changes when the number of characters does).
 
 ## Lessons
 

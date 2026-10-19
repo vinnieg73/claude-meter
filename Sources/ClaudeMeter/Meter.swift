@@ -937,8 +937,7 @@ final class Meter: ObservableObject {
                 title += " · " + Fmt.left(r.timeIntervalSince(now))
             }
             var level = max(f.level, s.capWarning != nil ? .warn : .normal)
-            // Not beside the cap form: that would widen the status item past its fixed slot (see MenuBar.fixedWidth).
-            if showWeeklyInTitle, s.capWarning == nil, let w = s.weekly {
+            if showWeeklyInTitle, let w = s.weekly {
                 title += "  wk " + (w.exact ? "" : "~") + Fmt.pct(w.pct)
                 level = max(level, w.level) // colour only by what the title shows
             }
