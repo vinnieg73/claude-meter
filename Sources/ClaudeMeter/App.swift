@@ -81,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.autosaveName = "ClaudeMeter" // so a ⌘-drag to a new spot sticks across relaunches
         statusItem.button?.target = self
         statusItem.button?.action = #selector(clicked)
         statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -146,13 +147,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         MenuBar.apply(s, to: button, width: statusItem.length)
         shown = (s.menuTitle, pct, s.level, statusItem.length)
         if statusLog {
-            print(String(format: "%@  length %.1f  button %.1f  fits %.1f  %@", ISO8601DateFormatter().string(from: Date()),
-                         statusItem.length, button.frame.width, button.fittingSize.width, s.menuTitle))
+            let f = button.window?.frame ?? .zero // in screen coordinates
+            print(String(format: "%@  length %.1f  button %.1f  fits %.1f  window x %.1f w %.1f  %@", ISO8601DateFormatter().string(from: Date()),
+                         statusItem.length, button.frame.width, button.fittingSize.width, f.minX, f.width, s.menuTitle))
             fflush(stdout)
         }
     }
 
     private var fixedFor: Bool?
+
     /// `--status-log`: print the item's length and button width each time it changes (to check it never
     /// moves). `--status-test`: show the preview's titles in turn instead of the real one.
     private let statusLog = CommandLine.arguments.contains("--status-log")
@@ -165,8 +168,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         let titles: [(String, Double, Level)] = [
             ("Claude", 0, .normal), ("$0.42 today", 0, .normal), ("8% · 4h52m", 8, .normal),
             ("~62% · 1h05m", 62, .normal), ("31% · " + cap, 31, .warn), ("~94% · " + cap, 94, .critical),
-            ("100% · 12m", 100, .critical), ("34% · 2h50m  wk 41%", 34, .normal), ("~78% · 1h10m  wk ~42%", 78, .warn),
-            ("~100% · " + cap + "  wk ~100%", 100, .critical), ("~100% · " + am + "  wk ~100%", 100, .critical),
+            ("100% · 12m", 100, .critical), ("34% · 2h50m  wk 41%", 34, .normal), ("~78% · 1h10m  wk ~42%", 78, .warn), ("~100% · " + cap, 100, .critical),
+            ("~100% · " + am, 100, .critical), ("~100% · 4h59m  wk ~100%", 100, .warn),
         ]
         testIndex += 1
         let t = titles[testIndex % titles.count]

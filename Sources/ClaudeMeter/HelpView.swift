@@ -208,7 +208,7 @@ struct HelpView: View {
             Para("The gear button, or a right-click on the menu bar, has the settings:")
             VStack(alignment: .leading, spacing: 3) {
                 SettingRow(symbol: "arrow.up.forward.app", name: "Open at login", text: "starts the meter when you log in.")
-                SettingRow(symbol: "calendar", name: "Weekly % in menu bar", text: "adds the weekly number to the title.")
+                SettingRow(symbol: "calendar", name: "Weekly % in menu bar", text: "adds the weekly number to the title (left out while the cap time shows).")
                 SettingRow(symbol: "bell", name: "Notifications", text: "turns all alerts on or off.")
                 SettingRow(symbol: "bell.badge", name: "Send test notification", text: "sends one now.")
                 SettingRow(symbol: "command", name: "Shortcut ⌃⌥⌘U", text: "turns the shortcut on or off.")

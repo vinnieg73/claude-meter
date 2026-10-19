@@ -47,6 +47,10 @@ Before calling a fix done, run `./scripts/replay.sh` and confirm PASS. It replay
 log and transcripts through the working tree (read-only) and checks window openings, the probe
 gate, duplicate alerts and accuracy. If a fix guards something the replay doesn't cover, say so.
 
+Exception (2026-10-19, asked for by the user): Vinnie couldn't see Vitals because the menu bar was full. The status item
+has a fixed 193 pt slot (the time form with the weekly %), so the cap form leaves the weekly % out while it shows; the
+item has an autosaveName so a ⌘-drag sticks. Done in v0.9.21. Scope is back to bug elimination.
+
 ## Lessons
 
 - Anything that widens a Going cold or Burning now row can push the whole dropdown past 340 pt (it shifts and clips at both edges): check the `long` fixture, which carries the longest tags and amounts (v0.9.16).
@@ -54,3 +58,4 @@ gate, duplicate alerts and accuracy. If a fix guards something the replay doesn'
 - A `variableLength` status item whose title changes width re-lays out the whole menu bar, so icons slide in and out from behind the notch. Keep one fixed `length`; a fixed-length button centres its content, so pad the image to pin it (v0.9.20).
 - `Fmt.clock` writes "10:49 PM" with a narrow no-break space (U+202F); a typed "10:49 PM" is 2 pt wider. Measure with the real formatter (v0.9.20).
 - Only the probe measures at its reading's time. A tap.json drop-in from another tool (Claude Dashboard, Oct 12) carried an old weekly 50% while the week was at 59%; taken as measured it faked an early reset and taught a weekly cap of $150. Drop-ins now count like the statusline (v0.9.18).
+- NSStatusItem Preferred Position values on macOS 27 are not screen coordinates and can't be seeded reliably; only autosaveName plus a user ⌘-drag (v0.9.21).

@@ -22,15 +22,16 @@ enum MenuBar {
     }
 
     /// The widest the status item gets with or without the weekly %, measured on the real button: the
-    /// cap form ("~100% · cap 10:49 PM  wk ~100%") is the longest title. The status item takes this
-    /// as its fixed length, so the menu bar never re-lays out (which slid icons in and out from behind
-    /// the notch). Changes only when the weekly setting does.
+    /// time form with the weekly % ("~100% · 4h59m  wk ~100%"), or the cap form, which leaves the weekly %
+    /// out so it fits ("~100% · cap 10:49 AM"). The status item takes this as its fixed length, so the menu
+    /// bar never re-lays out (which slid icons in and out from behind the notch). Changes only when the
+    /// weekly setting does.
     static func fixedWidth(for button: NSStatusBarButton, weekly: Bool) -> CGFloat {
         let wk = weekly ? "  wk ~100%" : ""
         // Morning and evening, since "AM" and "PM" aren't the same width.
         let clocks = [10, 22].map { Fmt.clock(Calendar.current.date(bySettingHour: $0, minute: 49, second: 0, of: Date()) ?? Date()) }
         var widest: CGFloat = 0
-        for text in ["Claude", "$99.99 today", "~100% · 4h59m" + wk] + clocks.map({ "~100% · cap " + $0 + wk }) {
+        for text in ["Claude", "$99.99 today", "~100% · 4h59m" + wk] + clocks.map({ "~100% · cap " + $0 }) {
             var s = Snapshot()
             s.menuTitle = text
             s.menuPct = 100

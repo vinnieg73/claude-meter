@@ -1,10 +1,27 @@
 # Claude Meter: handoff
 
-Updated 2026-10-19 ~00:55 UTC by Claude, from the Utilities project thread about the menu bar icons sliding behind the notch (v0.9.20).
+Updated 2026-10-19 ~01:15 UTC by Claude, from the Utilities project thread about the menu bar icons and the notch (v0.9.21).
 
 ## Status
 
-v0.9.20 (build 33): the status item keeps one width. Installed 2026-10-19 ~00:52Z; after install `--status` showed
+v0.9.21 (build 34): a narrower fixed slot so Vitals fits. Installed 2026-10-19 ~01:14Z; `--status` showed 0.9.21 and a
+probe reading 0m old (5h 13%, week 68%).
+- Why: with v0.9.20's 234 pt slot, Vinnie couldn't see Vitals at all (screenshot): macOS's own overflow (the « at the
+  notch, MenuBarAgent, not a third-party manager) took it.
+- Fix: the slot is the time form with the weekly % ("~100% · 4h59m  wk ~100%") = **193 pt** on the real button
+  (162 with weekly off). The cap form leaves the weekly % out so it fits ("~100% · cap 10:49 AM" = 162). Help's
+  "Weekly % in menu bar" row says so. Dated exception in CLAUDE.md.
+- `statusItem.autosaveName = "ClaudeMeter"`, so a ⌘-drag sticks across relaunches. No position seeding: on macOS 27
+  "NSStatusItem Preferred Position" values aren't screen coordinates (probed: Vitals at 50–150 → x 1266, 200 → 1146,
+  250–270 → 1108, 290–600 → 899 with this item saved at 354). Lesson in CLAUDE.md.
+- Vinnie's defaults now hold ClaudeMeter = 354 and Vitals = 260 (set while probing), which keep Vitals right of this
+  item. After a logged relaunch of both: this item x 899, window 209 wide (193 + padding), Vitals x 1108 (50 wide),
+  50.5 pt free beside the notch (notch right edge 848.5 on the 1512 pt built-in display).
+- `--status-log` now also prints the button window's x and width in screen coordinates.
+- Replay: the same two data FAILs as before (early resets 2 vs 0; weekly growth 0.10×, 0.09× an hour ago on the
+  same code), which don't touch the title.
+
+Before this: v0.9.20 (build 33): the status item keeps one width. Installed 2026-10-19 ~00:52Z; after install `--status` showed
 0.9.20 and a probe reading 0m old (5h 13%, week 67%). Asked for by Vinnie ("the constant moving in and out from behind
 the notch is really annoying"); commit and push came as the coordinator's instruction.
 - Bug: the item was `variableLength`, and the title changes width all the time ("~" on and off, 1–3 digit %, "12m" vs
