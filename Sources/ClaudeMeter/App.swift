@@ -156,13 +156,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     private static var testIndex = 0
     private static func testSnapshot() -> Snapshot {
         // The clock as the meter writes it (its locale's spacing), not typed in.
-        let am = "cap " + Fmt.clock(Calendar.current.date(bySettingHour: 10, minute: 49, second: 0, of: Date()) ?? Date())
-        let cap = "cap " + Fmt.clock(Calendar.current.date(bySettingHour: 22, minute: 49, second: 0, of: Date()) ?? Date())
+        let cap = "cap " + Fmt.bareClock(Calendar.current.date(bySettingHour: 22, minute: 49, second: 0, of: Date()) ?? Date())
         let titles: [(String, Double, Level)] = [
             ("Claude", 0, .normal), ("$0.42 today", 0, .normal), ("8% · 4h52m", 8, .normal),
             ("~62% · 1h05m", 62, .normal), ("31% · " + cap, 31, .warn), ("~94% · " + cap, 94, .critical),
-            ("100% · 12m", 100, .critical), ("34% · 2h50m  wk 41%", 34, .normal), ("~78% · 1h10m  wk ~42%", 78, .warn), ("~100% · " + cap, 100, .critical),
-            ("~100% · " + am + "  wk ~100%", 100, .critical), ("~100% · 4h59m  wk ~100%", 100, .warn),
+            ("100% · 12m", 100, .critical), ("2h50m wk 41%", 34, .normal), ("1h10m wk ~42%", 78, .warn), ("~100% · " + cap, 100, .critical),
+            (cap + " wk ~100%", 100, .critical), ("4h59m wk ~100%", 100, .warn),
         ]
         testIndex += 1
         let t = titles[testIndex % titles.count]

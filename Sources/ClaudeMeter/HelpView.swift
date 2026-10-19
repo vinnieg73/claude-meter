@@ -53,8 +53,11 @@ struct HelpView: View {
             Sample { MenuTitleSample(text: "~23% · 18m", fill: 0.23) } says: {
                 Para("A ~ in front means the number is an estimate. No ~ means it's exact.")
             }
-            Sample { MenuTitleSample(text: "31% · cap 10:49 PM", fill: 0.31, tint: Theme.warnText) } says: {
-                Para("Orange with a time: at your current pace you'll hit the limit at 10:49 PM, before it resets. You get one notification when that's 30 minutes away.")
+            Sample { MenuTitleSample(text: "31% · cap 10:49", fill: 0.31, tint: Theme.warnText) } says: {
+                Para("Orange with a time: at your current pace you'll hit the limit at 10:49, before it resets. You get one notification when that's 30 minutes away.")
+            }
+            Sample { MenuTitleSample(text: "2h50m wk 41%", fill: 0.23) } says: {
+                Para("With Weekly % in menu bar on: the ring is your 5-hour %, then the time to reset and your weekly %.")
             }
             Para("The title turns orange at 70% and red at 90%. Click it to open the meter. Right-click it for the menu.",
                  secondary: true)
@@ -225,7 +228,7 @@ struct HelpView: View {
             Para("The gear button, or a right-click on the menu bar, has the settings:")
             VStack(alignment: .leading, spacing: 3) {
                 SettingRow(symbol: "arrow.up.forward.app", name: "Open at login", text: "starts the meter when you log in.")
-                SettingRow(symbol: "calendar", name: "Weekly % in menu bar", text: "adds the weekly number to the title.")
+                SettingRow(symbol: "calendar", name: "Weekly % in menu bar", text: "adds the weekly % to the title; the ring then shows the 5-hour %.")
                 SettingRow(symbol: "bell", name: "Notifications", text: "turns all alerts on or off.")
                 SettingRow(symbol: "bell.badge", name: "Send test notification", text: "sends one now.")
                 SettingRow(symbol: "command", name: "Shortcut ⌃⌥⌘U", text: "turns the shortcut on or off.")

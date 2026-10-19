@@ -206,7 +206,7 @@ enum Fixtures {
     }
 
     private static var critical: Popover {
-        var s = base(.critical, title: "~94% · cap \(Fmt.when(Date().addingTimeInterval(14 * 60)))", pct: 94)
+        var s = base(.critical, title: "~94% · cap \(Fmt.bareClock(Date().addingTimeInterval(14 * 60)))", pct: 94)
         s.fiveHour = fiveHour(94, left: 55 * 60, capIn: 14 * 60)
         s.capWarning = now.addingTimeInterval(14 * 60)
         s.weekly = weekly(91, left: 1.6 * 86400, landing: 112,

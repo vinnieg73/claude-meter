@@ -15,12 +15,17 @@ enum MenuBar {
     }
 
     /// What VoiceOver says for the status item: the title as shown, said as words ("about 62%,
-    /// 1h05m"), not the ring's percent, which stays 0 when there is no 5-hour card.
+    /// 1h05m"), not the ring's percent, which stays 0 when there is no 5-hour card. A title with the
+    /// week leaves the 5-hour % to the ring, so it is said first from the card.
     static func spoken(_ s: Snapshot) -> String {
         var text = "Claude usage"
         if s.menuTitle != "Claude" { // while loading the title is just the name
+            if let f = s.fiveHour, s.menuTitle.contains(" wk "), !s.menuTitle.hasPrefix(Fmt.pct(f.pct)),
+               !s.menuTitle.hasPrefix("~" + Fmt.pct(f.pct)) {
+                text += ", " + (f.exact ? "" : "about ") + Fmt.pct(f.pct)
+            }
             text += ", " + s.menuTitle.replacingOccurrences(of: "~", with: "about ")
-                .replacingOccurrences(of: "  wk ", with: ", weekly ")
+                .replacingOccurrences(of: " wk ", with: ", weekly ")
                 .replacingOccurrences(of: " · ", with: ", ")
         }
         switch s.level {
@@ -174,13 +179,14 @@ enum MenuBar {
             ("34% · 2h50m", 34, .normal),
             ("~62% · 1h05m", 62, .normal),
             ("~78% · 1h10m", 78, .warn),
-            ("31% · cap 10:49 PM", 31, .warn), // the pace reaches the cap before the reset
-            ("~94% · cap 10:49 PM", 94, .critical),
+            ("31% · cap 10:49", 31, .warn), // the pace reaches the cap before the reset
+            ("~94% · cap 10:49", 94, .critical),
             ("100% · 12m", 100, .critical),
-            ("34% · 2h50m  wk 41%", 34, .normal),
-            ("~78% · 1h10m  wk ~42%", 78, .warn),
-            ("20% · 3h10m  wk 91%", 20, .critical), // the week sets the colour
-            ("~94% · cap Wed 12:10 AM  wk ~100%", 94, .critical), // the longest it gets
+            ("2h50m wk 41%", 34, .normal), // with the week, the ring alone shows the 5-hour %
+            ("1h10m wk ~42%", 78, .warn),
+            ("3h10m wk 91%", 20, .critical), // the week sets the colour
+            ("4h59m wk ~100%", 100, .critical),
+            ("cap 10:49 wk ~100%", 94, .critical), // the longest it gets
         ]
         let scale: CGFloat = 4 // sheet pixels per point
         let densities: [(density: CGFloat, label: String)] = [(scale, "ring 4x"), (2, "Retina 2x"), (1, "plain 1x")]

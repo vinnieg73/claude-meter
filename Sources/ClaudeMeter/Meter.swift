@@ -933,15 +933,19 @@ final class Meter: ObservableObject {
         }
 
         if let f = s.fiveHour {
-            var title = (f.exact ? "" : "~") + Fmt.pct(f.pct)
+            let fivePct = (f.exact ? "" : "~") + Fmt.pct(f.pct)
+            var time: String?
             if let capAt = s.capWarning {
-                title += " · cap " + Fmt.clock(capAt) // within 5 hours, so no weekday: the title stays short
+                time = "cap " + Fmt.bareClock(capAt) // within 5 hours, so no weekday or AM/PM: the title stays short
             } else if let r = f.resetsAt {
-                title += " · " + Fmt.left(r.timeIntervalSince(now))
+                time = Fmt.left(r.timeIntervalSince(now))
             }
+            var title = fivePct + (time.map { " · " + $0 } ?? "")
             var level = max(f.level, s.capWarning != nil ? .warn : .normal)
             if showWeeklyInTitle, let w = s.weekly {
-                title += "  wk " + (w.exact ? "" : "~") + Fmt.pct(w.pct)
+                // With the week, the 5-hour % is left to the ring, so the title fits beside the notch
+                // (2026-10-19): "2h50m wk 41%", at most "cap 10:49 wk ~100%".
+                title = (time ?? fivePct) + " wk " + (w.exact ? "" : "~") + Fmt.pct(w.pct)
                 level = max(level, w.level) // colour only by what the title shows
             }
             s.menuTitle = title

@@ -56,12 +56,16 @@ Note (2026-10-19, asked for by the user): the status item fits its text (variabl
 slot (v0.9.20–21) left blank space that Vinnie disliked; v0.9.22 went back. Kept: autosaveName, skipping redraws that
 change nothing, tabular digits (the width only changes when the number of characters does).
 
+Note (2026-10-19, asked for by the user, v0.9.24): to fit beside the 58 pt Vitals dials (178.5 pt right of the notch),
+a title with the weekly % drops the 5-hour % (the ring shows it): "2h50m wk 41%", at most "cap 10:49 wk ~100%"
+(169 pt). The cap time has no AM/PM anywhere in the title (`Fmt.bareClock`; always within 5 hours).
+
 ## Lessons
 
 - Anything that widens a Going cold or Burning now row can push the whole dropdown past 340 pt (it shifts and clips at both edges): check the `long` fixture, which carries the longest tags and amounts (v0.9.16).
 - Since v0.9.5 any desktop app title beat the project, so its placeholder "Remote Control session (from a project)" named most Remote Control rows; a title source can hold placeholders, not just names (v0.9.19).
 - A `variableLength` status item whose title changes width re-lays out the whole menu bar, so icons slide in and out from behind the notch. Keep one fixed `length`; a fixed-length button centres its content, so pad the image to pin it (v0.9.20).
-- `Fmt.clock` writes "10:49 PM" with a narrow no-break space (U+202F); a typed "10:49 PM" is 2 pt wider. Measure with the real formatter (v0.9.20).
+- `Fmt.clock` writes "10:49 PM" with a narrow no-break space (U+202F); a typed "10:49 PM" is 2 pt wider. Measure with the real formatter (v0.9.20). (v0.9.24: the title uses `Fmt.bareClock`, no period, and `Fmt.clock` is gone.)
 - Only the probe measures at its reading's time. A tap.json drop-in from another tool (Claude Dashboard, Oct 12) carried an old weekly 50% while the week was at 59%; taken as measured it faked an early reset and taught a weekly cap of $150. Drop-ins now count like the statusline (v0.9.18).
 - A window sized to its content (`sizingOptions = .preferredContentSize`, not resizable) runs under the Dock once the content outgrows the screen: History did at 1025 pt on a 874 pt visible screen after "Value this week" went on top. Windows open at min(content, visibleFrame − margin), scroll, resize in height, and clamp a saved size; check with `ClaudeMeter --window-check` (v0.9.23).
 - NSStatusItem Preferred Position values on macOS 27 are not screen coordinates and can't be seeded reliably; only autosaveName plus a user ⌘-drag (v0.9.21).

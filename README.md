@@ -5,9 +5,11 @@ to reset, a pace projection, and where today's usage went by project.
 
 ```
 ◔ 23% · 18m          ← 5-hour window used · time to reset. ~ means estimated.
+◔ 18m wk 41%         ← with weekly % in the title: the ring is the 5-hour %, then time to reset, weekly %.
 ```
 
-The ring fills to the exact 5-hour %.
+The ring fills to the exact 5-hour %. With the week in the title the 5-hour % is left to the ring, so the
+item fits beside the notch (at most `cap 10:49 wk ~100%`).
 
 ## What the dropdown shows
 
@@ -58,7 +60,7 @@ gets a ⚠ in Burning now and one notification per window, to catch loops and la
 while you're away. It keeps its ⚠ row, at the top, for those 30 minutes even once it has gone quiet.
 
 **Cap warning.** When the 5-hour pace hits the cap at least 10 minutes before the reset, the
-menu bar switches to `31% · cap 10:49 PM` in orange, and one notification fires when the cap
+menu bar switches to `31% · cap 10:49` in orange (no AM/PM: it's always within 5 hours), and one notification fires when the cap
 is 30 minutes out. It clears once the pace lands under 95% at the reset.
 
 **History** (button, or right-click → History…): Value this week (the week so far at

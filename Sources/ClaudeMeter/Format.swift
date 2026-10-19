@@ -48,11 +48,22 @@ enum Fmt {
     private static let dayTime = formatter("EEEjmm")
     private static let dateTime = formatter("MMMdjmm")
 
-    /// The time of day alone ("3:50 PM"), for a moment the context already places, like the cap
-    /// inside a 5-hour window: the menu bar title has no room for a weekday.
-    static func clock(_ date: Date) -> String {
-        time.string(from: Date(timeIntervalSince1970: (date.timeIntervalSince1970 / 60).rounded() * 60))
+    /// The time of day without AM/PM ("10:49"; "22:49" on a 24-hour clock), for the menu bar's cap time,
+    /// which is always within the next 5 hours, so the period adds nothing but width.
+    static func bareClock(_ date: Date) -> String {
+        bareTime.string(from: Date(timeIntervalSince1970: (date.timeIntervalSince1970 / 60).rounded() * 60))
     }
+    private static let bareTime: DateFormatter = {
+        let f = formatter("jmm")
+        // Drop the period field ("a", outside quoted text) and the space beside it.
+        var out = "", quoted = false
+        for c in f.dateFormat ?? "h:mm" {
+            if c == "'" { quoted.toggle() }
+            if c != "a" || quoted { out.append(c) }
+        }
+        f.dateFormat = out.trimmingCharacters(in: .whitespaces)
+        return f
+    }()
 
     /// "3:50 PM" today, "Wed 3:50 PM" within six days, "Sep 30, 3:50 PM" beyond.
     static func when(_ date: Date) -> String {

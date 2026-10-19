@@ -1,8 +1,29 @@
 # Claude Meter: handoff
 
-Updated 2026-10-19 ~13:00 UTC by Claude, from the Utilities project thread about the "Value this week" module (v0.9.23).
+Updated 2026-10-19 ~18:05 UTC by Claude, from the Utilities project thread (v0.9.24: shorter menu bar title).
 
 ## Status
+
+v0.9.24 (build 37): shorter menu bar title, so Claude Meter fits beside the 58 pt Vitals dials (178.5 pt between the
+notch edge at 848.5 and Vitals). Vinnie picked option 1 of three (via the coordinator): with the weekly % in the title,
+the 5-hour % is left to the ring. Installed 2026-10-19 ~18:00Z; `--status` 0.9.24, weekly in title on, a reading 1m old.
+**Not committed yet**: waits for Vinnie's "Commit and push the Vitals dials and the Claude Meter change".
+- Title (`Meter.recompute`): week on → `<time> wk <week>` ("2h50m wk 41%", "cap 10:49 wk ~100%"); with no time part it
+  keeps the 5-hour % ("34% wk 41%"). Week off → as before ("34% · 2h50m"). Cap time everywhere in the title is
+  `Fmt.bareClock` (no AM/PM; always within 5 hours); `Fmt.clock` removed. One space before "wk" (was two).
+- VoiceOver (`MenuBar.spoken`) says the 5-hour % first when the title leaves it out ("Claude usage, 34%, 2h50m, weekly 41%"). Not run:
+  no CLI prints it.
+- Measured on the real menu bar (`--status-log --status-test`, every test title; window width incl. padding):
+  "cap 10:49 wk ~100%" 169 (was "~94% · cap 10:49 PM  wk ~100%" 242), "~100% · cap 10:49" 156, "4h59m wk ~100%" 150
+  (was 210), "~94% · cap 10:49" 148, "2h50m wk 41%" / "1h10m wk ~42%" 142 (were 177 / 193), "31% · cap 10:49" 140,
+  "~62% · 1h05m" 129, "8% · 4h52m" 113, "Claude" 81. Leftmost x 874 (widest form), all right of 848.5; Vitals held at
+  window x 1043 throughout, so nothing went to the « overflow.
+- Help's menu bar section: cap sample without PM, a new "2h50m wk 41%" sample, and the Weekly % setting line. README's
+  top block and cap example match. Help rendered off screen (`--help-page`), icons sheet `build/renders-short/icons.png`.
+- Replay: the same 3 data FAILs as before (early resets 0 vs 1, 5-hour growth 1.14×, weekly 0.61×); replay doesn't look
+  at the title.
+- `scripts/render-all.sh build/renders-short`: every fixture, History and Help, light and dark, rendered with no failures;
+  the dropdown doesn't use the menu bar title, so it's unchanged.
 
 v0.9.23 (build 36): "Value this week" in History, plus one line under the dropdown's weekly card. Installed 2026-10-19
 ~04:30Z; `--status` showed 0.9.23 and a probe reading 1m old (5h 4%, week 69%). Committed and pushed to `main` on
