@@ -1,10 +1,32 @@
 # Claude Meter: handoff
 
-Updated 2026-10-17 ~23:15 UTC by Claude, from the Utilities project thread "Real session names in Claude Meter" (v0.9.19).
+Updated 2026-10-19 ~00:55 UTC by Claude, from the Utilities project thread about the menu bar icons sliding behind the notch (v0.9.20).
 
 ## Status
 
-v0.9.19 (build 32): real names for Remote Control sessions. Installed 2026-10-17 ~23:25Z, committed and pushed to `main` together with the unpushed v0.9.18 HANDOFF commit 560f467 (Vinnie typed "push and ship"). After install `--status` showed 0.9.19 and a probe reading 0m old (5h 81%, week 56%).
+v0.9.20 (build 33): the status item keeps one width. Installed 2026-10-19 ~00:52Z; after install `--status` showed
+0.9.20 and a probe reading 0m old (5h 13%, week 67%). Asked for by Vinnie ("the constant moving in and out from behind
+the notch is really annoying"); commit and push came as the coordinator's instruction.
+- Bug: the item was `variableLength`, and the title changes width all the time ("~" on and off, 1–3 digit %, "12m" vs
+  "1h05m", the cap form, "$0.42 today", "Claude" while loading). Each change re-laid out the menu bar, so icons near
+  the notch slid in and out of view. Measured on an offscreen button (about 12 pt wider than the real one): 75 pt ("Claude") up to 245 pt (the cap form with weekly).
+- Fix: `statusItem.length` is fixed at the widest title the meter can show with the current weekly setting
+  (`MenuBar.fixedWidth`, measured on the real button: "~100% · cap <10:49 or 22:49 in the locale's clock>  wk ~100%"; "AM" is
+  1 pt wider than "PM"). With weekly on that's **234 pt** on the real button. It's re-measured only when the weekly setting is toggled. The ring's image is
+  widened on its left (`ring(lead:)`) to fill the slot, so ring + title sit at the right edge with the blank space on
+  the left (a fixed-length button centres its content otherwise, which moved the ring about). Nothing shown changed.
+- `render` skips snapshots that change nothing shown (title, % to 0.1, level). Side effect: a ring-centre change from
+  a new menu bar height waits for the next title change (about a minute).
+- Trade-off the coordinator picked (option A over shortening the cap text): about 45 pt blank on the left most of the time.
+- Checked: `--status-log --status-test` (cycles 11 test titles every 2 s, the cap ones with the real clock format,
+  AM and PM): every update length 234.0 / button 234.0 / fits 234.0 (1.8 min, 72 updates; the run before the AM fix, 2.6 min and 107 updates, was constant at 233). An earlier run with a typed
+  "10:49 PM" fitted 235 (the real clock uses a narrow no-break space, U+202F), so the test titles now use `Fmt.clock`.
+  `./scripts/replay.sh` gives the same two data FAILs on HEAD and on this tree (early resets 2 vs 0, weekly growth
+  0.09×); replay doesn't touch the menu bar. No view changed, so no render-all.
+- New flags `--status-log` / `--status-test` run the menu bar app; quit the installed one first (one meter at a time)
+  and kill the test copy after, since it shows in the real menu bar.
+
+Before this: v0.9.19 (build 32): real names for Remote Control sessions. Installed 2026-10-17 ~23:25Z, committed and pushed to `main` together with the unpushed v0.9.18 HANDOFF commit 560f467 (Vinnie typed "push and ship"). After install `--status` showed 0.9.19 and a probe reading 0m old (5h 81%, week 56%).
 - Bug: Burning now and Going cold showed "Remote Control session (from a project)" for most Remote Control rows. That's the desktop app's placeholder title in its session record (`claude-code-sessions/*/local_*.json`); on 2026-10-17, 40 of 75 Remote Control records had it. v0.9.5 took any desktop title over the project, so the placeholder won.
 - The real name (the project thread's title) is not on this Mac in any readable form. Searched for three placeholder sessions' thread titles and ids: the desktop records, the transcripts (wake envelopes carry only the thread id), `~/.claude.json`, `~/.claude/{sessions,state,session-env,cache,tasks,history.jsonl}` (`sessions/*.json` holds the same placeholder as `name`), `Application Support/Claude/{claude-code,config.json,ccd-ids.json,Local Storage}`, and `~/Library/Caches`. The only hits were thread ids inside the claude.ai web view's IndexedDB (Chromium leveldb, compressed; titles didn't grep), which is too fragile to read. The title lives on Claude's servers. The placeholder sessions also never call the thread status/label tools, so there are no headers to borrow. Their opening messages are mostly acks ("go with 1", "Commit freely"), so they're not used.
 - Fix (`DesktopTitles.swift`, `LogIndex.sessionNames`): a title starting "Remote Control session" counts as no title. Order is now desktop title > `custom-title` > `agent-name` > the record's `postTurnSummary.status_detail` (the app's one-line summary of the last turn; first letter capitalised only when the first word is plain lowercase) > project. The summary is used only for placeholder-titled records. 33 of the 40 placeholder records have a summary; the rest show the folder, and the last-ran tag tells same-folder rows apart.

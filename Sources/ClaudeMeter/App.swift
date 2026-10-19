@@ -23,7 +23,8 @@ enum Main {
             print(usage)
             exit(2)
         }
-        let known: Set = ["--render", "--dark", "--history", "--help-page", "--icons", "--fixture", "--status", "--unregister-login", "--replay"]
+        let known: Set = ["--render", "--dark", "--history", "--help-page", "--icons", "--fixture", "--status", "--unregister-login", "--replay",
+                          "--status-log", "--status-test"]
         if args.dropFirst().contains(where: { $0.hasPrefix("--") && !known.contains($0) }) { misused() }
         if let i = args.firstIndex(of: "--render") {
             guard i + 1 < args.count, !args[i + 1].hasPrefix("--") else { misused() }
@@ -94,6 +95,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         popover.contentViewController = host
 
         meter.$snapshot.sink { [weak self] in self?.render($0) }.store(in: &subscriptions)
+        if statusTest {
+            Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { guard let self else { return }; self.render(self.meter.snapshot) }
+            }
+        }
         meter.$hotkeyOn.sink { [weak self] on in
             guard let self else { return }
             let taken = "⌃⌥⌘U is already taken by another app, so the shortcut isn't working."
@@ -119,9 +125,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         meter.shutdown()
     }
 
+    /// What the status item last showed, so a snapshot that changes none of it leaves the button alone.
+    private var shown: (title: String, pct: Double, level: Level, width: CGFloat)?
+
     private func render(_ s: Snapshot) {
         guard let button = statusItem.button else { return }
-        MenuBar.apply(s, to: button)
+        var s = s
+        if statusTest { s = Self.testSnapshot() }
+        // One length for every title (re-measured only when the weekly setting changes), so the menu
+        // bar never re-lays out and other icons don't slide in and out from behind the notch.
+        let weekly = meter.showWeeklyInTitle
+        if weekly != fixedFor {
+            fixedFor = weekly
+            statusItem.length = MenuBar.fixedWidth(for: button, weekly: weekly)
+            shown = nil
+        }
+        let pct = (s.menuPct * 10).rounded() / 10 // finer than the ring can show
+        if let shown, shown.title == s.menuTitle, shown.pct == pct, shown.level == s.level,
+           shown.width == statusItem.length { return }
+        MenuBar.apply(s, to: button, width: statusItem.length)
+        shown = (s.menuTitle, pct, s.level, statusItem.length)
+        if statusLog {
+            print(String(format: "%@  length %.1f  button %.1f  fits %.1f  %@", ISO8601DateFormatter().string(from: Date()),
+                         statusItem.length, button.frame.width, button.fittingSize.width, s.menuTitle))
+            fflush(stdout)
+        }
+    }
+
+    private var fixedFor: Bool?
+    /// `--status-log`: print the item's length and button width each time it changes (to check it never
+    /// moves). `--status-test`: show the preview's titles in turn instead of the real one.
+    private let statusLog = CommandLine.arguments.contains("--status-log")
+    private let statusTest = CommandLine.arguments.contains("--status-test")
+    private static var testIndex = 0
+    private static func testSnapshot() -> Snapshot {
+        // The clock as the meter writes it (its locale's spacing), not typed in.
+        let am = "cap " + Fmt.clock(Calendar.current.date(bySettingHour: 10, minute: 49, second: 0, of: Date()) ?? Date())
+        let cap = "cap " + Fmt.clock(Calendar.current.date(bySettingHour: 22, minute: 49, second: 0, of: Date()) ?? Date())
+        let titles: [(String, Double, Level)] = [
+            ("Claude", 0, .normal), ("$0.42 today", 0, .normal), ("8% · 4h52m", 8, .normal),
+            ("~62% · 1h05m", 62, .normal), ("31% · " + cap, 31, .warn), ("~94% · " + cap, 94, .critical),
+            ("100% · 12m", 100, .critical), ("34% · 2h50m  wk 41%", 34, .normal), ("~78% · 1h10m  wk ~42%", 78, .warn),
+            ("~100% · " + cap + "  wk ~100%", 100, .critical), ("~100% · " + am + "  wk ~100%", 100, .critical),
+        ]
+        testIndex += 1
+        let t = titles[testIndex % titles.count]
+        var s = Snapshot()
+        s.menuTitle = t.0
+        s.menuPct = t.1
+        s.level = t.2
+        return s
     }
 
     @objc private func clicked() {

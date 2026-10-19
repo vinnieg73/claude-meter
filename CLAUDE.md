@@ -51,4 +51,6 @@ gate, duplicate alerts and accuracy. If a fix guards something the replay doesn'
 
 - Anything that widens a Going cold or Burning now row can push the whole dropdown past 340 pt (it shifts and clips at both edges): check the `long` fixture, which carries the longest tags and amounts (v0.9.16).
 - Since v0.9.5 any desktop app title beat the project, so its placeholder "Remote Control session (from a project)" named most Remote Control rows; a title source can hold placeholders, not just names (v0.9.19).
+- A `variableLength` status item whose title changes width re-lays out the whole menu bar, so icons slide in and out from behind the notch. Keep one fixed `length`; a fixed-length button centres its content, so pad the image to pin it (v0.9.20).
+- `Fmt.clock` writes "10:49 PM" with a narrow no-break space (U+202F); a typed "10:49 PM" is 2 pt wider. Measure with the real formatter (v0.9.20).
 - Only the probe measures at its reading's time. A tap.json drop-in from another tool (Claude Dashboard, Oct 12) carried an old weekly 50% while the week was at 59%; taken as measured it faked an early reset and taught a weekly cap of $150. Drop-ins now count like the statusline (v0.9.18).

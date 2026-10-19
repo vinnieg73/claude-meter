@@ -6,12 +6,38 @@ enum MenuBar {
     /// Sets the ring and the title on the status item's button. The app and `--icons` both go
     /// through here, so the preview is the real thing. `scale` is the pixel density the button will
     /// be drawn at, for the preview to say; the app leaves it to the button's own screen.
-    static func apply(_ s: Snapshot, to button: NSStatusBarButton, scale: CGFloat? = nil) {
+    /// `width`: the status item's fixed length. The ring's image is widened on its left to fill it, so
+    /// ring and title sit at the slot's right edge with the blank space on the left, like the menu bar's
+    /// own spacing, instead of the button centring them and moving the ring about as the title changes.
+    static func apply(_ s: Snapshot, to button: NSStatusBarButton, scale: CGFloat? = nil, width: CGFloat? = nil) {
         button.attributedTitle = title(s)
         button.setAccessibilityLabel(spoken(s))
         button.imagePosition = .imageLeading
         let center = ringCenter(in: button, scale: scale ?? button.window?.backingScaleFactor ?? 2)
         button.image = ring(s.menuPct, level: s.level, centerY: center)
+        if let width {
+            let lead = (width - button.fittingSize.width).rounded(.down)
+            if lead > 0 { button.image = ring(s.menuPct, level: s.level, centerY: center, lead: lead) }
+        }
+    }
+
+    /// The widest the status item gets with or without the weekly %, measured on the real button: the
+    /// cap form ("~100% · cap 10:49 PM  wk ~100%") is the longest title. The status item takes this
+    /// as its fixed length, so the menu bar never re-lays out (which slid icons in and out from behind
+    /// the notch). Changes only when the weekly setting does.
+    static func fixedWidth(for button: NSStatusBarButton, weekly: Bool) -> CGFloat {
+        let wk = weekly ? "  wk ~100%" : ""
+        // Morning and evening, since "AM" and "PM" aren't the same width.
+        let clocks = [10, 22].map { Fmt.clock(Calendar.current.date(bySettingHour: $0, minute: 49, second: 0, of: Date()) ?? Date()) }
+        var widest: CGFloat = 0
+        for text in ["Claude", "$99.99 today", "~100% · 4h59m" + wk] + clocks.map({ "~100% · cap " + $0 + wk }) {
+            var s = Snapshot()
+            s.menuTitle = text
+            s.menuPct = 100
+            apply(s, to: button)
+            widest = max(widest, button.fittingSize.width)
+        }
+        return ceil(widest)
     }
 
     /// What VoiceOver says for the status item: the title as shown, said as words ("about 62%,
@@ -67,10 +93,12 @@ enum MenuBar {
     /// image at normal, so the menu bar tints it for light and dark; at warn and critical it takes
     /// the title's colour and stops being one. `centerY` is where its centre goes, in points up
     /// from the image's bottom.
-    static func ring(_ pct: Double, level: Level, centerY: CGFloat) -> NSImage {
+    /// `lead`: blank points added on the image's left.
+    static func ring(_ pct: Double, level: Level, centerY: CGFloat, lead: CGFloat = 0) -> NSImage {
         // @Sendable: AppKit may draw it on any thread, and the drawing touches nothing of the app's.
-        let image = NSImage(size: NSSize(width: imageSize, height: imageSize), flipped: false) { @Sendable rect in
-            drawRing(pct, level: level, centerY: centerY, in: rect)
+        let image = NSImage(size: NSSize(width: imageSize + lead, height: imageSize), flipped: false) { @Sendable rect in
+            drawRing(pct, level: level, centerY: centerY,
+                     in: NSRect(x: rect.minX + lead, y: rect.minY, width: rect.width - lead, height: rect.height))
             return true
         }
         image.isTemplate = level == .normal
