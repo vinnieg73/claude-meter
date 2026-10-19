@@ -8,13 +8,15 @@ struct HelpView: View {
     var scrolls = true
 
     static let width: CGFloat = 560
+    /// How tall the window first opens; it scrolls the rest and can be dragged taller.
+    static let height: CGFloat = 640
     private static let edge: CGFloat = 16
     private static let gap: CGFloat = 12
 
     var body: some View {
         if scrolls {
             ScrollView { content }
-                .frame(width: Self.width, height: 640)
+                .frame(width: Self.width)
         } else {
             content
         }
@@ -32,6 +34,7 @@ struct HelpView: View {
             cold
             usage
             history
+            value
             notifications
             controls
             sources
@@ -77,6 +80,7 @@ struct HelpView: View {
                 "Pace: where your usual pace lands by the reset, then where today's pace would.",
                 "Budget: how much you can use per day and still last until the reset, next to what you normally use. It turns orange when you're using more than that.",
                 "Some weeks also show a separate limit per model, in rows underneath.",
+                "\"Worth $540 so far · 11.7× your plan\" is what this week's use would have cost at pay-as-you-go prices, and how many times what your plan costs for a week that is. Click History on that line for the details.",
             ])
         }
     }
@@ -180,6 +184,19 @@ struct HelpView: View {
                     .accessibilityHidden(true)
                 Para("Plan fit: how the same use would have gone on Pro, Max 5x and Max 20x. Handy for picking a plan.")
             }
+        }
+    }
+
+    private var value: some View {
+        HelpSection(symbol: WeekValueSection.symbol, title: "Value this week") {
+            Para("The first thing in History: what your use since the weekly limit last reset would have cost if you paid Anthropic's pay-as-you-go prices instead of a plan.")
+            Bullets([
+                "The big number is the total. The one next to it is how many times what your plan costs for a week that is: $20, $100 or $200 a month (Pro, Max 5x, Max 20x, from the plan picker in Plan fit), spread over 52 weeks.",
+                "The bar splits it into this Mac's Claude Code (dark gray, counted from its records) and \"Elsewhere\" (light gray): claude.ai, cloud sessions and other devices, worked out from your weekly %. The blue tick is your plan's week.",
+                "A \"~\" before the total means it includes Elsewhere, so part of it is an estimate. With no Elsewhere, there's no \"~\".",
+                "The columns are each day of the week so far, this Mac only (Elsewhere can't be split by day). A reset in the afternoon makes the first and last days partial, so the reset's weekday shows twice. Today's label is bold.",
+                "Underneath, this Mac's part by model.",
+            ])
         }
     }
 

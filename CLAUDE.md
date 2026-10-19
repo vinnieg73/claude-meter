@@ -43,6 +43,11 @@ Exception (2026-10-17, asked for by the user): Remote Control sessions the deskt
 placeholder title are named by the app's summary of their last turn, else their project, done in
 v0.9.19. Scope is back to bug elimination.
 
+Exception (2026-10-19, asked for by the user): "Value this week" in History (option A of the mockup
+https://claude.ai/artifact/HDDp8xFFM5aW9RoCLEy7s7): the week so far at pay-as-you-go prices against the
+plan's weekly price (Plan in History.swift holds the prices), by day and model, and one line under the
+weekly card that opens History, done in v0.9.23. Scope is back to bug elimination.
+
 Before calling a fix done, run `./scripts/replay.sh` and confirm PASS. It replays the real history
 log and transcripts through the working tree (read-only) and checks window openings, the probe
 gate, duplicate alerts and accuracy. If a fix guards something the replay doesn't cover, say so.
@@ -58,4 +63,5 @@ change nothing, tabular digits (the width only changes when the number of charac
 - A `variableLength` status item whose title changes width re-lays out the whole menu bar, so icons slide in and out from behind the notch. Keep one fixed `length`; a fixed-length button centres its content, so pad the image to pin it (v0.9.20).
 - `Fmt.clock` writes "10:49 PM" with a narrow no-break space (U+202F); a typed "10:49 PM" is 2 pt wider. Measure with the real formatter (v0.9.20).
 - Only the probe measures at its reading's time. A tap.json drop-in from another tool (Claude Dashboard, Oct 12) carried an old weekly 50% while the week was at 59%; taken as measured it faked an early reset and taught a weekly cap of $150. Drop-ins now count like the statusline (v0.9.18).
+- A window sized to its content (`sizingOptions = .preferredContentSize`, not resizable) runs under the Dock once the content outgrows the screen: History did at 1025 pt on a 874 pt visible screen after "Value this week" went on top. Windows open at min(content, visibleFrame − margin), scroll, resize in height, and clamp a saved size; check with `ClaudeMeter --window-check` (v0.9.23).
 - NSStatusItem Preferred Position values on macOS 27 are not screen coordinates and can't be seeded reliably; only autosaveName plus a user ⌘-drag (v0.9.21).

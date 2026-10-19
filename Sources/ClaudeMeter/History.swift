@@ -90,6 +90,45 @@ enum Plan: String, CaseIterable, Identifiable {
         case .max20x: 20
         }
     }
+    /// What the plan costs a month, in US dollars.
+    var monthlyPrice: Double {
+        switch self {
+        case .pro: 20
+        case .max5x: 100
+        case .max20x: 200
+        }
+    }
+    /// One week of it: twelve months over 52 weeks.
+    var weeklyPrice: Double { monthlyPrice * 12 / 52 }
+}
+
+/// This week's use at pay-as-you-go prices: this Mac's Claude Code turns, counted from the logs,
+/// and what the weekly % says was used elsewhere (claude.ai, cloud sessions, other devices).
+struct WeekValue {
+    /// Where the week counts from (its start, or an early reset), and its reset.
+    let begin: Date
+    let resets: Date
+    let mac: Double
+    /// Nil when the weekly % shows no use beyond this Mac's, or no weekly cap is known yet.
+    var elsewhere: Double?
+    /// One per local day from the week's first day to the reset's, this Mac's spend only.
+    var days: [ValueDay] = []
+    /// This Mac's spend by model name ("Opus 5.5"), highest first.
+    var models: [Row] = []
+
+    var total: Double { mac + (elsewhere ?? 0) }
+}
+
+/// One local day of the week's value.
+struct ValueDay: Identifiable {
+    var id: Date { day }
+    let day: Date
+    /// This Mac's spend that day (elsewhere can't be split by day).
+    let mac: Double
+    /// Starts after now.
+    let future: Bool
+    /// Ends before the week counts from (an early reset later in the week).
+    let before: Bool
 }
 
 /// One 5-hour window, at its highest.
@@ -133,4 +172,6 @@ struct History {
     /// When exact readings start in the history log.
     var exactSince: Date?
     var calibrated = false
+    /// This week at pay-as-you-go prices. Nil without a weekly window.
+    var value: WeekValue?
 }

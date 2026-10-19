@@ -1,23 +1,35 @@
 import SwiftUI
 
-/// The History window: the last week of 5-hour windows, this week's climb against an even pace,
-/// and how the same usage would have gone on each plan.
+/// The History window: this week's value at pay-as-you-go prices, the last week of 5-hour windows,
+/// this week's climb against an even pace, and how the same usage would have gone on each plan.
 struct HistoryView: View {
     @ObservedObject var meter: Meter
     /// For `--render --fixture`: shown instead of the meter's own history.
     var fixture: History? = nil
+    /// False for `--render` and for measuring: the whole page, not a scroll view.
+    var scrolls = true
 
     /// Window edge, and the gap between modules: roomier than the dropdown's, for 560pt.
     private static let edge: CGFloat = 16
     private static let gap: CGFloat = 12
 
     var body: some View {
+        if scrolls {
+            ScrollView(.vertical) { page }
+                .frame(width: 560)
+        } else {
+            page
+        }
+    }
+
+    private var page: some View {
         let h = fixture ?? meter.history()
-        VStack(alignment: .leading, spacing: Self.gap) {
+        return VStack(alignment: .leading, spacing: Self.gap) {
+            Module { WeekValueSection(h: h, plan: meter.plan) }
             Module { HistoryWindowsChart(h: h) }
             Module { HistoryWeekChart(h: h) }
             Module { PlanFitSection(h: h, plan: $meter.plan) }
-            HistoryFootnote(h: h)
+            HistoryFootnote(h: h, plan: meter.plan)
         }
         .padding(Self.edge)
         .frame(width: 560)

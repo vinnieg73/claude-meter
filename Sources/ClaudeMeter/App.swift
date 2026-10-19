@@ -24,7 +24,7 @@ enum Main {
             exit(2)
         }
         let known: Set = ["--render", "--dark", "--history", "--help-page", "--icons", "--fixture", "--status", "--unregister-login", "--replay",
-                          "--status-log", "--status-test"]
+                          "--status-log", "--status-test", "--window-check"]
         if args.dropFirst().contains(where: { $0.hasPrefix("--") && !known.contains($0) }) { misused() }
         if let i = args.firstIndex(of: "--render") {
             guard i + 1 < args.count, !args[i + 1].hasPrefix("--") else { misused() }
@@ -42,6 +42,7 @@ enum Main {
         let renderOnly: Set = ["--dark", "--history", "--help-page", "--icons", "--fixture"]
         if args.dropFirst().contains(where: { renderOnly.contains($0) }) { misused() }
         if args.contains("--status") { return Status.print() }
+        if args.contains("--window-check") { exit(HistoryChrome.check()) }
         if args.contains("--replay") { exit(Replay.run()) }
         if args.contains("--unregister-login") { return Status.unregisterLogin() }
 
@@ -245,8 +246,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     private func openHistory() {
         popover.performClose(nil)
         if historyWindow == nil {
-            historyWindow = HistoryChrome.makeWindow(title: "Claude Meter · History", delegate: self) {
-                HistoryView(meter: meter)
+            historyWindow = HistoryChrome.makeWindow(title: "Claude Meter · History",
+                                                     autosave: HistoryChrome.historyAutosave, delegate: self) {
+                HistoryView(meter: meter, scrolls: $0)
             }
         }
         NSApp.unhide(nil)
@@ -257,7 +259,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     private func openHelp() {
         popover.performClose(nil)
         if helpWindow == nil {
-            helpWindow = HistoryChrome.makeWindow(title: "Claude Meter · Help", delegate: self) { HelpView() }
+            helpWindow = HistoryChrome.makeWindow(title: "Claude Meter · Help", autosave: HistoryChrome.helpAutosave,
+                                                  preferredHeight: HelpView.height, delegate: self) { HelpView(scrolls: $0) }
         }
         NSApp.unhide(nil)
         NSApp.activate()

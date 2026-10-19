@@ -138,6 +138,8 @@ struct Snapshot {
     var weekShares: [Share] = []
     /// Weekly % the logs can't account for: claude.ai chat, the phone, other machines.
     var weekElsewhere: Double?
+    /// This week at pay-as-you-go prices, for the weekly card's line and History.
+    var weekValue: WeekValue?
     /// Set while the 5-hour pace hits the cap before the reset: when (the reset itself while
     /// the warning holds on a pace that lands just under it).
     var capWarning: Date?
@@ -913,6 +915,7 @@ final class Meter: ObservableObject {
             tagSharedNames(&s, recent, now: now)
             fillToday(&s, now: now)
             fillWeekShares(&s)
+            s.weekValue = weekValue(s, now: now)
             s.fable = fable(s, now: now)
             s.capWarning = updateWarning(s.fiveHour)
             // In use for an hour since the last reading (its first message after it an hour old, and one
@@ -1369,6 +1372,45 @@ final class Meter: ObservableObject {
         s.weekElsewhere = elsewhere >= 2 ? elsewhere : nil
     }
 
+    /// The week so far at pay-as-you-go prices: this Mac's turns since the week counts from (as the
+    /// project shares count), by day and model, and the weekly points the logs can't account for, in
+    /// dollars at the weekly cap. Days are local days from the week's first to the reset's, so a 3 PM
+    /// reset gives eight, the first and last partly. Days are this Mac's alone: split by the exact
+    /// readings, elsewhere's daily parts went negative on real weeks (cloud use moves the cap).
+    private func weekValue(_ s: Snapshot, now: Date) -> WeekValue? {
+        guard let w = s.weekly, let resets = w.resetsAt, now < resets else { return nil }
+        let begin = min(Self.countsFrom(resets, span: Self.week, w.restartedAt), now)
+        var mac = 0.0
+        var byModel: [String: Double] = [:]
+        var names: [String: String] = [:]
+        let a = first(atOrAfter: begin), b = first(atOrAfter: now)
+        if b > a {
+            for t in turns[a..<b] {
+                mac += t.cost
+                let name = names[t.model] ?? {
+                    let n = Fmt.model(t.model)
+                    names[t.model] = n
+                    return n
+                }()
+                byModel[name, default: 0] += t.cost
+            }
+        }
+        var v = WeekValue(begin: begin, resets: resets, mac: mac)
+        if let points = s.weekElsewhere, let cap = store.state.calibration.capWeek {
+            v.elsewhere = points * cap / 100
+        }
+        v.models = byModel.map { Row(id: $0.key, cost: $0.value, tokens: 0) }.sorted { $0.cost > $1.cost }
+        let cal = Calendar.current
+        var day = cal.startOfDay(for: resets.addingTimeInterval(-Self.week))
+        while day < resets, let next = cal.date(byAdding: .day, value: 1, to: day) {
+            let from = max(day, begin), to = min(next, now)
+            v.days.append(ValueDay(day: day, mac: to > from ? cost(from: from, to: to) : 0,
+                                   future: day > now, before: next <= begin))
+            day = next
+        }
+        return v
+    }
+
     // MARK: Fable
 
     /// The Fable card: the separate weekly Fable limit as last read, or that the plan has none, over
@@ -1581,6 +1623,8 @@ final class Meter: ObservableObject {
             }
             h.weekSeries.append(PacePoint(at: now, pct: w.pct))
         }
+
+        h.value = snapshot.weekValue
 
         let peak = h.windows.map(\.peak).max() ?? 0
         // No projection yet: the card says so ("–") rather than passing off the % so far as the % at reset.

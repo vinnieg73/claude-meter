@@ -25,6 +25,9 @@ struct PopoverView: View {
                     Module {
                         WindowCard(w: w)
                         ExtrasRows(extras: s.extras)
+                        if let v = s.weekValue {
+                            WeekValueLine(v: v, plan: meter.plan, openHistory: openHistory)
+                        }
                     }
                 }
                 if let f = s.fable {

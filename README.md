@@ -61,7 +61,10 @@ while you're away. It keeps its ⚠ row, at the top, for those 30 minutes even o
 menu bar switches to `31% · cap 10:49 PM` in orange, and one notification fires when the cap
 is 30 minutes out. It clears once the pace lands under 95% at the reset.
 
-**History** (button, or right-click → History…): every 5-hour window of the last 7 days at its
+**History** (button, or right-click → History…): Value this week (the week so far at
+pay-as-you-go prices: this Mac's Claude Code turns plus "Elsewhere" estimated from the weekly %,
+as a multiple of what the plan picked in Plan fit costs for a week, by day and by model; the weekly
+card carries it as one line, "Worth $540 so far · 11.7× your plan"), every 5-hour window of the last 7 days at its
 peak, this week's climb against an even pace, and plan fit: how the same usage would have
 gone on Pro, Max 5x and Max 20x. Exact readings are logged to `history.jsonl` from 0.6 on;
 windows before that are estimated from the logs.

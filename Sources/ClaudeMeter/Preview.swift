@@ -24,7 +24,7 @@ enum Preview {
                     print("unknown History fixture \(name); one of: \(Fixtures.history.joined(separator: ", "))")
                     return false
                 }
-                content = AnyView(HistoryView(meter: meter, fixture: h))
+                content = AnyView(HistoryView(meter: meter, fixture: h, scrolls: false))
             } else {
                 guard let f = Fixtures.popover(name) else {
                     print("unknown fixture \(name); one of: \(Fixtures.popover.joined(separator: ", "))")
@@ -39,7 +39,7 @@ enum Preview {
         } else {
             meter.loadOnce()
             print("menu bar: \(meter.snapshot.menuTitle)")
-            content = history ? AnyView(HistoryView(meter: meter)) : AnyView(PopoverView(meter: meter))
+            content = history ? AnyView(HistoryView(meter: meter, scrolls: false)) : AnyView(PopoverView(meter: meter))
         }
         let host = NSHostingView(rootView: content.background(Color(nsColor: .windowBackgroundColor)))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: history || help ? HelpView.width : 340, height: 900),

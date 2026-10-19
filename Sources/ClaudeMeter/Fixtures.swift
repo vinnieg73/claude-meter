@@ -6,7 +6,7 @@ import Foundation
 @MainActor
 enum Fixtures {
     static let popover = ["calm", "warn", "critical", "idle", "empty", "loading", "trouble", "week", "long", "nofable", "samename"]
-    static let history = ["fits", "uncalibrated"]
+    static let history = ["fits", "thismac", "uncalibrated"]
 
     /// `weekScope` is the Today / This week picker; `notice` stands in for the meter's own.
     struct Popover {
@@ -35,6 +35,7 @@ enum Fixtures {
     static func history(_ name: String) -> History? {
         switch name {
         case "fits": fits
+        case "thismac": thismac
         case "uncalibrated": uncalibrated
         default: nil
         }
@@ -112,6 +113,31 @@ enum Fixtures {
         }
     }
 
+    /// A week that resets `left` from now: this Mac's spend on each local day so far (in order, the
+    /// last one today), as `Meter.weekValue` lays the days out. Counted from `restartedAgo` if set.
+    private static func value(left: TimeInterval, perDay: [Double], elsewhere: Double?,
+                              restartedAgo: TimeInterval? = nil, models: [(String, Double)]) -> WeekValue {
+        let resets = now.addingTimeInterval(left)
+        let begin = restartedAgo.map { now.addingTimeInterval(-$0) } ?? resets.addingTimeInterval(-7 * 86400)
+        let cal = Calendar.current
+        var days: [ValueDay] = []
+        var day = cal.startOfDay(for: resets.addingTimeInterval(-7 * 86400))
+        let today = cal.startOfDay(for: now)
+        let back = cal.dateComponents([.day], from: day, to: today).day ?? 0
+        var i = 0
+        while day < resets, let next = cal.date(byAdding: .day, value: 1, to: day) {
+            let before = next <= begin
+            let spend = day <= now && !before ? perDay[max(0, perDay.count - 1 - (back - i))] : 0
+            days.append(ValueDay(day: day, mac: spend, future: day > now, before: before))
+            day = next
+            i += 1
+        }
+        var v = WeekValue(begin: begin, resets: resets, mac: days.reduce(0) { $0 + $1.mac }, elsewhere: elsewhere)
+        v.days = days
+        v.models = models.map { Row(id: $0.0, cost: $0.1, tokens: 0) }
+        return v
+    }
+
     private static func base(_ level: Level, title: String, pct: Double) -> Snapshot {
         var s = Snapshot()
         s.loaded = true
@@ -143,6 +169,8 @@ enum Fixtures {
         s.models = [Row(id: "Opus 5.5", cost: 18.7, tokens: 0), Row(id: "Fable 5.1", cost: 2.2, tokens: 0),
                     Row(id: "Haiku 4.5", cost: 0.5, tokens: 0)]
         s.daily = days([88, 140, 52, 12, 0, 96, 21.4])
+        s.weekValue = value(left: 3.2 * 86400, perDay: [38, 140, 52, 12, 0, 21.4], elsewhere: nil,
+                            models: [("Opus 5.5", 240), ("Fable 5.1", 18)])
         return Popover(snapshot: s)
     }
 
@@ -172,6 +200,8 @@ enum Fixtures {
         s.models = [Row(id: "Opus 5.5", cost: 138, tokens: 0), Row(id: "Sonnet 5.5", cost: 0.36, tokens: 0),
                     Row(id: "Haiku 4.5", cost: 0.07, tokens: 0)]
         s.daily = days([310, 28, 140, 22, 25, 72, 139])
+        s.weekValue = value(left: 16.3 * 3600, perDay: [90, 310, 28, 140, 22, 25, 139], elsewhere: 109,
+                            models: [("Opus 5.5", 690), ("Sonnet 5.5", 41)])
         return Popover(snapshot: s)
     }
 
@@ -212,6 +242,8 @@ enum Fixtures {
         s.models = [Row(id: "Opus 5.5", cost: 205, tokens: 0), Row(id: "Fable 5.1", cost: 6.2, tokens: 0),
                     Row(id: "Haiku 4.5", cost: 0.8, tokens: 0)]
         s.daily = days([180, 240, 160, 30, 90, 260, 212])
+        s.weekValue = value(left: 1.6 * 86400, perDay: [60, 180, 240, 160, 30, 90, 212], elsewhere: 140,
+                            models: [("Opus 5.5", 940), ("Fable 5.1", 32)])
         return Popover(snapshot: s)
     }
 
@@ -297,6 +329,9 @@ enum Fixtures {
         p.snapshot.projects = [Row(id: name, cost: 4_100, tokens: 0), Row(id: "Pocket Saloon", cost: 690, tokens: 0),
                                Row(id: "x", cost: 22, tokens: 0), Row(id: "Claude Meter", cost: 0.004, tokens: 0)]
         p.snapshot.daily = days([1200, 4_812, 300, 0, 0, 2_200, 4_812])
+        // The widest the weekly card's value line gets: "~$12.4k" and a three-digit multiple.
+        p.snapshot.weekValue = value(left: 1.6 * 86400, perDay: [400, 1200, 4_812, 300, 0, 0, 4_812], elsewhere: 876,
+                                     models: [("Opus 5.5", 11_000)])
         return p
     }
 
@@ -351,11 +386,22 @@ enum Fixtures {
         h.weekAtReset = 70
         h.weekRate = 0.42
         h.exactSince = now.addingTimeInterval(-6 * 86400)
+        h.value = value(left: 3.5 * 86400, perDay: [38, 112, 96, 148, 146], elsewhere: 109,
+                        models: [("Opus 5.5", 402), ("Sonnet 5.5", 18.4), ("Fable 5.1", 7.9), ("Haiku 5.5", 2.6), ("Opus 5", 0.4)])
         h.plans = plans(current: .max5x, [
             (.pro, 4, 290, nil, now.addingTimeInterval(86400), false),
             (.max5x, 0, 58, 70, nil, false),
             (.max20x, 0, 15, 18, nil, false),
         ])
+        return h
+    }
+
+    /// Nothing beyond this Mac's use (no "~", no elsewhere), in a week Anthropic reset early two
+    /// days ago: the days before that count for nothing.
+    private static var thismac: History {
+        var h = fits
+        h.value = value(left: 2.5 * 86400, perDay: [0, 0, 0, 22, 61, 8.4], elsewhere: nil, restartedAgo: 2 * 86400,
+                        models: [("Sonnet 5.5", 61), ("Haiku 5.5", 30.4)])
         return h
     }
 

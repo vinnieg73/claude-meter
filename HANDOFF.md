@@ -1,10 +1,62 @@
 # Claude Meter: handoff
 
-Updated 2026-10-19 ~03:02 UTC by Claude, from the Utilities project thread about the menu bar icons and the notch (v0.9.22).
+Updated 2026-10-19 ~13:00 UTC by Claude, from the Utilities project thread about the "Value this week" module (v0.9.23).
 
 ## Status
 
-v0.9.22 (build 35): back to a status item that fits its text. Installed 2026-10-19 ~03:00Z; `--status` showed 0.9.22
+v0.9.23 (build 36): "Value this week" in History, plus one line under the dropdown's weekly card. Installed 2026-10-19
+~04:30Z; `--status` showed 0.9.23 and a probe reading 1m old (5h 4%, week 69%). Committed and pushed to `main` on
+2026-10-19 ~13:00Z as "v0.9.23: Value this week in History; History and Help fit the screen" (Vinnie typed "Commit and push").
+- Asked for by Vinnie via the coordinator; mockup option A: https://claude.ai/artifact/HDDp8xFFM5aW9RoCLEy7s7. If he
+  picks option B (the receipt) instead, only `WeekValueSection.swift`'s body changes; the data (`WeekValue`) stays.
+- What it shows (new `WeekValueSection.swift`, first module in `HistoryView`): "since <begin> · resets <reset>", the
+  total at pay-as-you-go prices ("~" only when Elsewhere is in it), the multiple of the plan's week, a bar (this Mac
+  dark gray, Elsewhere light gray, plan's week a blue tick; scaled to max(total, plan week)), a legend with the three
+  amounts, a column per local day, and "By model on this Mac" (top 4, `Fmt.model` names). Empty state "No weekly
+  reading yet." when there's no weekly window. `HistoryFootnote` gained one sentence (Elsewhere + the plan price).
+- Data: `Meter.weekValue` in `recompute()` (stored as `Snapshot.weekValue`, copied to `History.value`). Range =
+  `countsFrom(resets, week, restartedAt)` to now, the same as `fillWeekShares`. Elsewhere = `weekElsewhere` points ×
+  `capWeek` / 100, nil when `weekElsewhere` is nil (under 2 points or no cap). The multiple is worked out in the views
+  from `meter.plan`, so the History picker changes it at once. Prices: `Plan.monthlyPrice` (20/100/200) and
+  `weeklyPrice` (× 12 / 52) in `History.swift`. Plan price shows whole dollars from $10 ("$46"), cents below ("$4.62").
+- Dropdown: `WeekValueLine` in the weekly module after `ExtrasRows`: "Worth $312 so far · 6.8× your plan" and
+  "History ›" (calls the same `openHistory` as the footer button; not click-tested on screen, by the no-windows rule).
+  A shorter form ("$312 · 6.8× your plan") takes over if it can't fit. `long` fixture ("~$12.0k", 520×) stays 340 pt.
+- Day columns, a decision: local days from the week start's day to the reset's day. A 3 PM reset touches 8 dates, so
+  there are **8 columns** (Wed … Tue, Wed), not the brief's 7; the first and last are partial. With 7, Wednesday
+  morning before the reset had no column (its spend lost, the wrong "Wed" bold). Help says the reset's weekday shows twice.
+- Days are **this Mac only**. Elsewhere split per day from exact readings (weekly % × cap − this Mac's spend at each
+  reading, differenced per day) went badly negative on real data (tested with a forced $40 elsewhere: Wed −$91,
+  Sun −$11), so it was removed, as the brief allowed.
+- Real numbers at 04:30Z Mon Oct 19 (week Wed Oct 14 3 PM → Wed Oct 21 3 PM): total $312, this Mac $312, Elsewhere none,
+  6.8× Max 20x ($46/week). By model: Opus 5.5 $261, Sonnet 5.5 $31.93, Fable 5.1 $18.42, Haiku 5.5 $0.73. Days: Wed $148,
+  Thu $0.47, Fri $45, Sat $75, Sun $43, Mon $0.45.
+- Why Elsewhere is $0 this week: `capWeek` is $448 (it was $794 on Oct 17), and 69% × $448 ≈ $309 ≈ this Mac's $312.
+  The cap is calibrated from readings that include cloud use, so cloud use shrinks the cap instead of showing up as
+  Elsewhere (the known limit under Gotchas). The total is then "this Mac's spend", and real value elsewhere is missing.
+- Help: a "Value this week" section after History, and a bullet in Weekly for the dropdown line. README's History
+  paragraph mentions it. CLAUDE.md has the dated exception.
+- Fixtures: popover calm, warn (with Elsewhere), critical, long (stress); History `fits` (with Elsewhere) and new
+  `thismac` (no Elsewhere, early reset two days ago, so earlier days count for nothing); `uncalibrated` is the empty
+  state. Renders (light and dark, every state) and `history-live.png` (installed app, real data, Max 20x) are in
+  `build/renders-week-value/`. Fixture and debug-build renders read the plan from the dev binary's own defaults (Max 5x),
+  so their multiples are 5x ones.
+- Replay: the same 3 data FAILs on HEAD and on this tree (early resets 0 vs 1, 5-hour growth 1.55× → 1.54× from 6
+  newer readings, weekly growth 0.59×). Replay doesn't check the value numbers. Re-run after the window fix: the same 3
+  (1.55×, 0.60×) on newer data.
+- Window fix, same v0.9.23 (Vinnie's screenshot, ~04:25Z): with Value this week on top, History's content is 1025 pt and
+  his screen's visible height is 874 pt (1512×874 above a 75 pt Dock), and the window was sized to its content and not
+  resizable, so Plan fit ran under the Dock. Now (`HistoryChrome.makeWindow`): History and Help scroll (`scrolls:`
+  parameter; renders pass false), resize in height only (width fixed 560, content min 360, max = the natural height),
+  open at min(content, visibleFrame − 8 pt margins) centred, keep a dragged size under autosave names
+  "ClaudeMeterHistory" / "ClaudeMeterHelp", and clamp a saved frame that no longer fits (keeping its top edge). Help
+  opens at 640 as before. No module changed.
+- `ClaudeMeter --window-check` builds both windows without showing them and prints where each would open, on this
+  screen and a 600 pt one. On his Mac: History 560×830 (window y 83–941, inside 75–949), Help 560×640; on 600 pt both
+  560×556. A saved 1400 pt History half off screen (tested in the dev binary's own defaults, then deleted) opened at
+  560×830 on screen. Not checked by eye: the window itself on his screen (no windows opened on it).
+
+Before this: v0.9.22 (build 35): back to a status item that fits its text. Installed 2026-10-19 ~03:00Z; `--status` showed 0.9.22
 and a probe reading 1m old.
 - Why: Vinnie didn't like the fixed slot being longer than what it shows ("I want it to go back to the way it was,
   dynamically adjusting"). The `variableLength` item is back; MenuBar.swift, Meter.swift and HelpView.swift are as in
@@ -171,6 +223,12 @@ The "Claude Meter workbench" thread's 20x retune is this v0.9.18.
 3. Every Monday 9 AM: the weekly replay check reports PASS or FAIL. Scheduled tasks run while the Claude app is open, and a missed one runs at the next launch.
 
 ## Open decisions (Vinnie's)
+
+- Value this week (v0.9.23): option A is built; option B (the receipt) only means rewriting `WeekValueSection`'s body.
+  Day columns are 8 (a 3 PM reset touches 8 dates), not the brief's 7; the alternative is 7 24-hour slices labelled by
+  the weekday each starts on. Elsewhere is usually $0 because the weekly cap absorbs cloud use (see Status), so the
+  total is closer to a floor than the full value; fixing that means a cap calibrated only from Claude Code-only stretches,
+  which was tried and rejected once (Gotchas).
 
 - Mascots (v0.9.16): commit and push v0.9.16 (his typed words). Read "keep the model name text" in Burning now as keeping the model in the row's tooltip (moved there in v0.9.6 at Vinnie's request), not adding it back inline as the mockup shows; say if it should be inline. Help's section headers still wear the flame and snowflake, and its Burning now sample row has no mascot; left as is. Going cold names get about 70 pt now (was about 110) because of the mascot and family column.
 
