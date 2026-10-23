@@ -257,7 +257,10 @@ when the report was last read, and `fableNone` when it last listed limits but no
 without the limit, or a report served from Claude Code's cache, which leaves the per-model limits
 out; a reading still in its week is kept). The "Current session" line's reset goes into
 `sessionResets`: a window listed there that ends later than the last reading's counts as open for
-the probe gate, which is how a window opened in a cloud session or on claude.ai gets probed. With no
+the probe gate, which is how a window opened in a cloud session or on claude.ai gets probed. The
+reset is read with or without a date ("Oct 14 at 3pm", "10:50pm" as the next time the clock reads
+that, "tomorrow at 9am", "Wed at 3pm", "in 4 hr 45 min"); a 5-hour reset more than five hours out
+is taken as a misreading and ignored. With no
 window known to be open the report is read every 5 minutes for this. The 5-hour and weekly % in it
 are not used as readings (the probe has them, with `unifiedWindows`' precision).
 

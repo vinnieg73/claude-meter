@@ -153,6 +153,8 @@ enum Probe {
         /// reset together can be told to.
         let resetsAt: Date?
         let resetText: String?
+        /// "session" or "week": the line's first word, whatever its parentheses say.
+        let kind: String
     }
 
     enum UsageOutcome {
@@ -203,7 +205,7 @@ enum Probe {
     }
 
     private static let usageLine = try! NSRegularExpression(
-        pattern: #"^Current (session|week)(?: \(([^)]+)\))?: (\d+(?:\.\d+)?)% used(?:\s*·\s*resets (.+?))?\s*$"#,
+        pattern: #"^Current (session|week)(?: \(([^)]+)\))?: (\d+(?:\.\d+)?)% used(?:\s*·\s*[Rr]esets (.+?))?\s*$"#,
         options: [.anchorsMatchLines])
 
     /// "Current week (Fable): 7% used · resets Oct 14 at 3pm (America/New_York)", one limit per such line.
@@ -217,45 +219,150 @@ enum Probe {
             guard let kind = group(1), let pct = group(3).flatMap(Double.init) else { return nil }
             let reset = group(4)
             return UsageLimit(name: group(2) ?? kind, pct: pct,
-                              resetsAt: reset.flatMap { parseReset($0, now: now) }, resetText: reset)
+                              resetsAt: reset.flatMap { parseReset($0, now: now) }, resetText: reset, kind: kind)
         }
     }
 
-    private static let resetText = try! NSRegularExpression(
-        pattern: #"^([A-Za-z]{3})[a-z]*\.? (\d{1,2})(?:,? (\d{4}))? at (\d{1,2})(?::(\d{2}))?\s*([AaPp][Mm])?(?:\s*\(([^)]+)\))?"#)
+    /// A clock time and its zone, which ends every dated form below: "3pm", "2:59pm", "10:50 PM", "3 p.m.",
+    /// "22:50", then "(America/New_York)" or nothing. Four groups: hour, minute, a or p, zone.
+    private static let clockText = #"(\d{1,2})(?::(\d{2}))?\s*(?:([AaPp])\.?[Mm]\.?)?(?![\w:])(?:\s*\(([^)]+)\))?"#
+    private static func pattern(_ text: String) -> NSRegularExpression {
+        try! NSRegularExpression(pattern: text, options: [.caseInsensitive])
+    }
+    /// "Oct 14 at 3pm", "October 14, 2026 at 3:00 PM", "Oct 14, 3pm": month, day, year, then the clock.
+    private static let monthFirst = pattern(#"^([a-z]{3})[a-z]*\.? (\d{1,2})(?:st|nd|rd|th)?(?:,? (\d{4}))?(?:,? at |,? )"# + clockText)
+    /// "14 Oct at 3pm", "14 October 2026, 15:00": day, month, year, then the clock.
+    private static let dayFirst = pattern(#"^(\d{1,2}) ([a-z]{3})[a-z]*\.?(?:,? (\d{4}))?(?:,? at |,? )"# + clockText)
+    /// "in 4 hr 45 min", "in 4h 45m", "in 2 days 3 hours": a span from now.
+    private static let span = pattern(#"^in (\d[^(]*)"#)
+    private static let spanPart = pattern(#"(\d+)\s*([a-z]+)"#)
+    /// "today at 10:50pm", "tomorrow, 9am", "Wed at 3pm", "Wednesday 3pm": a day by name, then the clock.
+    private static let namedDay = pattern(#"^([a-z]+)\.?,?(?: at)? "# + clockText)
+    /// "10:50pm", "at 3pm", "22:50 (Europe/London)": the clock alone.
+    private static let clockOnly = pattern(#"^(?:at )?"# + clockText)
     private static let months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+    private static let weekdays = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+    /// A time printed without a date that was this long ago is today's (the report floors to the minute, so
+    /// it can be just past), not tomorrow's.
+    private static let justPast: TimeInterval = 300
 
-    /// "Oct 14 at 3pm (America/New_York)" as a moment: that date in that zone (this Mac's zone when none
-    /// is given), this year, or next once this year's is well past. Nil for any other wording.
+    private struct Clock {
+        let hour: Int
+        let minute: Int
+        let zone: TimeZone
+    }
+
+    /// A reset as the usage report prints it, as a moment. With a date ("Oct 14 at 3pm (America/New_York)"):
+    /// that date in that zone (this Mac's zone when none is given), this year, or the year either side once
+    /// that is nearer. A time alone ("10:50pm (America/New_York)", as the 5-hour line can print it): the next
+    /// time the clock reads that, today's unless it is more than a few minutes past. A day by name ("today",
+    /// "tomorrow", "Wed"), a span ("in 4 hr 45 min"). Nil for any other wording, which the callers take as
+    /// not known.
     static func parseReset(_ text: String, now: Date = Date()) -> Date? {
-        let whole = NSRange(text.startIndex..., in: text)
-        guard let m = resetText.firstMatch(in: text, range: whole) else { return nil }
-        func group(_ i: Int) -> String? {
-            guard let r = Range(m.range(at: i), in: text) else { return nil }
-            return String(text[r])
-        }
-        guard let month = group(1).flatMap({ months.firstIndex(of: $0.lowercased()) }),
-              let day = group(2).flatMap(Int.init), var hour = group(4).flatMap(Int.init) else { return nil }
-        let minute = group(5).flatMap(Int.init) ?? 0
-        if let ampm = group(6)?.lowercased() {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        let whole = NSRange(trimmed.startIndex..., in: trimmed)
+        func match(_ form: NSRegularExpression) -> NSTextCheckingResult? { form.firstMatch(in: trimmed, range: whole) }
+        if let m = match(monthFirst), let date = dated(m, month: 1, day: 2, in: trimmed, now: now) { return date }
+        if let m = match(dayFirst), let date = dated(m, month: 2, day: 1, in: trimmed, now: now) { return date }
+        if let m = match(span), let parts = group(m, 1, in: trimmed) { return spanned(parts, now: now) }
+        if let m = match(namedDay), let date = onNamedDay(m, in: trimmed, now: now) { return date }
+        if let m = match(clockOnly), let time = readClock(m, from: 1, in: trimmed, bare: false) { return next(time, now: now) }
+        return nil
+    }
+
+    private static func group(_ m: NSTextCheckingResult, _ i: Int, in text: String) -> String? {
+        guard i < m.numberOfRanges, let r = Range(m.range(at: i), in: text) else { return nil }
+        return String(text[r])
+    }
+
+    /// The clock whose four groups start at `first`. Nil for no time of day ("13pm", "24:00"), or for a bare
+    /// number unless `bare` (after "Oct 14 at", "15" is 3 PM; alone, "14" is no time).
+    private static func readClock(_ m: NSTextCheckingResult, from first: Int, in text: String, bare: Bool) -> Clock? {
+        guard var hour = group(m, first, in: text).flatMap({ Int($0) }) else { return nil }
+        let minuteText = group(m, first + 1, in: text)
+        let ampm = group(m, first + 2, in: text)?.lowercased()
+        guard bare || minuteText != nil || ampm != nil else { return nil }
+        let minute = minuteText.flatMap { Int($0) } ?? 0
+        if let ampm {
             guard (1...12).contains(hour) else { return nil }
-            hour = hour % 12 + (ampm == "pm" ? 12 : 0)
+            hour = hour % 12 + (ampm == "p" ? 12 : 0)
         }
         guard hour < 24, minute < 60 else { return nil }
+        let zone = group(m, first + 3, in: text).flatMap { TimeZone(identifier: $0) ?? TimeZone(abbreviation: $0) }
+        return Clock(hour: hour, minute: minute, zone: zone ?? .current)
+    }
+
+    /// A printed date and clock (the clock's groups from 4, the year in 3).
+    private static func dated(_ m: NSTextCheckingResult, month mi: Int, day di: Int, in text: String, now: Date) -> Date? {
+        guard let month = group(m, mi, in: text).flatMap({ months.firstIndex(of: String($0.lowercased().prefix(3))) }),
+              let day = group(m, di, in: text).flatMap({ Int($0) }), (1...31).contains(day),
+              let time = readClock(m, from: 4, in: text, bare: true) else { return nil }
+        let year = group(m, 3, in: text).flatMap { Int($0) }
         var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = group(7).flatMap(TimeZone.init(identifier:)) ?? .current
+        cal.timeZone = time.zone
         var parts = DateComponents()
-        parts.year = group(3).flatMap(Int.init) ?? cal.component(.year, from: now)
+        parts.year = year ?? cal.component(.year, from: now)
         parts.month = month + 1
         parts.day = day
-        parts.hour = hour
-        parts.minute = minute
+        parts.hour = time.hour
+        parts.minute = time.minute
         guard let date = cal.date(from: parts) else { return nil }
-        guard group(3) == nil else { return date }
+        guard year == nil else { return date }
         // No year printed: the year that puts it nearest now (a reset is days away at most; read at the
         // turn of a year, "Dec 31 at 11pm" and "Jan 2 at 3pm" fall either side of it).
         return [-1, 0, 1].compactMap { cal.date(byAdding: .year, value: $0, to: date) }
             .min { abs($0.timeIntervalSince(now)) < abs($1.timeIntervalSince(now)) } ?? date
+    }
+
+    /// "4 hr 45 min" from now. Nil when any part's unit isn't a day, hour, minute or second, or none is there.
+    private static func spanned(_ parts: String, now: Date) -> Date? {
+        let found = spanPart.matches(in: parts, range: NSRange(parts.startIndex..., in: parts))
+        guard !found.isEmpty else { return nil }
+        var seconds: TimeInterval = 0
+        for m in found {
+            guard let n = group(m, 1, in: parts).flatMap({ Double($0) }), let unit = group(m, 2, in: parts)?.lowercased() else { return nil }
+            if unit.hasPrefix("w") { seconds += n * 7 * 86400 }
+            else if unit.hasPrefix("d") { seconds += n * 86400 }
+            else if unit.hasPrefix("h") { seconds += n * 3600 }
+            else if unit.hasPrefix("mo") { return nil } // months: no reset is that far
+            else if unit.hasPrefix("m") { seconds += n * 60 }
+            else if unit.hasPrefix("s") { seconds += n }
+            else { return nil }
+        }
+        return now.addingTimeInterval(seconds)
+    }
+
+    /// "today at 10:50pm", "tomorrow, 9am", "Wed at 3pm": that day's time; a weekday is its next one (today's
+    /// unless that time is more than a few minutes past).
+    private static func onNamedDay(_ m: NSTextCheckingResult, in text: String, now: Date) -> Date? {
+        guard let word = group(m, 1, in: text)?.lowercased(), let time = readClock(m, from: 2, in: text, bare: false) else { return nil }
+        switch word {
+        case "today", "tonight": return on(time, daysAfter: 0, now: now)
+        case "tomorrow": return on(time, daysAfter: 1, now: now)
+        default:
+            guard word.count >= 3, let weekday = weekdays.firstIndex(where: { $0.hasPrefix(word) }) else { return nil }
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = time.zone
+            return next(time, now: now) { cal.component(.weekday, from: $0) == weekday + 1 }
+        }
+    }
+
+    /// The clock's time on the day `days` after today, both in the clock's zone.
+    private static func on(_ clock: Clock, daysAfter days: Int, now: Date) -> Date? {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = clock.zone
+        guard let day = cal.date(byAdding: .day, value: days, to: cal.startOfDay(for: now)) else { return nil }
+        return cal.date(bySettingHour: clock.hour, minute: clock.minute, second: 0, of: day)
+    }
+
+    /// The next time the clock reads `clock` on a day that `fits`, up to a week on; one a few minutes past
+    /// (yesterday's, just after midnight) is that one, not the next.
+    private static func next(_ clock: Clock, now: Date, fits: (Date) -> Bool = { _ in true }) -> Date? {
+        for days in -1...7 {
+            guard let date = on(clock, daysAfter: days, now: now) else { return nil }
+            if date >= now.addingTimeInterval(-justPast), fits(date) { return date }
+        }
+        return nil
     }
 
     /// Every process under `pid`, children first found, then theirs.

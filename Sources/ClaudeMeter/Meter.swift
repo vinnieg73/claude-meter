@@ -542,11 +542,13 @@ final class Meter: ObservableObject {
     /// A report with no Fable line among its limits is noted (a plan without the limit, or a report served
     /// from Claude Code's cache, which leaves the per-model limits out); a reading still in its week is kept
     /// either way, and so is one whose new reset couldn't be placed at all.
-    private func takeFable(_ limits: [Probe.UsageLimit], at: Date) {
+    func takeFable(_ limits: [Probe.UsageLimit], at: Date) {
         store.state.fableChecked = at
         // The 5-hour line's reset, for the probe gate. The report prints it to the minute, floored, so the
-        // real reset is that or a little later and the gate's margin still holds.
-        store.state.sessionResets = limits.first { $0.name.lowercased() == "session" }?.resetsAt.flatMap { $0 > at ? $0 : nil }
+        // real reset is that or a little later and the gate's margin still holds. No 5-hour window resets
+        // more than five hours out, so a time read as tomorrow's (or a misread one) opens nothing.
+        store.state.sessionResets = limits.first { $0.kind == "session" }?.resetsAt
+            .flatMap { $0 > at && $0 <= at.addingTimeInterval(Self.fiveHours + 60) ? $0 : nil }
         guard let fable = limits.first(where: { $0.name.lowercased().contains("fable") }) else {
             store.state.fableNone = at
             return

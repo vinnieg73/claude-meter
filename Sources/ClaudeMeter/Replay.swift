@@ -616,7 +616,78 @@ extension Meter {
         store.state.sessionResets = now.addingTimeInterval(-1800)
         expect(!windowOpen(now), "an ended window from the usage report let a probe through")
 
-        report.lines.append("6. Synthetic: \(ran) checks (early-reset pace and chart, lapsed windows, probe gate).")
+        // The usage report's reset text, read on its own: each way it may print one, against the moment it
+        // means. `now` is 9:40 PM on Saturday Sep 8 in New York. Only the date form had been seen ("Oct 14 at
+        // 2:59pm"); the 5-hour line can print a time alone, which before v0.9.25 read as nothing.
+        let newYork = TimeZone(identifier: "America/New_York")!
+        var nyCal = Calendar(identifier: .gregorian)
+        nyCal.timeZone = newYork
+        func inNewYork(_ day: Int, _ hour: Int, _ minute: Int) -> Date? {
+            nyCal.date(from: DateComponents(year: 2001, month: 9, day: day, hour: hour, minute: minute))
+        }
+        let forms: [(String, Date?)] = [
+            ("Sep 12 at 3pm (America/New_York)", inNewYork(12, 15, 0)),
+            ("Sep 12 at 2:59pm (America/New_York)", inNewYork(12, 14, 59)),
+            ("Sep 12, 2001 at 3:00 PM (America/New_York)", inNewYork(12, 15, 0)),
+            ("September 12th at 3pm (America/New_York)", inNewYork(12, 15, 0)),
+            ("Sep 12, 3pm (America/New_York)", inNewYork(12, 15, 0)),
+            ("12 Sep at 3pm (America/New_York)", inNewYork(12, 15, 0)),
+            ("Wed at 3pm (America/New_York)", inNewYork(12, 15, 0)),
+            ("10:50pm (America/New_York)", inNewYork(8, 22, 50)),
+            ("10:50 PM (America/New_York)", inNewYork(8, 22, 50)),
+            ("22:50 (America/New_York)", inNewYork(8, 22, 50)),
+            ("12:50am (America/New_York)", inNewYork(9, 0, 50)),
+            ("9:38pm (America/New_York)", inNewYork(8, 21, 38)), // floored, just past: today's, not tomorrow's
+            ("9:30pm (America/New_York)", inNewYork(9, 21, 30)), // well past: tomorrow's
+            ("today at 10:50pm (America/New_York)", inNewYork(8, 22, 50)),
+            ("tomorrow at 9am (America/New_York)", inNewYork(9, 9, 0)),
+            ("in 4 hr 45 min", now.addingTimeInterval(4 * 3600 + 45 * 60)),
+            ("in 4h 45m", now.addingTimeInterval(4 * 3600 + 45 * 60)),
+            ("in 45 min", now.addingTimeInterval(45 * 60)),
+            ("soon", nil), ("14", nil), ("13pm", nil), ("24:00", nil), ("Sep 12", nil), ("in a while", nil),
+        ]
+        for (text, want) in forms {
+            let got = Probe.parseReset(text, now: now)
+            let same = got.flatMap { g in want.map { abs(g.timeIntervalSince($0)) < 1 } } ?? (got == nil && want == nil)
+            expect(same, "the reset \"\(text)\" read as \(got.map { "\($0)" } ?? "nothing"), not \(want.map { "\($0)" } ?? "nothing")")
+        }
+
+        // And through the whole report: a window opened away from this Mac after the last reading's ended,
+        // its 5-hour line printing the reset (3 h 10 min away, 12:50 AM New York) in each plausible form.
+        let due = now.addingTimeInterval(3 * 3600 + 600)
+        func printed(_ format: String) -> String {
+            let f = DateFormatter()
+            f.locale = Locale(identifier: "en_US_POSIX")
+            f.timeZone = newYork
+            f.dateFormat = format
+            return f.string(from: due)
+        }
+        let ended = ExactReading(at: now.addingTimeInterval(-7200), source: "probe",
+                                 fiveHour: Window(pct: 66, resetsAt: now.addingTimeInterval(-1800), at: now.addingTimeInterval(-7200)))
+        let sessionForms = [printed("h:mma").lowercased() + " (America/New_York)", printed("h:mm a") + " (America/New_York)",
+                            printed("HH:mm") + " (America/New_York)", printed("MMM d 'at' h:mma").lowercased() + " (America/New_York)",
+                            "tomorrow at " + printed("h:mma").lowercased() + " (America/New_York)", "in 3 hr 10 min"]
+        for form in sessionForms {
+            setUp(now: now, turns: [], reading: ended, cap5h: nil, capWeek: nil)
+            let report = "Current session: 12% used · resets \(form)\n"
+                + "Current week (all models): 40% used · resets Sep 12 at 3pm (America/New_York)"
+            takeFable(Probe.parseUsageText(report, now: now), at: now)
+            let got = store.state.sessionResets
+            expect(got.map { abs($0.timeIntervalSince(due)) < 60 } ?? false,
+                   "the usage report's 5-hour reset \"\(form)\" went into sessionResets as \(got.map { "\($0)" } ?? "nothing")")
+            expect(windowOpen(now), "no probe in a window the usage report lists as resetting \"\(form)\"")
+        }
+        // A 5-hour reset more than five hours out is a misreading (no window is that long): no probe on it.
+        setUp(now: now, turns: [], reading: ended, cap5h: nil, capWeek: nil)
+        takeFable(Probe.parseUsageText("Current session: 12% used · resets Sep 9 at 3am (America/New_York)", now: now), at: now)
+        expect(store.state.sessionResets == nil && !windowOpen(now),
+               "a 5-hour reset over five hours out let a probe through")
+        // One just past (the report floors to the minute) opens nothing either.
+        setUp(now: now, turns: [], reading: ended, cap5h: nil, capWeek: nil)
+        takeFable(Probe.parseUsageText("Current session: 12% used · resets 9:38pm (America/New_York)", now: now), at: now)
+        expect(store.state.sessionResets == nil && !windowOpen(now), "a 5-hour reset just past let a probe through")
+
+        report.lines.append("6. Synthetic: \(ran) checks (early-reset pace and chart, lapsed windows, probe gate, usage report resets).")
     }
 
     /// The history log saves each reading as the meter held it, windows carried over from earlier
