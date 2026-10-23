@@ -1,8 +1,74 @@
 # Claude Meter: handoff
 
-Updated 2026-10-19 ~18:05 UTC by Claude, from the Utilities project thread (v0.9.24: shorter menu bar title).
+Updated 2026-10-23 by Claude, from a background worker (v0.9.25: fixes from the 2026-10-23 audit, on branch
+`fix/audit-2026-10-23`, not merged, not built, not installed).
 
 ## Status
+
+v0.9.25 (build 38): every finding of `tool-reviews/2026-10-23/claude-meter.md` (0 High, 1 Medium, 4 Low), fixed in
+the report's order on branch `fix/audit-2026-10-23` and pushed. Written on a Linux box with no Swift compiler: **not
+compiled, not replayed, not rendered yet**. Run the Mac test plan below before merging or installing.
+- Medium 1, cloud-opened windows never probed (Probe.swift, `Meter.takeFable`): `parseReset` read only "Oct 14 at
+  3pm". It now also reads a time alone ("10:50pm (America/New_York)", the next time the clock reads it; up to 5
+  minutes past counts as that one, since the report floors), month or day first with or without year/"at"/comma
+  ("Oct 14, 2026 at 3:00 PM", "14 Oct 3pm"), "today/tonight/tomorrow at …", a weekday ("Wed at 3pm"), and a span
+  ("in 4 hr 45 min", "in 4h 45m"), each with an optional zone (identifier or abbreviation). The report is parsed
+  against the time it was asked for. The session line is found by its kind ("Current session …", whatever its
+  parentheses say), and a session reset more than 5 h out is dropped, so a misread time can never let a probe open
+  a window. No real "Current session" sample exists in the repo yet: see the plan.
+- Low, "No separate Fable limit" after the weekly reset (`takeFable`): a report with no Fable line sets `fableNone`
+  only if it lists another model's weekly limit ("Sonnet only"), no Fable reading was ever held, or the held one's
+  week ended over a day ago (`cachedReportsFor`). Otherwise it clears `fableNone` and the card says "Waiting for a
+  Fable reading." until a full report. Trade-off: a plan that really drops the limit says "waiting" for up to a day
+  after its last Fable week ends.
+- Low, probe answer dropped when a statusline reading lands mid-probe (`Meter.absorb`, `pick`, `markRestart`): a
+  probe reading older than the held reading by at most 90 s (`slowProbe`), when the held one is from tap.json (not
+  another probe), goes through `pick`. Being older, only a fall of 10+ points (`behindDrop`) counts as an early
+  reset from it; a smaller fall keeps the statusline's newer number. An early reset is dated no later than the
+  reading that saw it. Side effect: `lastExact.at` can step back by up to 90 s (the probe's launch time), and the
+  history log can get a line slightly out of order (`exactHistory` sorts those in; replay sorts).
+- Low, History can't be dragged taller after its page grows (HistoryView, HistoryChrome, App): the scrolling page
+  reports its height (GeometryReader + `onChange(of:initial:)`, macOS 14) and `HistoryChrome.contentHeight` raises
+  `contentMaxSize` to it (never lowers it). The window's own size isn't touched. Help is unchanged (static page).
+- Low, Help's usage-report cadence (HelpView.swift Fable section, README sources table): now says every 5 minutes
+  while Fable is in use here *or no 5-hour window is open*, every 30 otherwise.
+- Skipped: nothing. Not touched: the Going cold open decision.
+- Tests written (they run on the Mac): replay synthetic checks (section 6) for every parse form (24 cases through
+  `parseReset`, 6 through the whole report into `sessionResets` and the probe gate, plus the >5 h and just-past
+  guards), the Fable rollover (5 cases), and the overtaken probe (6 cases); `--window-check` gained a History growth
+  line. Here, only a Python mirror of the new parser was run (scratch, not committed): 38 + 30 cases pass.
+- A review of the diff (code-review skill; no Agent tool was available) found 10 items; fixed: a false early reset
+  from an overtaken probe before a climb, `hadOne` measured from the wrong time, time-only resets read against the
+  parse time, the max height being lowered, the growth check passing vacuously, a long array literal that might time
+  out the type checker. Left: `lastExact.at` stepping back (above; it is the probe's real measurement time), two
+  style items (a duplicate `group` helper that predates this, the max-height rule in two places).
+
+### Mac test plan (audit 2026-10-23)
+
+All in the background, nothing shown on Vinnie's screen (no `open` of windows; `--window-check` and `--render` build
+windows without showing them). From `~/Code/Claude Meter`, on branch `fix/audit-2026-10-23`:
+1. `swift build -c release 2>&1 | tail -20`: must compile with no errors. If it fails, the likeliest spots are the
+   new code in `Probe.swift` (`parseReset` and helpers), `HistoryView.body` (`onChange(of:initial:)`), and the
+   `forms` array in `Replay.swift` (split it if the type checker times out).
+2. `./scripts/replay.sh`: section 6 must show no `FAIL: synthetic:` lines (its count goes from 12 to 61). The data
+   FAILs from before (early resets, 5-hour and weekly growth) may still show; compare with the same run on `main`
+   (`git stash; git checkout main; ./scripts/replay.sh; git checkout fix/audit-2026-10-23`): only new FAILs count.
+3. `"$(swift build -c release --show-bin-path)/ClaudeMeter" --window-check`: both screens "fits", and the new line
+   "History page … rule … ok; live page … ok". If "live page … DIDN'T GROW" while "rule … ok", the off-screen window
+   may simply not run SwiftUI updates; then check by hand once on the real History window (open History before a
+   weekly reading exists, or right after install, and drag it taller once Value this week fills in).
+4. `scripts/render-all.sh build/renders-audit-1023`: no failures; look at `help-light.png` / `help-dark.png` for the
+   Fable section's new sentence (no other view changed).
+5. Capture one real report: `claude -p /usage --model haiku --tools "" --strict-mcp-config --no-session-persistence
+   --setting-sources "" --settings '{"disableAllHooks":true}' --output-format json` while a 5-hour window is open.
+   Note the exact "Current session" line in this file (it was never captured). Then install
+   (`scripts/build.sh --install`, background relaunch) and within ~5 minutes check
+   `python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/Library/Application Support/ClaudeMeter/state.json"))).get("sessionResets"))'`
+: `sessionResets` must appear and match that line's reset. If it is missing, the line's
+   wording is not one `parseReset` reads: add it to `Probe.swift` and to the replay forms.
+6. After install, `ClaudeMeter --status`: version 0.9.25, a fresh probe reading, and a Fable line.
+
+Deploy: only with Vinnie's typed go-ahead (merge `fix/audit-2026-10-23` into `main`, then `scripts/build.sh --install`).
 
 v0.9.24 (build 37): shorter menu bar title, so Claude Meter fits beside the 58 pt Vitals dials (178.5 pt between the
 notch edge at 848.5 and Vitals). Vinnie picked option 1 of three (via the coordinator): with the weekly % in the title,
@@ -268,7 +334,7 @@ The "Claude Meter workbench" thread's 20x retune is this v0.9.18.
 - Mascots: `--render` draws them still (motion is off outside the open dropdown), so a bob problem won't show in renders. To check it, temporarily flip `MascotsMoveKey.defaultValue` to true and render. Reduce Motion can only be checked on the real app.
 
 - The Fable reading comes from `claude -p /usage`, parsed as text ("Current week (Fable): 9% used · resets Oct 14 at 2:59pm (America/New_York)"). A wording change in Claude Code would stop it quietly: the card would read "Waiting for a Fable reading." and `--status` "fable limit: not read yet" or an old reading. Check `Probe.usageLine` and `parseReset` first then. The report sometimes prints the Fable reset floored to the minute (2:59pm); the meter snaps it to the weekly window's reset when within 15 minutes.
-- The usage report is a local command: `claude -p /usage` makes no model request (the result shows `total_cost_usd` 0, `num_turns` 0, `duration_api_ms` 0) and does not open a 5-hour window, so `refreshFable` is not behind the probe gate at all: it launches claude every 30 minutes while the app runs (every 5 with Fable in use here), about 3 seconds of CPU each time.
+- The usage report is a local command: `claude -p /usage` makes no model request (the result shows `total_cost_usd` 0, `num_turns` 0, `duration_api_ms` 0) and does not open a 5-hour window, so `refreshFable` is not behind the probe gate at all: it launches claude every 30 minutes while the app runs (every 5 with Fable in use here or no 5-hour window known to be open), about 3 seconds of CPU each time.
 - A second-opinion review of the v0.9.14 diff found six issues (a Fable line whose reset couldn't be read showed "no separate limit"; a report without the Fable line wiped a good reading; the window gate; the retry backoff never binding; the year guess at a year's turn; future-dated `fable` fields on a clock set back). All six are fixed in the installed build.
 
 - Before calling anything done, run `./scripts/replay.sh` (must PASS). For view changes, also run `scripts/render-all.sh <dir>` and check light and dark. Replay doesn't exercise `Probe.swift`, so after an install confirm `ClaudeMeter --status` shows a fresh probe reading.
@@ -277,7 +343,7 @@ The "Claude Meter workbench" thread's 20x retune is this v0.9.18.
 - Vinnie's Mac needs his own typed go-ahead for each commit and push.
 - The Oct 15 check's cap ranges were updated for v0.9.7's lower caps (about $144 / $1.1k). If caps move again, update `~/.claude/scheduled-tasks/claude-meter-oct-15-check`.
 - Known limit (narrowed in v0.9.15): with no 5-hour window open by this Mac's reckoning AND the usage report listing none, the meter can't probe, because a probe would open a window. A window opened elsewhere is now found by the report within about 5 minutes (sooner on Sync, which reads the report and probes once it answers).
-- v0.9.15 trusts `claude -p /usage` not to open a window: the probe gate now opens on its session line. A wording change fails safe (an unread reset is nil, and nil means no window). But the "no window opened" claim rests on the report showing `total_cost_usd` 0 and `duration_api_ms` 0, not on a test run with no window open. If a future Claude Code made `/usage` a model request, it would itself open windows; check that first if windows start opening with no use.
+- v0.9.15 trusts `claude -p /usage` not to open a window: the probe gate now opens on its session line. A wording change fails safe (an unread reset is nil, and nil means no window; since v0.9.25 a session reset over 5 h out is dropped too). But the "no window opened" claim rests on the report showing `total_cost_usd` 0 and `duration_api_ms` 0, not on a test run with no window open. If a future Claude Code made `/usage` a model request, it would itself open windows; check that first if windows start opening with no use.
 - Cost of v0.9.15: the usage report now launches every 5 minutes whenever no window is known open (most of an idle night), about 3 seconds of CPU each.
 - Use off this Mac (cloud sessions, claude.ai) shrinks the calibrated cap, because each reading divides local spend by a % that includes the other use. On Oct 10 it fell from about $198 to $76. The live % stays exact (a reading every minute). Burning now's %/hr and the estimate between readings run high on cloud days.
 - Tried and rejected: skipping calibrations that imply a much smaller cap (to ignore cloud use). Estimates and the pace then grew only 0.5x as fast as the readings on cloud days, so "capped at" and the cap warning would come late. Replay's growth check fails.
