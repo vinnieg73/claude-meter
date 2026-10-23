@@ -64,7 +64,7 @@ windows without showing them). From `~/Code/Claude Meter`, on branch `fix/audit-
    Note the exact "Current session" line in this file (it was never captured). Then install
    (`scripts/build.sh --install`, background relaunch) and within ~5 minutes check
    `python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/Library/Application Support/ClaudeMeter/state.json"))).get("sessionResets"))'`
-: `sessionResets` must appear and match that line's reset. If it is missing, the line's
+   prints a date: `sessionResets` must appear and match that line's reset. If it is missing, the line's
    wording is not one `parseReset` reads: add it to `Probe.swift` and to the replay forms.
 6. After install, `ClaudeMeter --status`: version 0.9.25, a fresh probe reading, and a Fable line.
 
