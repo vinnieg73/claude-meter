@@ -243,7 +243,9 @@ About $0.001 of usage per run, so at most ~$0.06/hr while you work (about 0.03 p
 - Each reading is stamped when its probe starts (when it answers, if it took over 90 seconds, say
   the Mac slept), and a probe is called for
   only by activity logged after the last one started, so a turn logged while it ran is not lost
-  and an answer that was turned away is not asked for again while you're idle.
+  and an answer that was turned away is not asked for again while you're idle. A statusline reading
+  taken in while a probe runs is newer than the probe's, but the probe's answer still goes through,
+  window by window, so an early reset it measured is not lost.
 
 ### Usage report
 

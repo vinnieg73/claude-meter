@@ -719,7 +719,37 @@ extension Meter {
         recompute()
         expect(snapshot.fable?.noLimit == true, "a full report with no Fable line, listing another model's limit, wasn't taken as no limit")
 
-        report.lines.append("6. Synthetic: \(ran) checks (early-reset pace and chart, lapsed windows, probe gate, usage report resets, Fable after a rollover).")
+        // A statusline reading taken in while a probe ran is newer than the probe's (dated at its launch), but
+        // the probe's own measurement still counts: here it caught an early 5-hour reset (40% to 6%).
+        let probedAt = now.addingTimeInterval(-40)
+        let tapMeanwhile = ExactReading(at: now.addingTimeInterval(-10), source: "tap",
+                                        fiveHour: Window(pct: 40, resetsAt: now.addingTimeInterval(3600), at: now.addingTimeInterval(-10)),
+                                        weekly: Window(pct: 50, resetsAt: now.addingTimeInterval(3 * 86400), at: now.addingTimeInterval(-10)))
+        let probeReading = ExactReading(at: probedAt, source: "probe",
+                                        fiveHour: Window(pct: 6, resetsAt: now.addingTimeInterval(3600)),
+                                        weekly: Window(pct: 50.2, resetsAt: now.addingTimeInterval(3 * 86400)))
+        setUp(now: now, turns: [], reading: tapMeanwhile, cap5h: nil, capWeek: nil)
+        absorb(probeReading)
+        let afterProbe = store.state.lastExact
+        expect(afterProbe?.fiveHour?.pct == 6 && afterProbe?.fiveHour?.restartedAt != nil,
+               "a probe's early reset was thrown away because a statusline reading landed while it ran")
+        expect((afterProbe?.fiveHour?.restartedAt ?? .distantFuture) <= probedAt, "an early reset dated after the probe that saw it")
+        // The statusline's reading, offered again on the next tick, doesn't undo it.
+        absorb(tapMeanwhile)
+        expect(store.state.lastExact?.fiveHour?.pct == 6, "the statusline's older number replaced the probe's early reset")
+        // A probe never replaces a newer probe's reading, nor a statusline reading from after it could have answered.
+        var newerProbe = tapMeanwhile
+        newerProbe.source = "probe"
+        setUp(now: now, turns: [], reading: newerProbe, cap5h: nil, capWeek: nil)
+        absorb(probeReading)
+        expect(store.state.lastExact?.fiveHour?.pct == 40, "an older probe reading replaced a newer one")
+        var longBefore = probeReading
+        longBefore.at = now.addingTimeInterval(-200)
+        setUp(now: now, turns: [], reading: tapMeanwhile, cap5h: nil, capWeek: nil)
+        absorb(longBefore)
+        expect(store.state.lastExact?.fiveHour?.pct == 40, "a probe launched long before the held reading replaced it")
+
+        report.lines.append("6. Synthetic: \(ran) checks (early-reset pace and chart, lapsed windows, probe gate, usage report resets, Fable after a rollover, a probe overtaken by the statusline).")
     }
 
     /// The history log saves each reading as the meter held it, windows carried over from earlier

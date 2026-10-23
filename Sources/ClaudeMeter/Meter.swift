@@ -627,8 +627,13 @@ final class Meter: ObservableObject {
         var fresh: Set<String> = []
         var restarted: Set<String> = []
         if let last = store.state.lastExact {
-            // Newer than what's held, unless the clock was set back since that was taken.
-            guard reading.at > last.at || last.at > now.addingTimeInterval(60) else { return }
+            // Newer than what's held, unless the clock was set back since that was taken. Or a probe's,
+            // which is dated when it was launched: a statusline reading taken in while it ran is newer, but
+            // the probe measured its windows itself (a drop, an early reset, a Fable bucket the statusline
+            // can't carry), so it goes through `pick` window by window rather than being thrown away.
+            let probedMeanwhile = reading.source == "probe" && last.source != "probe"
+                && last.at.timeIntervalSince(reading.at) <= Self.slowProbe
+            guard reading.at > last.at || probedMeanwhile || last.at > now.addingTimeInterval(60) else { return }
             // Windows saved before they carried their own time were measured with their reading.
             func dated(_ w: Window?) -> Window? { w.map { var d = $0; d.at = d.at ?? last.at; return d } }
             var isFresh = false
@@ -740,7 +745,9 @@ final class Meter: ObservableObject {
             new.restartedLate = true
             return
         }
-        new.restartedAt = last
+        // (No later than the reading that saw it: a probe's, dated at its launch, can be older than a
+        // statusline reading taken in while it ran.)
+        new.restartedAt = min(last, seen)
         new.restartedLate = seen.timeIntervalSince(last) > 1800 ? true : nil
     }
 
