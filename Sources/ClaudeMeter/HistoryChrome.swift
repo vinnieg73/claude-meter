@@ -51,13 +51,14 @@ enum HistoryChrome {
         return window
     }
 
-    /// Keeps the tallest the window can be dragged at its page's natural height when the page changes
-    /// while the window is open (Value this week filling in once a weekly reading comes, Plan fit gaining
-    /// rows). Set only when the window opened, a page that grew later could only be scrolled. The window
-    /// keeps the size it has.
+    /// Raises the tallest the window can be dragged to its page's natural height when the page grows while
+    /// the window is open (Value this week filling in once a weekly reading comes, Plan fit gaining rows).
+    /// Set only when the window opened, a page that grew later could only be scrolled. Never lowered, so a
+    /// page that shrinks for a moment doesn't leave the window taller than its own maximum. The window keeps
+    /// the size it has.
     static func contentHeight(_ height: CGFloat, of window: NSWindow) {
         let tallest = max(minHeight, height.rounded(.up))
-        guard abs(window.contentMaxSize.height - tallest) >= 1 else { return }
+        guard tallest >= window.contentMaxSize.height + 1 else { return }
         window.contentMaxSize = NSSize(width: width, height: tallest)
     }
 
@@ -129,10 +130,13 @@ enum HistoryChrome {
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         window.contentView?.layoutSubtreeIfNeeded()
         let live = window.contentMaxSize.height
-        let liveOK = abs(live - tallPage.rounded(.up)) < 1
+        // (Only a check if the fixtures differ, and the window opened at the short page's height.)
+        let differ = tallPage > shortPage + 20 && abs(opened - max(minHeight, shortPage.rounded(.up))) < 1
+        let liveOK = differ && abs(live - tallPage.rounded(.up)) < 1
         ok = ok && ruleOK && liveOK
         print("History page \(Int(shortPage)) pt, grown \(Int(tallPage)) pt: opened with max \(Int(opened)); "
-              + "rule \(Int(rule.contentMaxSize.height)) \(ruleOK ? "ok" : "WRONG"); live page \(Int(live)) \(liveOK ? "ok" : "DIDN'T GROW")")
+              + "rule \(Int(rule.contentMaxSize.height)) \(ruleOK ? "ok" : "WRONG"); live page \(Int(live)) "
+              + (liveOK ? "ok" : differ ? "DIDN'T GROW" : "NOT CHECKED (fixtures too alike)"))
         return ok ? 0 : 1
     }
 

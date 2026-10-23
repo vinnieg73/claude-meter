@@ -172,11 +172,14 @@ enum Probe {
     }
 
     private static func usageNow() -> UsageOutcome {
+        // Resets printed as a time or a span are read against when the report was asked for, as the meter
+        // dates it.
+        let asked = Date()
         switch launch(usageArguments) {
         case .notFound: return .failed(notFound)
         case .couldntStart: return .failed(couldntStart)
         case .ran(let output, let errors, let timedOut):
-            switch parseUsage(output) {
+            switch parseUsage(output, now: asked) {
             case .limits(let limits): return .limits(limits)
             case .failed(let reason):
                 if timedOut, reason == Self.noReport { return .failed(noAnswer) }
@@ -190,7 +193,7 @@ enum Probe {
 
     /// The `result` of the one JSON object `--output-format json` prints, read line by line. A report
     /// with no limit lines at all (an error, a wording change) is a failure, never a plan with no limits.
-    static func parseUsage(_ data: Data) -> UsageOutcome {
+    static func parseUsage(_ data: Data, now: Date = Date()) -> UsageOutcome {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let text = obj["result"] as? String else { return .failed(noReport) }
         if obj["is_error"] as? Bool == true {
@@ -200,7 +203,7 @@ enum Probe {
             }
             return .failed(String(text.prefix(80)))
         }
-        let limits = parseUsageText(text)
+        let limits = parseUsageText(text, now: now)
         return limits.isEmpty ? .failed(noReport) : .limits(limits)
     }
 

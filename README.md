@@ -257,7 +257,8 @@ reads the Fable line's % and reset (the reset text is parsed; failing that, the 
 reset is used, since the Fable week ends with it) into `fable` in `state.json`; `fableChecked` says
 when the report was last read, and `fableNone` when it last listed limits but no Fable line in a report
 that can't be one served from Claude Code's cache (which leaves the per-model limits out): one that
-lists another model's limit, or with no Fable limit read in the last week. Just after the week rolls
+lists another model's limit, with no Fable limit ever read, or over a day after the last one's week
+ended. Just after the week rolls
 over, a report without the line leaves the card waiting for a reading instead of saying the plan has
 no limit; a reading still in its week is kept either way. The "Current session" line's reset goes into
 `sessionResets`: a window listed there that ends later than the last reading's counts as open for

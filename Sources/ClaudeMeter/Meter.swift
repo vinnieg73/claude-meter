@@ -256,6 +256,9 @@ final class Meter: ObservableObject {
     /// The usage report this often while no 5-hour window is known to be open: it is what shows a window
     /// opened away from this Mac, and until one is seen the meter can't probe.
     private static let reportEveryIdle: TimeInterval = 300
+    /// After the Fable week rolls over, a report without the Fable line may be one served from Claude Code's
+    /// cache for this long; after it, the plan has no Fable limit.
+    private static let cachedReportsFor: TimeInterval = 86400
     /// A single session using this much of the 5-hour window within 30 minutes is flagged.
     private static let runawayPct: Double = 20
     /// The cards' titles, which the alerts are also filed under.
@@ -541,8 +544,8 @@ final class Meter: ObservableObject {
     /// hour of the weekly window's is that one, and the window's stands in when the text couldn't be read.
     /// A report with no Fable line among its limits is noted as a plan without the limit only when it can't
     /// be a report served from Claude Code's cache, which leaves the per-model limits out: when it lists another
-    /// model's limit, when no Fable limit was ever read, or when a whole week has passed since the last one
-    /// reset. Otherwise (just after the week rolled over, say) the Fable limit is not known yet rather than
+    /// model's limit, when no Fable limit was ever read, or when a day has passed since the last one's week
+    /// ended. Otherwise (just after the week rolled over, say) the Fable limit is not known yet rather than
     /// none. A reading still in its week is kept either way, and so is one whose new reset couldn't be placed.
     func takeFable(_ limits: [Probe.UsageLimit], at: Date) {
         store.state.fableChecked = at
@@ -553,7 +556,7 @@ final class Meter: ObservableObject {
             .flatMap { $0 > at && $0 <= at.addingTimeInterval(Self.fiveHours + 60) ? $0 : nil }
         guard let fable = limits.first(where: { $0.name.lowercased().contains("fable") }) else {
             let otherModel = limits.contains { $0.kind == "week" && !["week", "all models"].contains($0.name.lowercased()) }
-            let hadOne = store.state.fable.map { at.timeIntervalSince($0.resetsAt) < Self.week } ?? false
+            let hadOne = store.state.fable.map { at.timeIntervalSince($0.resetsAt) < Self.cachedReportsFor } ?? false
             store.state.fableNone = otherModel || !hadOne ? at : nil
             return
         }
@@ -634,6 +637,7 @@ final class Meter: ObservableObject {
             let probedMeanwhile = reading.source == "probe" && last.source != "probe"
                 && last.at.timeIntervalSince(reading.at) <= Self.slowProbe
             guard reading.at > last.at || probedMeanwhile || last.at > now.addingTimeInterval(60) else { return }
+            let behind = probedMeanwhile && reading.at <= last.at
             // Windows saved before they carried their own time were measured with their reading.
             func dated(_ w: Window?) -> Window? { w.map { var d = $0; d.at = d.at ?? last.at; return d } }
             var isFresh = false
@@ -643,10 +647,10 @@ final class Meter: ObservableObject {
             // as an early reset and taught a weekly cap of $150.
             let measuredNow = reading.source == "probe"
             (reading.fiveHour, isFresh) = pick(reading.fiveHour, over: dated(last.fiveHour), span: Self.fiveHours,
-                                               measuredNow: measuredNow)
+                                               measuredNow: measuredNow, behind: behind)
             if isFresh { fresh.insert("5h") }
             (reading.weekly, isFresh) = pick(reading.weekly, over: dated(last.weekly), span: Self.week,
-                                             measuredNow: measuredNow)
+                                             measuredNow: measuredNow, behind: behind)
             if isFresh { fresh.insert("week") }
             // A window Anthropic just reset early: the estimate before it couldn't have known (so it
             // isn't scored), and the window's 80% and 95% alerts can go out again.
@@ -694,8 +698,11 @@ final class Meter: ObservableObject {
 
     /// The newer of two measurements of a window, and whether it's the new one. A window the
     /// new reading lacks carries over while it hasn't reset. `measuredNow`: the number was
-    /// measured at the reading's time (a probe), not carried by the statusline or a drop-in.
-    private func pick(_ new: Window?, over old: Window?, span: TimeInterval, measuredNow: Bool) -> (Window?, Bool) {
+    /// measured at the reading's time (a probe), not carried by the statusline or a drop-in. `behind`: a
+    /// probe older than the statusline reading held (taken in while it ran), so the window may have climbed
+    /// since it measured, and only a fall by tens is Anthropic resetting it.
+    private func pick(_ new: Window?, over old: Window?, span: TimeInterval, measuredNow: Bool,
+                      behind: Bool = false) -> (Window?, Bool) {
         // A window the new reading lacks is kept, reset or not: still running, or the last known
         // reset to walk on from. (The statusline drops a window the moment it resets.)
         guard var new else { return (old, false) }
@@ -714,9 +721,10 @@ final class Meter: ObservableObject {
                 // before its time; it happened after the last higher measurement. A smaller one is
                 // an old number re-sent, unless it fell to nothing from a point or more: a window reset
                 // early while it was still small. Otherwise the window keeps any such reset it had.
-                let toNothing = measuredNow && new.pct < 0.5 && old.pct >= 1
-                if measuredNow, !toNothing, new.pct < old.pct - 0.5, new.pct >= old.pct - Self.restartDrop { return (old, false) }
-                if new.pct < old.pct - Self.restartDrop || toNothing {
+                let drop = behind ? Self.behindDrop : Self.restartDrop
+                let toNothing = measuredNow && !behind && new.pct < 0.5 && old.pct >= 1
+                if measuredNow, !toNothing, new.pct < old.pct - 0.5, new.pct >= old.pct - drop { return (old, false) }
+                if new.pct < old.pct - drop || toNothing {
                     Self.markRestart(&new, after: old)
                 } else {
                     new.restartedAt = old.restartedAt
@@ -854,6 +862,9 @@ final class Meter: ObservableObject {
 
     /// How far a window's % must fall, measured, to be Anthropic resetting it early (they fall by tens).
     static let restartDrop = 3.0
+    /// The same, measured by a probe that a statusline reading overtook while it ran: the window can climb a
+    /// few points in that minute or so, but not ten.
+    static let behindDrop = 10.0
     /// How long Claude Code can be in use without an exact reading before that's a failure, not a lull.
     static let stalledAfter: TimeInterval = 3600
     /// A window the latest reading is this much newer than its last measurement is `stale`. Ten

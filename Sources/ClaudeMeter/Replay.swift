@@ -625,6 +625,7 @@ extension Meter {
         func inNewYork(_ day: Int, _ hour: Int, _ minute: Int) -> Date? {
             nyCal.date(from: DateComponents(year: 2001, month: 9, day: day, hour: hour, minute: minute))
         }
+        let in4h45 = now.addingTimeInterval(17_100), in45 = now.addingTimeInterval(2_700)
         let forms: [(String, Date?)] = [
             ("Sep 12 at 3pm (America/New_York)", inNewYork(12, 15, 0)),
             ("Sep 12 at 2:59pm (America/New_York)", inNewYork(12, 14, 59)),
@@ -641,9 +642,7 @@ extension Meter {
             ("9:30pm (America/New_York)", inNewYork(9, 21, 30)), // well past: tomorrow's
             ("today at 10:50pm (America/New_York)", inNewYork(8, 22, 50)),
             ("tomorrow at 9am (America/New_York)", inNewYork(9, 9, 0)),
-            ("in 4 hr 45 min", now.addingTimeInterval(4 * 3600 + 45 * 60)),
-            ("in 4h 45m", now.addingTimeInterval(4 * 3600 + 45 * 60)),
-            ("in 45 min", now.addingTimeInterval(45 * 60)),
+            ("in 4 hr 45 min", in4h45), ("in 4h 45m", in4h45), ("in 45 min", in45),
             ("soon", nil), ("14", nil), ("13pm", nil), ("24:00", nil), ("Sep 12", nil), ("in a while", nil),
         ]
         for (text, want) in forms {
@@ -654,7 +653,7 @@ extension Meter {
 
         // And through the whole report: a window opened away from this Mac after the last reading's ended,
         // its 5-hour line printing the reset (3 h 10 min away, 12:50 AM New York) in each plausible form.
-        let due = now.addingTimeInterval(3 * 3600 + 600)
+        let due = now.addingTimeInterval(11_400)
         func printed(_ format: String) -> String {
             let f = DateFormatter()
             f.locale = Locale(identifier: "en_US_POSIX")
@@ -718,6 +717,12 @@ extension Meter {
                                        now: now), at: now)
         recompute()
         expect(snapshot.fable?.noLimit == true, "a full report with no Fable line, listing another model's limit, wasn't taken as no limit")
+        // Nor is a cached report still being served a day after the week ended: then the plan has none.
+        setUp(now: now, turns: [fableTurn], reading: nil, cap5h: nil, capWeek: nil)
+        store.state.fable = Window(pct: 40, resetsAt: now.addingTimeInterval(-2 * 86400), at: now.addingTimeInterval(-3 * 86400))
+        takeFable(Probe.parseUsageText(cachedReport, now: now), at: now)
+        recompute()
+        expect(snapshot.fable?.noLimit == true, "two days after the Fable week ended, a report with no Fable line wasn't taken as no limit")
 
         // A statusline reading taken in while a probe ran is newer than the probe's (dated at its launch), but
         // the probe's own measurement still counts: here it caught an early 5-hour reset (40% to 6%).
@@ -737,6 +742,15 @@ extension Meter {
         // The statusline's reading, offered again on the next tick, doesn't undo it.
         absorb(tapMeanwhile)
         expect(store.state.lastExact?.fiveHour?.pct == 6, "the statusline's older number replaced the probe's early reset")
+        // An overtaken probe a few points under the statusline's number measured before a climb, not a reset.
+        var climbed = tapMeanwhile
+        climbed.fiveHour?.pct = 44
+        var beforeClimb = probeReading
+        beforeClimb.fiveHour?.pct = 40
+        setUp(now: now, turns: [], reading: climbed, cap5h: nil, capWeek: nil)
+        absorb(beforeClimb)
+        expect(store.state.lastExact?.fiveHour?.pct == 44 && store.state.lastExact?.fiveHour?.restartedAt == nil,
+               "an overtaken probe's number from before a climb read as an early reset")
         // A probe never replaces a newer probe's reading, nor a statusline reading from after it could have answered.
         var newerProbe = tapMeanwhile
         newerProbe.source = "probe"
