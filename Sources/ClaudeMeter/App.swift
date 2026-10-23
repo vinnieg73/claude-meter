@@ -247,7 +247,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         if historyWindow == nil {
             historyWindow = HistoryChrome.makeWindow(title: "Claude Meter · History",
                                                      autosave: HistoryChrome.historyAutosave, delegate: self) {
-                HistoryView(meter: meter, scrolls: $0)
+                HistoryView(meter: meter, scrolls: $0, heightChanged: { [weak self] height in
+                    MainActor.assumeIsolated {
+                        if let window = self?.historyWindow { HistoryChrome.contentHeight(height, of: window) }
+                    }
+                })
             }
         }
         NSApp.unhide(nil)

@@ -51,6 +51,16 @@ enum HistoryChrome {
         return window
     }
 
+    /// Keeps the tallest the window can be dragged at its page's natural height when the page changes
+    /// while the window is open (Value this week filling in once a weekly reading comes, Plan fit gaining
+    /// rows). Set only when the window opened, a page that grew later could only be scrolled. The window
+    /// keeps the size it has.
+    static func contentHeight(_ height: CGFloat, of window: NSWindow) {
+        let tallest = max(minHeight, height.rounded(.up))
+        guard abs(window.contentMaxSize.height - tallest) >= 1 else { return }
+        window.contentMaxSize = NSSize(width: width, height: tallest)
+    }
+
     /// `frame` no taller than `tallest` or the screen, and wholly on it, inside the margin. A frame
     /// that shrinks keeps its top edge where it was.
     static func fit(_ frame: NSRect, tallest: CGFloat, in visible: NSRect) -> NSRect {
@@ -93,6 +103,36 @@ enum HistoryChrome {
                       + "(window y \(Int(f.minY))–\(Int(f.maxY))) · \(fits ? "fits" : "OFF SCREEN")")
             }
         }
+        // History opened while its page was short (no weekly reading yet) can be dragged as tall as the page
+        // once it has grown. First the rule alone, then the page itself telling the window, off screen.
+        func natural(_ fixture: String) -> CGFloat {
+            NSHostingView(rootView: HistoryView(meter: meter, fixture: Fixtures.history(fixture), scrolls: false)).fittingSize.height
+        }
+        let shortPage = natural("uncalibrated"), tallPage = natural("fits")
+        var grown: NSWindow?
+        let report: (CGFloat) -> Void = { height in
+            MainActor.assumeIsolated { if let w = grown { HistoryChrome.contentHeight(height, of: w) } }
+        }
+        let window = makeWindow(title: "History", autosave: historyAutosave, delegate: nil, visible: main, save: false) {
+            HistoryView(meter: meter, fixture: Fixtures.history("uncalibrated"), scrolls: $0, heightChanged: report)
+        }
+        let opened = window.contentMaxSize.height
+        let rule = makeWindow(title: "History", autosave: historyAutosave, delegate: nil, visible: main, save: false) {
+            HistoryView(meter: meter, fixture: Fixtures.history("uncalibrated"), scrolls: $0)
+        }
+        contentHeight(tallPage, of: rule)
+        let ruleOK = abs(rule.contentMaxSize.height - tallPage.rounded(.up)) < 1
+        grown = window
+        (window.contentViewController as? NSHostingController<HistoryView>)?.rootView =
+            HistoryView(meter: meter, fixture: Fixtures.history("fits"), scrolls: true, heightChanged: report)
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        window.contentView?.layoutSubtreeIfNeeded()
+        let live = window.contentMaxSize.height
+        let liveOK = abs(live - tallPage.rounded(.up)) < 1
+        ok = ok && ruleOK && liveOK
+        print("History page \(Int(shortPage)) pt, grown \(Int(tallPage)) pt: opened with max \(Int(opened)); "
+              + "rule \(Int(rule.contentMaxSize.height)) \(ruleOK ? "ok" : "WRONG"); live page \(Int(live)) \(liveOK ? "ok" : "DIDN'T GROW")")
         return ok ? 0 : 1
     }
 
