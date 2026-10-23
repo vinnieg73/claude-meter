@@ -53,10 +53,17 @@ windows without showing them). From `~/Code/Claude Meter`, on branch `fix/audit-
 2. `./scripts/replay.sh`: section 6 must show no `FAIL: synthetic:` lines (its count goes from 12 to 61). The data
    FAILs from before (early resets, 5-hour and weekly growth) may still show; compare with the same run on `main`
    (`git stash; git checkout main; ./scripts/replay.sh; git checkout fix/audit-2026-10-23`): only new FAILs count.
-3. `"$(swift build -c release --show-bin-path)/ClaudeMeter" --window-check`: both screens "fits", and the new line
-   "History page … rule … ok; live page … ok". If "live page … DIDN'T GROW" while "rule … ok", the off-screen window
-   may simply not run SwiftUI updates; then check by hand once on the real History window (open History before a
-   weekly reading exists, or right after install, and drag it taller once Value this week fills in).
+3. `"$(swift build -c release --show-bin-path)/ClaudeMeter" --window-check; echo "exit $?"`: exit 0, both screens
+   "fits", and the new line "History page S pt, grown T pt: opened with max S; rule S → T ok; after layout, rule X,
+   live page Y ok". The first Mac run (2026-10-23) crashed here (exit 133) printing `Int(contentMaxSize.height)` when
+   that height was AppKit's "unlimited" (greatestFiniteMagnitude); heights now print as "unlimited" instead. "rule"
+   is read right after `contentHeight`, before any layout. "after layout" shows what a layout pass left: that run
+   suggests the hosting view lifts a window's maximum to unlimited on layout, which would mean History's maximum
+   never held in the live app either (so the audit's symptom may not happen there). "live page … ok" means the
+   window can now go at least as tall as the grown page (a maximum of the page's height, or unlimited). Note the
+   whole line in this file. If it says "DIDN'T GROW" while "rule … ok", the off-screen window may not run SwiftUI
+   updates; then check once by hand on the real History window (open it right after install, before a weekly
+   reading exists, and drag it taller once Value this week fills in).
 4. `scripts/render-all.sh build/renders-audit-1023`: no failures; look at `help-light.png` / `help-dark.png` for the
    Fable section's new sentence (no other view changed).
 5. Capture one real report: `claude -p /usage --model haiku --tools "" --strict-mcp-config --no-session-persistence

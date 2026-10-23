@@ -85,6 +85,8 @@ enum HistoryChrome {
             return 1
         }
         let short = NSRect(x: main.minX, y: main.minY, width: main.width, height: 600)
+        /// A height as whole points, or "unlimited" for AppKit's no-maximum (greatestFiniteMagnitude).
+        func pts(_ height: CGFloat) -> String { height.isFinite && height < 100_000 ? "\(Int(height))" : "unlimited" }
         var ok = true
         for screen in [main, short] {
             print("screen visible \(Int(screen.width))×\(Int(screen.height)) at y \(Int(screen.minY))–\(Int(screen.maxY))")
@@ -100,7 +102,7 @@ enum HistoryChrome {
                 let content = window.contentRect(forFrameRect: f)
                 let fits = f.minY >= screen.minY && f.maxY <= screen.maxY && f.minX >= screen.minX && f.maxX <= screen.maxX
                 ok = ok && fits
-                print("  \(name): content max \(Int(window.contentMaxSize.height)) pt, opens \(Int(content.width))×\(Int(content.height)) "
+                print("  \(name): content max \(pts(window.contentMaxSize.height)) pt, opens \(Int(content.width))×\(Int(content.height)) "
                       + "(window y \(Int(f.minY))–\(Int(f.maxY))) · \(fits ? "fits" : "OFF SCREEN")")
             }
         }
@@ -121,8 +123,11 @@ enum HistoryChrome {
         let rule = makeWindow(title: "History", autosave: historyAutosave, delegate: nil, visible: main, save: false) {
             HistoryView(meter: meter, fixture: Fixtures.history("uncalibrated"), scrolls: $0)
         }
+        let ruleBefore = rule.contentMaxSize.height
         contentHeight(tallPage, of: rule)
-        let ruleOK = abs(rule.contentMaxSize.height - tallPage.rounded(.up)) < 1
+        // Read at once: a layout pass can lift a window's maximum again (the hosting view sets it from the page).
+        let ruleMax = rule.contentMaxSize.height
+        let ruleOK = abs(ruleMax - tallPage.rounded(.up)) < 1
         grown = window
         (window.contentViewController as? NSHostingController<HistoryView>)?.rootView =
             HistoryView(meter: meter, fixture: Fixtures.history("fits"), scrolls: true, heightChanged: report)
@@ -130,13 +135,14 @@ enum HistoryChrome {
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         window.contentView?.layoutSubtreeIfNeeded()
         let live = window.contentMaxSize.height
-        // (Only a check if the fixtures differ, and the window opened at the short page's height.)
+        // (Only a check if the fixtures differ and the window opened at the short page's height.) The page grew
+        // while open; the window must now go at least that tall: its maximum is the page, or none at all.
         let differ = tallPage > shortPage + 20 && abs(opened - max(minHeight, shortPage.rounded(.up))) < 1
-        let liveOK = differ && abs(live - tallPage.rounded(.up)) < 1
+        let liveOK = differ && live >= tallPage.rounded(.up) - 1
         ok = ok && ruleOK && liveOK
-        print("History page \(Int(shortPage)) pt, grown \(Int(tallPage)) pt: opened with max \(Int(opened)); "
-              + "rule \(Int(rule.contentMaxSize.height)) \(ruleOK ? "ok" : "WRONG"); live page \(Int(live)) "
-              + (liveOK ? "ok" : differ ? "DIDN'T GROW" : "NOT CHECKED (fixtures too alike)"))
+        print("History page \(pts(shortPage)) pt, grown \(pts(tallPage)) pt: opened with max \(pts(opened)); "
+              + "rule \(pts(ruleBefore)) → \(pts(ruleMax)) \(ruleOK ? "ok" : "WRONG"); after layout, rule \(pts(rule.contentMaxSize.height)), "
+              + "live page \(pts(live)) " + (liveOK ? "ok" : differ ? "DIDN'T GROW" : "NOT CHECKED (fixtures too alike)"))
         return ok ? 0 : 1
     }
 
