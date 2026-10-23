@@ -93,8 +93,8 @@ struct PersistedState: Codable {
     var notified: [String] = []
     /// The separate weekly Fable limit, as Claude Code's usage report last listed it (the probe's limits
     /// don't carry it); when that report was last read, whatever it held; and when it last listed limits
-    /// but no Fable one (a plan without the limit, or a report served from Claude Code's cache, which
-    /// leaves the per-model limits out).
+    /// but no Fable one, in a report that can't have been served from Claude Code's cache (which leaves the
+    /// per-model limits out): the plan has no Fable limit.
     var fable: Window?
     var fableChecked: Date?
     var fableNone: Date?

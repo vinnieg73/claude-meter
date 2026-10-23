@@ -539,9 +539,11 @@ final class Meter: ObservableObject {
     /// The Fable week ends with the weekly window, and the report floors the Fable reset to the minute
     /// ("2:59pm" against the all-models week's "3pm", for the same moment), so a reset within a quarter
     /// hour of the weekly window's is that one, and the window's stands in when the text couldn't be read.
-    /// A report with no Fable line among its limits is noted (a plan without the limit, or a report served
-    /// from Claude Code's cache, which leaves the per-model limits out); a reading still in its week is kept
-    /// either way, and so is one whose new reset couldn't be placed at all.
+    /// A report with no Fable line among its limits is noted as a plan without the limit only when it can't
+    /// be a report served from Claude Code's cache, which leaves the per-model limits out: when it lists another
+    /// model's limit, when no Fable limit was ever read, or when a whole week has passed since the last one
+    /// reset. Otherwise (just after the week rolled over, say) the Fable limit is not known yet rather than
+    /// none. A reading still in its week is kept either way, and so is one whose new reset couldn't be placed.
     func takeFable(_ limits: [Probe.UsageLimit], at: Date) {
         store.state.fableChecked = at
         // The 5-hour line's reset, for the probe gate. The report prints it to the minute, floored, so the
@@ -550,7 +552,9 @@ final class Meter: ObservableObject {
         store.state.sessionResets = limits.first { $0.kind == "session" }?.resetsAt
             .flatMap { $0 > at && $0 <= at.addingTimeInterval(Self.fiveHours + 60) ? $0 : nil }
         guard let fable = limits.first(where: { $0.name.lowercased().contains("fable") }) else {
-            store.state.fableNone = at
+            let otherModel = limits.contains { $0.kind == "week" && !["week", "all models"].contains($0.name.lowercased()) }
+            let hadOne = store.state.fable.map { at.timeIntervalSince($0.resetsAt) < Self.week } ?? false
+            store.state.fableNone = otherModel || !hadOne ? at : nil
             return
         }
         store.state.fableNone = nil

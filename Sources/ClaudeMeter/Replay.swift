@@ -687,7 +687,39 @@ extension Meter {
         takeFable(Probe.parseUsageText("Current session: 12% used · resets 9:38pm (America/New_York)", now: now), at: now)
         expect(store.state.sessionResets == nil && !windowOpen(now), "a 5-hour reset just past let a probe through")
 
-        report.lines.append("6. Synthetic: \(ran) checks (early-reset pace and chart, lapsed windows, probe gate, usage report resets).")
+        // Just after the Fable week rolled over, a report served from Claude Code's cache (no per-model
+        // lines) is not "no separate Fable limit on your plan": the card waits for a reading, even with a
+        // no-Fable note left from a cached report earlier in the week. A plan that never had the limit, or a
+        // full report listing another model's limit and none for Fable, still says there is none.
+        let fableTurn = Turn(key: "synthetic-fable", at: now.addingTimeInterval(-300), project: "synthetic", model: "claude-fable-5-1",
+                             session: "synthetic", input: 0, output: 10_000, cacheRead: 0, write5m: 0, write1h: 0, fast: false)
+        let cachedReport = "Current session: 3% used · resets 11:30pm (America/New_York)\n"
+            + "Current week (all models): 1% used · resets Sep 15 at 9:30pm (America/New_York)"
+        let lastWeeksFable = Window(pct: 40, resetsAt: now.addingTimeInterval(-600), at: now.addingTimeInterval(-3600))
+        setUp(now: now, turns: [fableTurn], reading: nil, cap5h: nil, capWeek: nil)
+        store.state.fable = lastWeeksFable
+        store.state.fableNone = now.addingTimeInterval(-1800)
+        takeFable(Probe.parseUsageText(cachedReport, now: now), at: now)
+        recompute()
+        expect(store.state.fableNone == nil && snapshot.fable.map { !$0.noLimit && $0.limit == nil } == true,
+               "a cached usage report just after the week rolled over said the plan has no Fable limit")
+        takeFable(Probe.parseUsageText(cachedReport + "\nCurrent week (Fable): 2% used · resets Sep 15 at 9:30pm (America/New_York)",
+                                       now: now), at: now)
+        recompute()
+        expect(store.state.fable?.pct == 2 && snapshot.fable?.limit != nil && snapshot.fable?.noLimit == false,
+               "the full report after a cached one didn't show the new Fable reading")
+        setUp(now: now, turns: [fableTurn], reading: nil, cap5h: nil, capWeek: nil)
+        takeFable(Probe.parseUsageText(cachedReport, now: now), at: now)
+        recompute()
+        expect(snapshot.fable?.noLimit == true, "a plan that never had a Fable limit wasn't said to have none")
+        setUp(now: now, turns: [fableTurn], reading: nil, cap5h: nil, capWeek: nil)
+        store.state.fable = lastWeeksFable
+        takeFable(Probe.parseUsageText(cachedReport + "\nCurrent week (Sonnet only): 2% used · resets Sep 15 at 9:30pm (America/New_York)",
+                                       now: now), at: now)
+        recompute()
+        expect(snapshot.fable?.noLimit == true, "a full report with no Fable line, listing another model's limit, wasn't taken as no limit")
+
+        report.lines.append("6. Synthetic: \(ran) checks (early-reset pace and chart, lapsed windows, probe gate, usage report resets, Fable after a rollover).")
     }
 
     /// The history log saves each reading as the meter held it, windows carried over from earlier
