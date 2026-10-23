@@ -87,7 +87,7 @@ once a minute while a 5-hour window is open and fills the time between from the 
 |---|---|---|
 | `~/.claude/projects/**/*.jsonl` | every Claude Code turn on this Mac: model, tokens, project | continuously (tailed every 10s); `CLAUDE_CONFIG_DIR` is honoured, read from your login shell since apps don't inherit it, and symlinked project folders are followed |
 | probe | Claude Code's `rate_limit_event` (exact) | once a minute while a window is already open, whether or not anything was logged here (use this Mac can't see, like cloud sessions or claude.ai, moves it too); with no window open, only once one opens, from a message here or a window Claude Code's usage report lists (checked every 5 minutes, for use elsewhere), since a probe would open one; **Sync** on demand |
-| usage report | `claude -p /usage`: the weekly Fable limit (exact); the probe's `rate_limit_event` doesn't carry it (it did Sep 25–30, 2026, as `seven_day_fable`) | a local command, so nothing spent and no window opened, and not behind the probe's window gate: every 5 minutes while Fable is in use here, every 30 otherwise, when the held reading's week ends, and on **Sync** |
+| usage report | `claude -p /usage`: the weekly Fable limit (exact); the probe's `rate_limit_event` doesn't carry it (it did Sep 25–30, 2026, as `seven_day_fable`) | a local command, so nothing spent and no window opened, and not behind the probe's window gate: every 5 minutes while Fable is in use here or no 5-hour window is known to be open (how a window opened elsewhere is found), every 30 otherwise, when the held reading's week ends, and on **Sync** |
 | statusline tap | Claude Code's own `rate_limits` (exact) | whenever a **terminal** `claude` session redraws its statusline |
 | `tap.json` drop-in | any exact reading, from anywhere (Claude Dashboard writes one as `source: "dashboard"`); counted like the statusline tap (it can raise a window or start a later one, never lower one), since a drop-in is dated when written and can carry an older number | when written |
 
@@ -243,7 +243,9 @@ About $0.001 of usage per run, so at most ~$0.06/hr while you work (about 0.03 p
 - Each reading is stamped when its probe starts (when it answers, if it took over 90 seconds, say
   the Mac slept), and a probe is called for
   only by activity logged after the last one started, so a turn logged while it ran is not lost
-  and an answer that was turned away is not asked for again while you're idle.
+  and an answer that was turned away is not asked for again while you're idle. A statusline reading
+  taken in while a probe runs is newer than the probe's, but the probe's answer still goes through,
+  window by window, so an early reset it measured is not lost.
 
 ### Usage report
 
@@ -253,11 +255,17 @@ inside one JSON object: "Current session: 46% used…", "Current week (all model
 (no model request, `total_cost_usd` 0), so it costs nothing and never opens a window. The meter
 reads the Fable line's % and reset (the reset text is parsed; failing that, the weekly window's
 reset is used, since the Fable week ends with it) into `fable` in `state.json`; `fableChecked` says
-when the report was last read, and `fableNone` when it last listed limits but no Fable line (a plan
-without the limit, or a report served from Claude Code's cache, which leaves the per-model limits
-out; a reading still in its week is kept). The "Current session" line's reset goes into
+when the report was last read, and `fableNone` when it last listed limits but no Fable line in a report
+that can't be one served from Claude Code's cache (which leaves the per-model limits out): one that
+lists another model's limit, with no Fable limit ever read, or over a day after the last one's week
+ended. Just after the week rolls
+over, a report without the line leaves the card waiting for a reading instead of saying the plan has
+no limit; a reading still in its week is kept either way. The "Current session" line's reset goes into
 `sessionResets`: a window listed there that ends later than the last reading's counts as open for
-the probe gate, which is how a window opened in a cloud session or on claude.ai gets probed. With no
+the probe gate, which is how a window opened in a cloud session or on claude.ai gets probed. The
+reset is read with or without a date ("Oct 14 at 3pm", "10:50pm" as the next time the clock reads
+that, "tomorrow at 9am", "Wed at 3pm", "in 4 hr 45 min"); a 5-hour reset more than five hours out
+is taken as a misreading and ignored. With no
 window known to be open the report is read every 5 minutes for this. The 5-hour and weekly % in it
 are not used as readings (the probe has them, with `unifiedWindows`' precision).
 

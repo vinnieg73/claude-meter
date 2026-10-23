@@ -8,6 +8,9 @@ struct HistoryView: View {
     var fixture: History? = nil
     /// False for `--render` and for measuring: the whole page, not a scroll view.
     var scrolls = true
+    /// Told the page's height whenever it changes while it scrolls, so the window can be dragged as tall
+    /// as the page has grown (`HistoryChrome.contentHeight`).
+    var heightChanged: ((CGFloat) -> Void)? = nil
 
     /// Window edge, and the gap between modules: roomier than the dropdown's, for 560pt.
     private static let edge: CGFloat = 16
@@ -15,8 +18,14 @@ struct HistoryView: View {
 
     var body: some View {
         if scrolls {
-            ScrollView(.vertical) { page }
-                .frame(width: 560)
+            ScrollView(.vertical) {
+                page.background {
+                    GeometryReader { geo in
+                        Color.clear.onChange(of: geo.size.height, initial: true) { _, height in heightChanged?(height) }
+                    }
+                }
+            }
+            .frame(width: 560)
         } else {
             page
         }

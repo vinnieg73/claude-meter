@@ -96,7 +96,7 @@ struct HelpView: View {
                 "\"This Mac: ~3% of the 5-hour window · ~1% of the week ($2.20)\" is Fable's part of your overall limits, worked out from this Mac's Claude Code records: how much of the 5-hour window and of the week went to Fable, and what that use would cost at pay-as-you-go prices.",
                 "In Burning now, a session running on Fable has a pink bar.",
             ])
-            Para("The reading comes from Claude Code's own usage report (the same numbers as typing /usage): every 5 minutes while Fable is in use on this Mac, every 30 otherwise, and on Sync. It costs nothing and never starts a 5-hour window. The Fable limit doesn't send notifications.",
+            Para("The reading comes from Claude Code's own usage report (the same numbers as typing /usage): every 5 minutes while Fable is in use on this Mac or no 5-hour window is open (that is how a window opened on another device is noticed), every 30 otherwise, and on Sync. It costs nothing and never starts a 5-hour window. The Fable limit doesn't send notifications.",
                  secondary: true)
             Para("If your plan has no separate Fable limit, the card says so, and Fable simply counts toward the 5-hour and weekly limits above. The card appears once Fable has been used this week.",
                  secondary: true)
