@@ -1,6 +1,7 @@
 # Claude Meter: handoff
 
-Updated 2026-10-25 by Claude (v0.9.27: replay back to PASS; uncommitted on `main` until Vinnie's OK).
+Updated 2026-10-25 by Claude (v0.9.27: replay back to PASS; committed fef3929 on `main`, pushed, installed and relaunched 23:09, which also
+starts the v0.9.26 cloud feed for the first time).
 
 ## Status
 
