@@ -102,29 +102,35 @@ enum Plan: String, CaseIterable, Identifiable {
     var weeklyPrice: Double { monthlyPrice * 12 / 52 }
 }
 
-/// This week's use at pay-as-you-go prices: this Mac's Claude Code turns, counted from the logs,
-/// and what the weekly % says was used elsewhere (claude.ai, cloud sessions, other devices).
+/// This week's use at pay-as-you-go prices, in three parts: this Mac's Claude Code turns, counted from
+/// the logs; the cloud sessions (claude.ai/code, project threads), exact from the sessions list; and
+/// "Other", what the weekly % says was used beyond both (claude.ai chat, the phone, other computers).
 struct WeekValue {
     /// Where the week counts from (its start, or an early reset), and its reset.
     let begin: Date
     let resets: Date
     let mac: Double
-    /// Nil when the weekly % shows no use beyond this Mac's, or no weekly cap is known yet.
+    /// Nil with Cloud sessions off, or before the sessions list first answered.
+    var cloud: Double?
+    /// "Other", an estimate: nil when the weekly % shows under 2 points beyond this Mac and the cloud,
+    /// or no weekly cap is known yet. Named `elsewhere` from before the cloud part (v0.9.23).
     var elsewhere: Double?
-    /// One per local day from the week's first day to the reset's, this Mac's spend only.
+    /// One per local day from the week's first day to the reset's: this Mac's and the cloud's spend.
     var days: [ValueDay] = []
     /// This Mac's spend by model name ("Opus 5.5"), highest first.
     var models: [Row] = []
 
-    var total: Double { mac + (elsewhere ?? 0) }
+    var total: Double { mac + (cloud ?? 0) + (elsewhere ?? 0) }
 }
 
 /// One local day of the week's value.
 struct ValueDay: Identifiable {
     var id: Date { day }
     let day: Date
-    /// This Mac's spend that day (elsewhere can't be split by day).
+    /// This Mac's spend that day (Other can't be split by day).
     let mac: Double
+    /// The cloud sessions' spend that day.
+    var cloud = 0.0
     /// Starts after now.
     let future: Bool
     /// Ends before the week counts from (an early reset later in the week).

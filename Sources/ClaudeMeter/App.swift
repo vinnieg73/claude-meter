@@ -13,6 +13,7 @@ enum Main {
                ClaudeMeter --render out.png [--dark] [--history | --help-page | --icons] [--fixture name]
                ClaudeMeter --unregister-login
                ClaudeMeter --replay             replay this Mac's history through the meter and check it
+               ClaudeMeter --cloud-check        read the cloud sessions list once and print it (writes nothing)
         """
 
     static func main() {
@@ -24,7 +25,7 @@ enum Main {
             exit(2)
         }
         let known: Set = ["--render", "--dark", "--history", "--help-page", "--icons", "--fixture", "--status", "--unregister-login", "--replay",
-                          "--status-log", "--status-test", "--window-check"]
+                          "--status-log", "--status-test", "--window-check", "--cloud-check"]
         if args.dropFirst().contains(where: { $0.hasPrefix("--") && !known.contains($0) }) { misused() }
         if let i = args.firstIndex(of: "--render") {
             guard i + 1 < args.count, !args[i + 1].hasPrefix("--") else { misused() }
@@ -44,6 +45,7 @@ enum Main {
         if args.contains("--status") { return Status.print() }
         if args.contains("--window-check") { exit(HistoryChrome.check()) }
         if args.contains("--replay") { exit(Replay.run()) }
+        if args.contains("--cloud-check") { exit(CloudSessions.check()) }
         if args.contains("--unregister-login") { return Status.unregisterLogin() }
 
         // Two meters would post every alert twice, probe twice, and overwrite each other's state. One
@@ -203,6 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         menu.addItem(.separator())
         menu.addItem(menuItem("Open at login", "arrow.up.forward.app", #selector(toggleLogin), on: meter.launchAtLogin))
         menu.addItem(menuItem("Weekly % in menu bar", "calendar", #selector(toggleWeekly), on: meter.showWeeklyInTitle))
+        menu.addItem(menuItem("Cloud sessions", "cloud", #selector(toggleCloud), on: meter.cloudOn))
         menu.addItem(menuItem("Notifications", "bell", #selector(toggleNotifications), on: meter.notificationsOn))
         menu.addItem(menuItem("Send test notification", "bell.badge", #selector(testNotification)))
         menu.addItem(menuItem("Shortcut ⌃⌥⌘U", "command", #selector(toggleHotkey), on: meter.hotkeyOn))
@@ -236,6 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     @objc private func syncNow() { meter.sync(force: true) }
     @objc private func toggleLogin() { meter.setLaunchAtLogin(!meter.launchAtLogin) }
     @objc private func toggleWeekly() { meter.showWeeklyInTitle.toggle() }
+    @objc private func toggleCloud() { meter.cloudOn.toggle() }
     @objc private func toggleNotifications() { meter.notificationsOn.toggle() }
     @objc private func testNotification() { meter.testNotification() }
     @objc private func toggleHotkey() { meter.hotkeyOn.toggle() }

@@ -89,11 +89,12 @@ struct Runaway: Identifiable {
     let pct: Double
 }
 
-/// A project's share of the weekly limit.
+/// A project's share of the weekly limit, or a cloud session title's ("Cloud: …", `cloud` set).
 struct Share: Identifiable {
     let id: String
     let pct: Double
     let cost: Double
+    var cloud = false
 }
 
 struct Row: Identifiable {
@@ -136,7 +137,8 @@ struct Snapshot {
     var runaways: [Runaway] = []
     var cooling: [Cooling] = []
     var weekShares: [Share] = []
-    /// Weekly % the logs can't account for: claude.ai chat, the phone, other machines.
+    /// Weekly % neither the logs nor the cloud sessions list account for ("Other"): claude.ai chat, the
+    /// phone, other machines.
     var weekElsewhere: Double?
     /// This week at pay-as-you-go prices, for the weekly card's line and History.
     var weekValue: WeekValue?
@@ -191,9 +193,27 @@ final class Meter: ObservableObject {
     @Published var hotkeyOn = UserDefaults.standard.object(forKey: "hotkey") as? Bool ?? true {
         didSet { UserDefaults.standard.set(hotkeyOn, forKey: "hotkey") }
     }
+    /// Reads the cloud sessions list (right-click → Cloud sessions). Off, the numbers are as before v0.9.26.
+    @Published var cloudOn = UserDefaults.standard.object(forKey: CloudSessions.settingKey) as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(cloudOn, forKey: CloudSessions.settingKey)
+            if started { cloud.setEnabled(cloudOn) }
+            takeCloud()
+            recompute()
+        }
+    }
 
     private let index = LogIndex()
     private let queue = DispatchQueue(label: "claude-meter.logs", qos: .utility)
+    /// Made on first use, so the replay's meter never reads cloud.json.
+    private lazy var cloud = CloudFeed()
+    private var started = false
+    /// What the cloud sessions spent (the feed's ledger), sorted by when it was booked. Empty with the
+    /// setting off. Counted with this Mac's turns wherever the meter turns spend into %: calibration, the
+    /// estimate between readings and the pace. Internal for the replay's synthetic checks.
+    var cloudSpend: [CloudSpend] = []
+    /// The list has answered at least once, so the week's cloud part is a number, not unknown.
+    var cloudKnown = false
     /// What time it is. Only the replay test sets it, to step the meter through the past.
     var clock: () -> Date = Date.init
     /// Where the logs start (`LogIndex.coveredFrom`).
@@ -288,6 +308,13 @@ final class Meter: ObservableObject {
 
     func start() {
         _ = notifier // set as the notification delegate before anything is posted
+        started = true
+        cloud.onChange = { [weak self] in
+            self?.takeCloud()
+            self?.recompute()
+        }
+        cloud.setEnabled(cloudOn)
+        takeCloud()
         // Here rather than on the log queue: readings are appended on the main actor, and one
         // landing between compact's read and its rename would be lost.
         HistoryLog.compact()
@@ -322,6 +349,7 @@ final class Meter: ObservableObject {
         index.refresh()
         take(from: index)
         loaded = true
+        takeCloud() // cloud.json as the running app left it, read only
         readTap()
         recompute()
     }
@@ -337,6 +365,18 @@ final class Meter: ObservableObject {
             readTap()
             sync(force: false)
         }
+        cloud.tick()
+    }
+
+    /// The feed's ledger, or nothing with the setting off.
+    private func takeCloud() {
+        guard cloudOn else {
+            cloudSpend = []
+            cloudKnown = false
+            return
+        }
+        cloudSpend = cloud.store.ledger.sorted { $0.at < $1.at }
+        cloudKnown = cloud.store.readAt != nil
     }
 
     /// Called when the dropdown opens, so it never shows data up to a tick old.
@@ -885,7 +925,7 @@ final class Meter: ObservableObject {
         let start = max(w.resetsAt.addingTimeInterval(-span), w.restartedAt ?? .distantPast)
         guard w.pct >= minPct, w.pct < 99, now.timeIntervalSince(at) < 3600, at > start, at < w.resetsAt,
               start >= coveredFrom, w.restartedLate != true else { return nil }
-        let spent = cost(from: start, to: at)
+        let spent = spend(from: start, to: at)
         return spent > minSpend ? spent / (w.pct / 100) : nil
     }
 
@@ -938,7 +978,7 @@ final class Meter: ObservableObject {
             s.cooling = cooling(recent, now: now).filter { !flagged.contains($0.id) }
             tagSharedNames(&s, recent, now: now)
             fillToday(&s, now: now)
-            fillWeekShares(&s)
+            fillWeekShares(&s, now: now)
             s.weekValue = weekValue(s, now: now)
             s.fable = fable(s, now: now)
             s.capWarning = updateWarning(s.fiveHour)
@@ -990,6 +1030,27 @@ final class Meter: ObservableObject {
         return b > a ? spent[b] - spent[a] : 0
     }
 
+    /// The cloud sessions' spend in [from, to): what the list reported, each rise spread over the span it
+    /// happened in (see `CloudSpend.share`).
+    private func cloudCost(from: Date, to: Date) -> Double {
+        guard !cloudSpend.isEmpty, to > from else { return 0 }
+        var total = 0.0
+        // Sorted by `at`, and a span ends at its `at`: nothing booked before `from` reaches into the range.
+        var low = 0, high = cloudSpend.count
+        while low < high {
+            let mid = (low + high) / 2
+            if cloudSpend[mid].at < from { low = mid + 1 } else { high = mid }
+        }
+        for e in cloudSpend[low...] { total += e.share(from: from, to: to) }
+        return total
+    }
+
+    /// This Mac's turns and the cloud sessions together: all the use the meter can put a price on. The
+    /// cap is learned from it, so cloud use no longer shrinks the cap, and estimates move with it.
+    private func spend(from: Date, to: Date) -> Double {
+        cost(from: from, to: to) + cloudCost(from: from, to: to)
+    }
+
     /// Index of the first turn at or after `date` (binary search over the sorted turns).
     private func first(atOrAfter date: Date) -> Int {
         var low = 0, high = turns.count
@@ -1007,7 +1068,7 @@ final class Meter: ObservableObject {
 
         if let last, let w = last.fiveHour, now < w.resetsAt {
             let measured = w.at ?? last.at
-            let added = cap.map { cost(from: measured, to: now) / $0 * 100 } ?? 0
+            let added = cap.map { spend(from: measured, to: now) / $0 * 100 } ?? 0
             let exact = cap != nil ? added < 0.5 : now.timeIntervalSince(measured) < 300
             v = WindowView(title: Self.fiveHourTitle, pct: w.pct + added, resetsAt: w.resetsAt,
                            exact: exact, asOf: measured)
@@ -1018,9 +1079,10 @@ final class Meter: ObservableObject {
             guard let opened = openWindow(after: last?.fiveHour?.resetsAt ?? turns.first?.at ?? now, now: now) else {
                 return WindowView(title: Self.fiveHourTitle, pct: 0, exact: false, asOf: last?.at, idle: true)
             }
-            v = WindowView(title: Self.fiveHourTitle, pct: cost(from: opened, to: now) / cap * 100,
+            v = WindowView(title: Self.fiveHourTitle, pct: spend(from: opened, to: now) / cap * 100,
                            resetsAt: opened.addingTimeInterval(Self.fiveHours), exact: false, asOf: last?.at)
-            // Nothing has measured this window yet: its % is this Mac's spend alone, so it raises no alert.
+            // Nothing has measured this window yet: its % is this Mac's spend (and the cloud sessions') alone,
+            // so it raises no alert.
             v.stale = true
         } else {
             // No cap yet to estimate with, but whether any window is open is still known.
@@ -1047,7 +1109,7 @@ final class Meter: ObservableObject {
         var v: WindowView
 
         if now < w.resetsAt {
-            let added = cap.map { cost(from: measured, to: now) / $0 * 100 } ?? 0
+            let added = cap.map { spend(from: measured, to: now) / $0 * 100 } ?? 0
             let exact = cap != nil ? added < 0.5 : now.timeIntervalSince(measured) < 300
             v = WindowView(title: Self.weeklyTitle, pct: w.pct + added, resetsAt: w.resetsAt,
                            exact: exact, asOf: measured)
@@ -1059,10 +1121,10 @@ final class Meter: ObservableObject {
             var resets = w.resetsAt
             while resets <= now { resets.addTimeInterval(Self.week) }
             v = WindowView(title: Self.weeklyTitle,
-                           pct: cost(from: resets.addingTimeInterval(-Self.week), to: now) / cap * 100,
+                           pct: spend(from: resets.addingTimeInterval(-Self.week), to: now) / cap * 100,
                            resetsAt: resets, exact: false, asOf: measured)
             // Nothing has measured this week yet: if Anthropic reset it early, or the Mac slept across
-            // the reset, its % is this Mac's spend alone, so it raises no alert.
+            // the reset, its % is this Mac's spend (and the cloud sessions') alone, so it raises no alert.
             v.stale = true
         }
 
@@ -1225,7 +1287,7 @@ final class Meter: ObservableObject {
             v.projection = "Measuring pace…"
             return
         }
-        let perHour = cost(from: now.addingTimeInterval(-span), to: now) / cap * 100 / (span / 3600)
+        let perHour = spend(from: now.addingTimeInterval(-span), to: now) / cap * 100 / (span / 3600)
         let atReset = v.pct + perHour * resets.timeIntervalSince(now) / 3600
         v.atReset = atReset
         if atReset >= 100 {
@@ -1386,7 +1448,7 @@ final class Meter: ObservableObject {
         .sorted { $0.coldAt < $1.coldAt }
     }
 
-    private func fillWeekShares(_ s: inout Snapshot) {
+    private func fillWeekShares(_ s: inout Snapshot, now: Date) {
         guard let w = s.weekly, let resets = w.resetsAt, let cap = store.state.calibration.capWeek else { return }
         var byProject: [String: Double] = [:]
         // From the week's start, or from the early reset that started its count again.
@@ -1394,17 +1456,32 @@ final class Meter: ObservableObject {
         for t in turns[first(atOrAfter: begin)...] {
             byProject[t.project, default: 0] += t.cost
         }
-        s.weekShares = byProject.map { Share(id: $0.key, pct: $0.value / cap * 100, cost: $0.value) }
-            .sorted { $0.pct > $1.pct }
-        let elsewhere = w.pct - s.weekShares.reduce(0) { $0 + $1.pct }
-        s.weekElsewhere = elsewhere >= 2 ? elsewhere : nil
+        var shares = byProject.map { Share(id: $0.key, pct: $0.value / cap * 100, cost: $0.value) }
+        // The cloud sessions by title, at the same cap: exact dollars from the sessions list.
+        for (title, dollars) in cloudByTitle(from: begin, to: now) where dollars >= 0.005 {
+            shares.append(Share(id: "Cloud: " + title, pct: dollars / cap * 100, cost: dollars, cloud: true))
+        }
+        s.weekShares = shares.sorted { $0.pct > $1.pct }
+        let other = w.pct - s.weekShares.reduce(0) { $0 + $1.pct }
+        s.weekElsewhere = other >= 2 ? other : nil
+    }
+
+    /// The cloud sessions' spend in [from, to) by title.
+    private func cloudByTitle(from: Date, to: Date) -> [String: Double] {
+        var byTitle: [String: Double] = [:]
+        for e in cloudSpend {
+            let part = e.share(from: from, to: to)
+            if part > 0 { byTitle[e.title, default: 0] += part }
+        }
+        return byTitle
     }
 
     /// The week so far at pay-as-you-go prices: this Mac's turns since the week counts from (as the
-    /// project shares count), by day and model, and the weekly points the logs can't account for, in
-    /// dollars at the weekly cap. Days are local days from the week's first to the reset's, so a 3 PM
-    /// reset gives eight, the first and last partly. Days are this Mac's alone: split by the exact
-    /// readings, elsewhere's daily parts went negative on real weeks (cloud use moves the cap).
+    /// project shares count), by day and model; the cloud sessions' spend, exact from the sessions list,
+    /// by day too; and "Other", the weekly points neither accounts for, in dollars at the weekly cap.
+    /// Days are local days from the week's first to the reset's, so a 3 PM reset gives eight, the first
+    /// and last partly. Other is not split by day: split by the exact readings, it went negative on real
+    /// weeks (use away from this Mac moves the cap).
     private func weekValue(_ s: Snapshot, now: Date) -> WeekValue? {
         guard let w = s.weekly, let resets = w.resetsAt, now < resets else { return nil }
         let begin = min(Self.countsFrom(resets, span: Self.week, w.restartedAt), now)
@@ -1424,6 +1501,9 @@ final class Meter: ObservableObject {
             }
         }
         var v = WeekValue(begin: begin, resets: resets, mac: mac)
+        if cloudKnown { v.cloud = cloudCost(from: begin, to: now) }
+        // The weekly points left once this Mac and the cloud sessions are counted (`fillWeekShares`), so
+        // Other is the estimate less the cloud's exact part, never below 0.
         if let points = s.weekElsewhere, let cap = store.state.calibration.capWeek {
             v.elsewhere = points * cap / 100
         }
@@ -1433,6 +1513,7 @@ final class Meter: ObservableObject {
         while day < resets, let next = cal.date(byAdding: .day, value: 1, to: day) {
             let from = max(day, begin), to = min(next, now)
             v.days.append(ValueDay(day: day, mac: to > from ? cost(from: from, to: to) : 0,
+                                   cloud: to > from && cloudKnown ? cloudCost(from: from, to: to) : 0,
                                    future: day > now, before: next <= begin))
             day = next
         }

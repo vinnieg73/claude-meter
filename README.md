@@ -53,7 +53,8 @@ item fits beside the notch (at most `cap 10:49 wk ~100%`).
   read whole. They move only while the
   dropdown is open, never under Reduce Motion. The menu bar keeps its ring.
 - **Today / This week**: spend by project today, or each project's share of the weekly
-  limit, plus what the logs can't account for (chat, other devices).
+  limit, plus each cloud session by title ("Cloud: …", a gray bar, from the sessions list) and
+  "Other", what neither accounts for (chat, the phone, other computers).
 
 **Runaway alert.** A single session that uses 20%+ of the 5-hour window within 30 minutes
 gets a ⚠ in Burning now and one notification per window, to catch loops and large workflows
@@ -64,19 +65,28 @@ menu bar switches to `31% · cap 10:49` in orange (no AM/PM: it's always within 
 is 30 minutes out. It clears once the pace lands under 95% at the reset.
 
 **History** (button, or right-click → History…): Value this week (the week so far at
-pay-as-you-go prices: this Mac's Claude Code turns plus "Elsewhere" estimated from the weekly %,
-as a multiple of what the plan picked in Plan fit costs for a week, by day and by model; the weekly
-card carries it as one line, "Worth $540 so far · 11.7× your plan"), every 5-hour window of the last 7 days at its
+pay-as-you-go prices, as a multiple of what the plan picked in Plan fit costs for a week, by day and
+by model; the weekly card carries it as one line, "Worth $540 so far · 11.7× your plan"), every 5-hour window of the last 7 days at its
 peak, this week's climb against an even pace, and plan fit: how the same usage would have
 gone on Pro, Max 5x and Max 20x. Exact readings are logged to `history.jsonl` from 0.6 on;
 windows before that are estimated from the logs.
+
+**Value this week** is three parts, three grays on one bar: **this Mac** (Claude Code turns from
+the transcripts, priced by `Pricing.swift`), **cloud sessions** (claude.ai/code sessions and project
+threads, exact: the `cost_usd` Anthropic's sessions list reports for each, see [Cloud
+sessions](#cloud-sessions)), and **Other** (claude.ai chat, the phone, other computers: the weekly
+points neither of the first two accounts for, in dollars at the weekly cap, so an estimate). Total =
+this Mac + cloud + Other. A "~" before the total means Other is in it; with the cloud accounting for
+everything beyond this Mac there is no "~". The day columns stack the cloud on this Mac (Other can't
+be split by day). Before v0.9.26 the cloud part hid in "Elsewhere", which usually read about $0
+because the weekly cap was calibrated from readings that included it; the total was then a floor.
 
 **Help** (gear menu, or right-click → Help…): a window that explains everything above in plain
 words, section by section.
 
 **Shortcut** ⌃⌥⌘U opens the dropdown from anywhere (Carbon hot key, no accessibility
 permission needed). Right-click the menu bar item for Sync, History, Help and settings: open at
-login, weekly % in the title, notifications, the shortcut.
+login, weekly % in the title, cloud sessions, notifications, the shortcut.
 
 ## Where the numbers come from
 
@@ -90,6 +100,7 @@ once a minute while a 5-hour window is open and fills the time between from the 
 | usage report | `claude -p /usage`: the weekly Fable limit (exact); the probe's `rate_limit_event` doesn't carry it (it did Sep 25–30, 2026, as `seven_day_fable`) | a local command, so nothing spent and no window opened, and not behind the probe's window gate: every 5 minutes while Fable is in use here or no 5-hour window is known to be open (how a window opened elsewhere is found), every 30 otherwise, when the held reading's week ends, and on **Sync** |
 | statusline tap | Claude Code's own `rate_limits` (exact) | whenever a **terminal** `claude` session redraws its statusline |
 | `tap.json` drop-in | any exact reading, from anywhere (Claude Dashboard writes one as `source: "dashboard"`); counted like the statusline tap (it can raise a window or start a later one, never lower one), since a drop-in is dated when written and can carry an older number | when written |
+| sessions list | `GET https://api.anthropic.com/v1/sessions` (default, `tags=hearth-thread`, `tags=rc-child`): each cloud session's title, model and exact `cost_usd`, with the Claude Code sign-in on this Mac (read only, held in memory); the same feed Swarm Watch and Claude Dashboard read | ~20 s after launch, then every 5 minutes (15 after a 429) while **Cloud sessions** is on |
 
 A turn is logged once per content block, and the first copy can be written mid-stream with a
 partial output count; the meter keeps the largest copy of each. Each turn is weighted by API
@@ -99,7 +110,10 @@ $-equivalent that equals 100% of each window (the *cap*); between readings the %
 logged spend ÷ cap. Checked 2026-09-24: estimate 22% vs exact 23% after 12 heavy minutes.
 
 What the estimate cannot see: claude.ai chat, the phone, other machines. Those are corrected
-at the next exact reading, and they push the cap estimate low, so the meter errs high.
+at the next exact reading, and they push the cap estimate low, so the meter errs high. Cloud
+sessions it can see (since v0.9.26): their spend from the sessions list counts with this Mac's turns
+when a reading teaches the cap, in the estimate between readings and in the pace, so cloud use no
+longer shrinks the cap.
 
 **Early resets.** Anthropic sometimes resets a window's usage before its reset time (Oct 7: the
 weekly went from 87% to 0 mid-week, same Wednesday reset; the 5-hour window moved to a new one
@@ -142,7 +156,9 @@ drawn or written exits 1, and a mistyped command exits 2.
 
 `~/Applications/ClaudeMeter.app/Contents/MacOS/ClaudeMeter --status` prints how the app is
 set up (open at login, notification permission, CLI found) and what it last knew (last exact
-reading, calibrated caps, accuracy).
+reading, the cloud sessions list's state and last read, the week's cloud spend, calibrated caps,
+accuracy). `ClaudeMeter --cloud-check` reads the sessions list once and prints the row count, the
+week's cloud spend and the state, writing nothing (exit 0 when the list answered).
 
 `swift scripts/make-icon.swift [previewDir]` redraws `Resources/AppIcon.icns` (and, given a folder,
 writes a 1024px PNG and a contact sheet of every size there).
@@ -184,8 +200,12 @@ on a failure. It checks:
 6. **Synthetic cases**: made-up states the history log may never hold, run after the replay at a
    moment long before any real history: after an early 5-hour or weekly reset the pace and the 5-hour
    chart count only the spend since it; a window that lapsed since its last reading is stale and
-   raises no 80%/95% alert; the probe gate keeps two minutes clear of a walked window's reset; and a
-   reading's open window is probed with nothing logged on this Mac.
+   raises no 80%/95% alert; the probe gate keeps two minutes clear of a walked window's reset; a
+   reading's open window is probed with nothing logged on this Mac; and the cloud sessions list is
+   booked right (a first sighting whole, rises at their update, nothing twice across a relaunch, a
+   fall re-based, Remote Control sessions on this Mac apart) and counted right (the week's cloud part
+   and its days, the "Cloud: …" shares, Other as the remainder, the estimate between readings, the
+   weekly cap). The replay itself never reads `cloud.json`.
 
 It also fails when it ran too little to mean anything (fewer than 8 openings, 15 gate points or
 30 accuracy checks, each scaled down when the readings span under 3 days, but never below one). The weekly floor is lower the less of the week the logs cover: they reach back
@@ -234,7 +254,8 @@ About $0.001 of usage per run, so at most ~$0.06/hr while you work (about 0.03 p
   desktop app sets the first for everything it launches, and any of them would move the call
   off the subscription onto API billing.
 - It needs the Claude Code CLI signed in to the subscription (`claude` → `/login` → Claude
-  account). The meter never reads the token; Claude Code refreshes it itself. If the CLI is
+  account). The probe never reads the token; Claude Code refreshes it itself (only the cloud
+  sessions list reads it, see below). If the CLI is
   signed out (or missing), the footer says so and the probe retries every 5 minutes (it fails at
   once and spends nothing); any other failure (offline, a slow machine) retries after a minute,
   doubling up to 30 minutes.
@@ -299,6 +320,37 @@ State (last exact reading, calibration, notifications sent) is in `state.json` n
 state file this version can't read is kept as `state.unreadable-<time>.json`, never overwritten.
 `history.jsonl` keeps five weeks, a line per reading (about one a minute while you work, a few MB
 at the most). A reading dated in the future is ignored, and `at` may be in seconds or milliseconds.
+
+## Cloud sessions
+
+The cloud sessions list is the one Swarm Watch and Claude Dashboard read (Swarm Watch's
+`Bridge.fetch` and `Credentials`, copied into `CloudFeed.swift`): GET only, on
+`https://api.anthropic.com/v1/sessions` with `anthropic-version: 2023-06-01`, `anthropic-beta:
+ccr-byoc-2025-07-29` and `x-organization-uuid` from `~/.claude.json` (`oauthAccount.organizationUuid`).
+The token is Claude Code's own, read with `/usr/bin/security find-generic-password -s "Claude
+Code-credentials" -w` off the main thread (the first time, macOS may ask to allow it), held in memory,
+never written, logged or refreshed, and re-read once on a 401/403. Three listings, 50 rows each: the
+default one, `tags=hearth-thread` (project threads) and `tags=rc-child` (Remote Control children).
+
+`~/Library/Application Support/ClaudeMeter/cloud.json` (0600) keeps each session as last read (id,
+title, `cost_usd`, `created_at`, `updated_at`, model, folder; 60 days after it was last listed) and a
+ledger of the spend each read saw (14 days):
+- A session seen for the first time is booked whole, dated at its `updated_at` (not now) and spread
+  over its life from `created_at`, so a launch mid-week doesn't pile old spend onto today, and a
+  session already running before the week began counts only its share since.
+- After that each rise is booked at the `updated_at` that carried it (or the read's time if that
+  didn't move), spread from the read before. A cost that fell is the new base; nothing is booked.
+- An entry is unique by session and read, and the store holds the last cost, so a relaunch never
+  books anything twice.
+- Remote Control sessions run on this Mac (tag `rc-child` or `remote-control-sdk`, an id a Claude Code
+  process here bridged in `~/.claude/sessions/*.json`, or a folder in your home folder here) are the
+  same work the transcripts already price: they go to a separate `rcChild` ledger that is shown nowhere
+  (rc-child rows carry no cost today anyway).
+- Signed out: the state says `signed_out`, nothing changes, and the next read tries again. A 429 waits
+  15 minutes. A network error or an answer that won't parse keeps the store as it was.
+
+Right-click → **Cloud sessions** turns it off (on by default); off, the numbers are as before
+v0.9.26 and the in-memory token is dropped.
 
 ## Notifications
 

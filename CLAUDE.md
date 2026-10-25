@@ -48,6 +48,14 @@ https://claude.ai/artifact/HDDp8xFFM5aW9RoCLEy7s7): the week so far at pay-as-yo
 plan's weekly price (Plan in History.swift holds the prices), by day and model, and one line under the
 weekly card that opens History, done in v0.9.23. Scope is back to bug elimination.
 
+Exception (2026-10-25, asked for by the user): one cloud feed shared by Meter, Dashboard and Swarm Watch. The meter
+reads Anthropic's sessions list (Swarm Watch's reader, GET only, the Claude Code sign-in held in memory) every 5 minutes
+and books each cloud session's exact `cost_usd` into `cloud.json` (`CloudFeed.swift`). Value this week becomes this Mac +
+Cloud sessions (exact) + Other (the estimate, was "Elsewhere"), "This week" lists cloud sessions by title, and cloud spend
+counts in calibration, the estimate between readings and the pace, so cloud use no longer shrinks the cap. A right-click
+setting "Cloud sessions" (on), `--cloud-check`, and cloud lines in `--status`. Done in v0.9.26. Scope is back to bug
+elimination.
+
 Before calling a fix done, run `./scripts/replay.sh` and confirm PASS. It replays the real history
 log and transcripts through the working tree (read-only) and checks window openings, the probe
 gate, duplicate alerts and accuracy. If a fix guards something the replay doesn't cover, say so.

@@ -15,7 +15,8 @@ import Foundation
 ///    the early resets the meter recorded are the ones the readings show; the "This week" shares
 ///    never add up to more than the weekly card; History's windows don't overlap or peak above
 ///    their own readings.
-/// 6. Synthetic: made-up early resets, lapsed windows and probe-gate edges the log may never hold.
+/// 6. Synthetic: made-up early resets, lapsed windows and probe-gate edges the log may never hold,
+///    and how the cloud sessions list is booked and counted (the replay itself never reads it).
 /// Each reading is replayed with only the windows it measured, not ones carried over.
 @MainActor
 enum Replay {
@@ -502,11 +503,14 @@ extension Meter {
     /// Set at a moment long before any real history, so nothing in the history log falls near it.
     private func syntheticChecks(_ report: inout ReplayReport) {
         let heldTurns = turns, heldState = store.state, heldClock = clock, heldCovered = coveredFrom
+        let heldCloud = cloudSpend, heldCloudKnown = cloudKnown
         defer {
             turns = heldTurns
             store.state = heldState
             clock = heldClock
             coveredFrom = heldCovered
+            cloudSpend = heldCloud
+            cloudKnown = heldCloudKnown
         }
         coveredFrom = .distantPast
         let mark = Date(timeIntervalSince1970: 999_999_600) // on a 10-minute mark
@@ -763,7 +767,124 @@ extension Meter {
         absorb(longBefore)
         expect(store.state.lastExact?.fiveHour?.pct == 40, "a probe launched long before the held reading replaced it")
 
-        report.lines.append("6. Synthetic: \(ran) checks (early-reset pace and chart, lapsed windows, probe gate, usage report resets, Fable after a rollover, a probe overtaken by the statusline).")
+        cloudChecks(mark: mark, turn: turn, setUp: setUp, expect: expect)
+
+        report.lines.append("6. Synthetic: \(ran) checks (early-reset pace and chart, lapsed windows, probe gate, usage report resets, Fable after a rollover, a probe overtaken by the statusline, cloud sessions).")
+    }
+
+    /// Cloud sessions (v0.9.26): how the sessions list is booked, and what the booked spend does to the
+    /// week's value, the "This week" shares, the estimate between readings and the weekly cap.
+    private func cloudChecks(mark: Date, turn: (Date, Int) -> Turn,
+                             setUp: (Date, [Turn], ExactReading?, Double?, Double?) -> Void,
+                             expect: (Bool, String) -> Void) {
+        func near(_ a: Double?, _ b: Double) -> Bool { a.map { abs($0 - b) < 0.01 } ?? false }
+        let t0 = mark.addingTimeInterval(2 * 86400)
+        let created = t0.addingTimeInterval(-3600)
+        func row(_ id: String, _ cost: Double?, updated: Date, local: Bool = false) -> CloudRow {
+            CloudRow(id: id, title: "Nightly sweep", cost: cost, createdAt: created, updatedAt: updated,
+                     model: "claude-opus-5-5", cwd: nil, local: local)
+        }
+
+        // The ledger. A first sighting is booked whole, dated at its last update and spread over its life.
+        var book = CloudStore()
+        book.take([row("a", 5, updated: t0.addingTimeInterval(-600))], now: t0)
+        expect(book.ledger.count == 1 && book.ledger.last.map {
+            $0.cost == 5 && $0.at == t0.addingTimeInterval(-600) && $0.from == created
+        } == true, "a cloud session's first sighting wasn't booked whole at its last update")
+        // Saved and read back (a relaunch), the same listing books nothing.
+        if let data = try? JSONCoding.encoder().encode(book),
+           let back = try? JSONCoding.decoder().decode(CloudStore.self, from: data) {
+            book = back
+        } else {
+            expect(false, "cloud.json didn't read back what was saved")
+        }
+        book.take([row("a", 5, updated: t0.addingTimeInterval(-600))], now: t0.addingTimeInterval(300))
+        expect(book.ledger.count == 1, "a cloud session's cost was booked twice after a relaunch")
+        // A rise with a new update: booked at that update, spread from the read before.
+        let t1 = t0.addingTimeInterval(600)
+        book.take([row("a", 8, updated: t1.addingTimeInterval(-50))], now: t1)
+        expect(book.ledger.count == 2 && book.ledger.last.map {
+            near($0.cost, 3) && $0.at == t1.addingTimeInterval(-50) && $0.from == t0.addingTimeInterval(300)
+        } == true, "a cloud cost rise wasn't booked at the update that carried it")
+        // A rise with no new update: booked at the read.
+        book.take([row("a", 8.5, updated: t1.addingTimeInterval(-50))], now: t1.addingTimeInterval(300))
+        expect(book.ledger.count == 3 && book.ledger.last.map { near($0.cost, 0.5) && $0.at == t1.addingTimeInterval(300) } == true,
+               "a cloud cost rise with no new update wasn't booked at the read")
+        // A cost that fell is the new base: nothing booked, and the next rise counts from it.
+        book.take([row("a", 2, updated: t1.addingTimeInterval(500))], now: t1.addingTimeInterval(600))
+        expect(book.ledger.count == 3, "a cloud cost that fell was booked")
+        book.take([row("a", 4, updated: t1.addingTimeInterval(800))], now: t1.addingTimeInterval(900))
+        expect(book.ledger.count == 4 && near(book.ledger.last?.cost, 2), "a cloud rise after a fall wasn't counted from the new base")
+        // Remote Control work run on this Mac goes to its own ledger (its transcripts are priced here); a row
+        // without a cost books nothing.
+        book.take([row("rc", 7, updated: t1.addingTimeInterval(1000), local: true), row("x", nil, updated: t1)],
+                  now: t1.addingTimeInterval(1200))
+        expect(book.ledger.count == 4 && book.rcChild.count == 1 && book.sessions["x"] == nil,
+               "a Remote Control session on this Mac, or a row without a cost, reached the cloud ledger")
+        expect(near(book.spent(from: created, to: t1.addingTimeInterval(1200)).total, 5 + 3 + 0.5 + 2),
+               "the cloud ledger doesn't add up to the rises it booked")
+        // Two weeks on the spend goes; the sessions stay, so one coming back isn't booked whole again.
+        book.prune(now: t1.addingTimeInterval(15 * 86400))
+        expect(book.ledger.isEmpty && book.rcChild.isEmpty && book.sessions["a"] != nil, "old cloud spend wasn't dropped, or its session was")
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        expect(CloudSessions.isLocal(id: "s", tags: ["rc-child"], cwd: nil, bridged: [], home: home)
+               && CloudSessions.isLocal(id: "s", tags: [], cwd: home + "/Library", bridged: [], home: home)
+               && !CloudSessions.isLocal(id: "s", tags: ["hearth-thread"], cwd: "/home/user/repo", bridged: [], home: home),
+               "Remote Control sessions on this Mac and cloud sessions told apart wrongly")
+
+        // The week (cap $100, reading 40%): $15 logged here a day ago; a cloud rise of $10 two hours ago, and
+        // $8 spread over the two days around the week's start, half of it this week.
+        let now = t0
+        let resets = now.addingTimeInterval(3 * 86400)
+        let begin = resets.addingTimeInterval(-7 * 86400)
+        func entry(_ session: String, _ title: String, _ cost: Double, from: Date, at: Date) -> CloudSpend {
+            CloudSpend(at: at, from: from, seen: at, session: session, title: title, cost: cost, model: nil)
+        }
+        let cloud = [entry("b", "Docs pass", 8, from: begin.addingTimeInterval(-86400), at: begin.addingTimeInterval(86400)),
+                     entry("a", "Nightly sweep", 10, from: now.addingTimeInterval(-7200), at: now.addingTimeInterval(-7200))]
+        func weekReading(_ pct: Double) -> ExactReading {
+            ExactReading(at: now.addingTimeInterval(-60), source: "probe",
+                         weekly: Window(pct: pct, resetsAt: resets, at: now.addingTimeInterval(-60)))
+        }
+        setUp(now, [turn(now.addingTimeInterval(-86400), 1_000_000)], weekReading(40), nil, 100)
+        cloudSpend = cloud
+        cloudKnown = true
+        recompute()
+        let v = snapshot.weekValue
+        expect(near(v?.cloud, 14), "the week's cloud part is \(v?.cloud ?? -1), not $14 (a span across the week's start counts its share)")
+        expect(near(v?.days.reduce(0) { $0 + $1.cloud }, 14), "the days' cloud parts don't add up to the week's")
+        let shares = Dictionary(snapshot.weekShares.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        expect(near(shares["Cloud: Nightly sweep"]?.pct, 10) && near(shares["Cloud: Docs pass"]?.pct, 4)
+               && shares["Cloud: Docs pass"]?.cloud == true && shares["synthetic"]?.cloud == false,
+               "\"This week\" doesn't list the cloud sessions by title at the weekly cap")
+        expect(near(v?.elsewhere, 11) && near(v?.total, 40),
+               "Other isn't what the weekly % leaves after this Mac and the cloud (\(v?.elsewhere ?? -1), total \(v?.total ?? -1))")
+        // The cloud accounting for all of it: no Other, so no "~".
+        setUp(now, [turn(now.addingTimeInterval(-86400), 1_000_000)], weekReading(30), nil, 100)
+        cloudSpend = cloud
+        recompute()
+        expect(snapshot.weekValue?.elsewhere == nil && near(snapshot.weekValue?.total, 29),
+               "with the cloud accounting for the weekly %, Other is still there")
+        // Cloud spend after a reading moves the estimate: $5 is 5 points at this cap.
+        setUp(now, [], ExactReading(at: now.addingTimeInterval(-600), source: "probe",
+                                    weekly: Window(pct: 40, resetsAt: resets, at: now.addingTimeInterval(-600))), nil, 100)
+        cloudSpend = [entry("a", "Nightly sweep", 5, from: now.addingTimeInterval(-120), at: now.addingTimeInterval(-120))]
+        recompute()
+        expect(near(snapshot.weekly?.pct, 45) && snapshot.weekly?.exact == false,
+               "cloud spend since the last reading didn't move the weekly estimate (\(snapshot.weekly?.pct ?? -1)%)")
+        // A reading teaches the cap from this Mac's spend and the cloud's: $15 + $15 at 30% is $100, not $50.
+        setUp(now, [turn(now.addingTimeInterval(-86400), 1_000_000)], nil, nil, nil)
+        cloudSpend = [entry("a", "Nightly sweep", 15, from: now.addingTimeInterval(-3600), at: now.addingTimeInterval(-3600))]
+        absorb(ExactReading(at: now, source: "probe", weekly: Window(pct: 30, resetsAt: resets)))
+        expect(near(store.state.calibration.capWeek, 100),
+               "the weekly cap learned without the cloud spend ($\(store.state.calibration.capWeek ?? -1), not $100)")
+        // Turned off: nothing from the cloud anywhere.
+        setUp(now, [turn(now.addingTimeInterval(-86400), 1_000_000)], weekReading(40), nil, 100)
+        cloudSpend = []
+        cloudKnown = false
+        recompute()
+        expect(snapshot.weekValue?.cloud == nil && !snapshot.weekShares.contains(where: \.cloud),
+               "with Cloud sessions off, the cloud still shows")
     }
 
     /// The history log saves each reading as the meter held it, windows carried over from earlier

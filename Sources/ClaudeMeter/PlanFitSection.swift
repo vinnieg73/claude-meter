@@ -255,7 +255,7 @@ struct HistoryFootnote: View {
         var text = "Estimates use this Mac's Claude Code logs and today's calibration; claude.ai chat and other devices only show up in exact readings. Days spent on other models (Opus 5 before Sep 22, Fable) are priced differently and may read high."
         if let since = h.exactSince { text += " Exact readings logged since \(Fmt.when(since))." }
         text += " Plan fit assumes each plan's limits scale with its multiplier (Pro 1×, Max 5×, Max 20×)."
-        text += " In Value this week, \"Elsewhere\" is claude.ai, cloud sessions and other devices, estimated from the weekly %, and \(plan.name) is priced at $\(Int(plan.monthlyPrice)) a month (\(WeekValueSection.price(plan.weeklyPrice)) a week)."
+        text += " In Value this week, \"Cloud sessions\" is exact, from the sessions list; \"Other\" is claude.ai chat, the phone and other computers, estimated from the weekly %; and \(plan.name) is priced at $\(Int(plan.monthlyPrice)) a month (\(WeekValueSection.price(plan.weeklyPrice)) a week)."
         return text
     }
 }
