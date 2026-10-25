@@ -56,8 +56,13 @@ struct UsageSection: View {
     @ViewBuilder
     private func summary(week: Bool) -> some View {
         if week {
-            let logged = s.weekShares.reduce(0) { $0 + $1.pct }
-            Text("\(Fmt.pct(logged)) of weekly limit from this Mac")
+            let logged = s.weekShares.filter { !$0.cloud }.reduce(0) { $0 + $1.pct }
+            let cloud = s.weekShares.filter(\.cloud).reduce(0) { $0 + $1.pct }
+            if cloud >= 0.5 {
+                Text("\(Fmt.pct(logged)) this Mac · \(Fmt.pct(cloud)) cloud")
+            } else {
+                Text("\(Fmt.pct(logged)) of weekly limit from this Mac")
+            }
         } else {
             let hit = s.cacheHit.map { " · cache \(Fmt.pct($0 * 100))" } ?? ""
             Text("\(Fmt.dollars(s.todayCost)) · \(Fmt.tokens(s.todayTokens)) tok\(hit)")
@@ -77,20 +82,20 @@ struct UsageSection: View {
         }
     }
 
-    /// Each project as a share of the weekly limit (its spend alongside), and what the logs can't
-    /// account for.
+    /// Each project, and each cloud session title ("Cloud: …", a gray bar: exact, but not this Mac's), as
+    /// a share of the weekly limit (its spend alongside), and what neither accounts for.
     @ViewBuilder
     private var weekRows: some View {
         let top = max(s.weekShares.first?.pct ?? 1, 0.01)
         ForEach(s.weekShares.prefix(4)) { share in
             BarRow(name: share.id, value: Fmt.pct(share.pct), detail: Fmt.dollars(share.cost),
-                   fraction: share.pct / top)
+                   fraction: share.pct / top, tint: share.cloud ? Color.primary : Color.accentColor)
                 .accessibilityElement(children: .combine)
         }
         if let elsewhere = s.weekElsewhere {
-            // No bar, set apart, and quieter than the projects: this part isn't from this Mac. The
-            // empty detail keeps its % in the projects' column.
-            BarRow(name: "Elsewhere (chat, other devices)", value: Fmt.pct(elsewhere), detail: "", fraction: 0)
+            // No bar, set apart, and quieter than the projects: this part is an estimate, from neither
+            // this Mac nor the cloud sessions list. The empty detail keeps its % in the projects' column.
+            BarRow(name: "Other (chat, phone, other computers)", value: Fmt.pct(elsewhere), detail: "", fraction: 0)
                 .foregroundStyle(.secondary)
                 .padding(.top, 3)
                 .accessibilityElement(children: .combine)

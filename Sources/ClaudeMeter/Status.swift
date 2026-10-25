@@ -85,6 +85,7 @@ enum Status {
             lines.append("fable limit: " + (state.fableNone != nil ? "none on this plan" : "not read yet"))
         }
         if let error = state.probeError { lines.append("probe: failing (\(error))") }
+        lines += CloudSessions.statusLines(state: state)
         let caps = [("5h", state.calibration.cap5h), ("week", state.calibration.capWeek)]
             .compactMap { name, cap in cap.map { "\(name) \(Fmt.dollars($0))" } }
         lines.append("calibrated caps: " + (caps.isEmpty ? "none yet" : caps.joined(separator: ", ")))

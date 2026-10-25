@@ -1,14 +1,16 @@
 import SwiftUI
 
 /// History's "Value this week": the week so far at pay-as-you-go prices, as a multiple of what the
-/// plan costs for a week, then each day and each model. Grayscale; only the plan's tick is coloured.
+/// plan costs for a week, then each day and each model. Grayscale (this Mac, the cloud and Other are
+/// three grays); only the plan's tick is coloured.
 struct WeekValueSection: View {
     let h: History
     let plan: Plan
 
     static let symbol = "dollarsign.circle"
-    /// This Mac's part, the part from elsewhere, and the plan's week.
+    /// This Mac's part, the cloud sessions', Other (the estimate), and the plan's week.
     static let macColor = Color.primary.opacity(0.72)
+    static let cloudColor = Color.primary.opacity(0.42)
     static let elsewhereColor = Color.primary.opacity(0.2)
     static let planColor = Color.blue
 
@@ -80,16 +82,28 @@ struct WeekValueSection: View {
 
     // MARK: - Legend and models
 
+    /// Four entries can outgrow the line; then the shorter names.
     private func legend(_ v: WeekValue) -> some View {
-        HStack(spacing: 14) {
-            Swatch(color: Self.macColor, text: "This Mac's Claude Code \(Fmt.dollars(v.mac))")
-            if let e = v.elsewhere {
-                Swatch(color: Self.elsewhereColor, text: "Elsewhere ~\(Fmt.dollars(e))")
-            }
-            Swatch(color: Self.planColor, text: "Your plan's week \(Self.price(plan.weeklyPrice))")
+        ViewThatFits(in: .horizontal) {
+            legendLine(v, short: false)
+            legendLine(v, short: true)
         }
         .font(Theme.meta).monospacedDigit().foregroundStyle(.secondary)
         .lineLimit(1)
+    }
+
+    private func legendLine(_ v: WeekValue, short: Bool) -> some View {
+        HStack(spacing: short ? 10 : 14) {
+            Swatch(color: Self.macColor, text: (short ? "This Mac " : "This Mac's Claude Code ") + Fmt.dollars(v.mac))
+            if let c = v.cloud, c > 0 {
+                Swatch(color: Self.cloudColor, text: (short ? "Cloud " : "Cloud sessions ") + Fmt.dollars(c))
+            }
+            if let e = v.elsewhere {
+                Swatch(color: Self.elsewhereColor, text: "Other ~\(Fmt.dollars(e))")
+            }
+            Swatch(color: Self.planColor, text: (short ? "Plan's week " : "Your plan's week ") + Self.price(plan.weeklyPrice))
+        }
+        .fixedSize()
     }
 
     private func models(_ v: WeekValue) -> some View {
@@ -139,8 +153,8 @@ private struct Swatch: View {
 
 // MARK: - Bar
 
-/// This Mac, then elsewhere, on one track, with the plan's week as a tick. Scaled to whichever is
-/// longer, so a light week's tick still lands on the track.
+/// This Mac, then the cloud sessions, then Other, on one track, with the plan's week as a tick. Scaled
+/// to whichever is longer, so a light week's tick still lands on the track.
 private struct ValueBar: View {
     let v: WeekValue
     let plan: Plan
@@ -154,6 +168,7 @@ private struct ValueBar: View {
             ZStack(alignment: .leading) {
                 HStack(spacing: 0) {
                     Rectangle().fill(WeekValueSection.macColor).frame(width: w * v.mac / scale)
+                    Rectangle().fill(WeekValueSection.cloudColor).frame(width: w * (v.cloud ?? 0) / scale)
                     Rectangle().fill(WeekValueSection.elsewhereColor).frame(width: w * (v.elsewhere ?? 0) / scale)
                     Spacer(minLength: 0)
                 }
@@ -172,7 +187,8 @@ private struct ValueBar: View {
 
     private var spoken: String {
         var parts = ["This Mac \(Fmt.dollars(v.mac))"]
-        if let e = v.elsewhere { parts.append("elsewhere about \(Fmt.dollars(e))") }
+        if let c = v.cloud, c > 0 { parts.append("cloud sessions \(Fmt.dollars(c))") }
+        if let e = v.elsewhere { parts.append("other about \(Fmt.dollars(e))") }
         parts.append("your plan's week \(WeekValueSection.price(plan.weeklyPrice))")
         return parts.joined(separator: ", ")
     }
@@ -180,8 +196,8 @@ private struct ValueBar: View {
 
 // MARK: - Days
 
-/// A column per local day: this Mac's amount over its bar (elsewhere can't be split by day). Days
-/// still to come are stubs; today's label is bold.
+/// A column per local day: this Mac's and the cloud's amount over its bar, the cloud stacked on this
+/// Mac (Other can't be split by day). Days still to come are stubs; today's label is bold.
 private struct ValueDays: View {
     let days: [ValueDay]
 
@@ -189,7 +205,7 @@ private struct ValueDays: View {
     private static let amount = Font.system(size: 9.5)
 
     var body: some View {
-        let top = max(days.map(\.mac).max() ?? 0, 0.01)
+        let top = max(days.map { $0.mac + $0.cloud }.max() ?? 0, 0.01)
         HStack(alignment: .bottom, spacing: 8) {
             ForEach(days) { d in column(d, top: top) }
         }
@@ -198,15 +214,23 @@ private struct ValueDays: View {
     private func column(_ d: ValueDay, top: Double) -> some View {
         let today = Calendar.current.isDateInToday(d.day)
         let empty = d.future || d.before
+        let total = d.mac + d.cloud
         return VStack(spacing: 3) {
-            Text(empty ? " " : Self.short(d.mac))
+            Text(empty ? " " : Self.short(total))
                 .font(Self.amount).monospacedDigit().foregroundStyle(.secondary)
                 .lineLimit(1).fixedSize()
             Group {
-                if empty || d.mac <= 0 {
+                if empty || total <= 0 {
                     Rectangle().fill(Theme.track).frame(height: 3)
                 } else {
-                    Rectangle().fill(WeekValueSection.macColor).frame(height: max(1, Self.tallest * d.mac / top))
+                    VStack(spacing: 0) {
+                        if d.cloud > 0 {
+                            Rectangle().fill(WeekValueSection.cloudColor).frame(height: max(1, Self.tallest * d.cloud / top))
+                        }
+                        if d.mac > 0 {
+                            Rectangle().fill(WeekValueSection.macColor).frame(height: max(1, Self.tallest * d.mac / top))
+                        }
+                    }
                 }
             }
             .frame(maxWidth: 34)
@@ -218,7 +242,11 @@ private struct ValueDays: View {
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(today ? "Today" : d.day.formatted(.dateTime.weekday(.wide)))
-        .accessibilityValue(empty ? "nothing yet" : Fmt.dollars(d.mac))
+        .accessibilityValue(empty ? "nothing yet" : spoken(d))
+    }
+
+    private func spoken(_ d: ValueDay) -> String {
+        d.cloud > 0 ? "\(Fmt.dollars(d.mac + d.cloud)), cloud sessions \(Fmt.dollars(d.cloud))" : Fmt.dollars(d.mac)
     }
 
     /// Whole dollars from $10 up, so eight columns stay short ("$112", "$4.20").

@@ -229,6 +229,8 @@ enum Paths {
     static var state: URL { support.appendingPathComponent("state.json") }
     static var tap: URL { support.appendingPathComponent("tap.json") }
     static var history: URL { support.appendingPathComponent("history.jsonl") }
+    /// The cloud sessions list as last read, and the spend booked from it (`CloudFeed.swift`).
+    static var cloud: URL { support.appendingPathComponent("cloud.json") }
 }
 
 final class StateStore {

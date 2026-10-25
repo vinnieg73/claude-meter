@@ -6,7 +6,7 @@ import Foundation
 @MainActor
 enum Fixtures {
     static let popover = ["calm", "warn", "critical", "idle", "empty", "loading", "trouble", "week", "long", "nofable", "samename"]
-    static let history = ["fits", "thismac", "uncalibrated"]
+    static let history = ["fits", "thismac", "cloudonly", "uncalibrated"]
 
     /// `weekScope` is the Today / This week picker; `notice` stands in for the meter's own.
     struct Popover {
@@ -36,6 +36,7 @@ enum Fixtures {
         switch name {
         case "fits": fits
         case "thismac": thismac
+        case "cloudonly": cloudonly
         case "uncalibrated": uncalibrated
         default: nil
         }
@@ -114,8 +115,9 @@ enum Fixtures {
     }
 
     /// A week that resets `left` from now: this Mac's spend on each local day so far (in order, the
-    /// last one today), as `Meter.weekValue` lays the days out. Counted from `restartedAgo` if set.
-    private static func value(left: TimeInterval, perDay: [Double], elsewhere: Double?,
+    /// last one today), as `Meter.weekValue` lays the days out, and the cloud sessions' the same way
+    /// (nil: the list never read). Counted from `restartedAgo` if set.
+    private static func value(left: TimeInterval, perDay: [Double], cloudPerDay: [Double]? = nil, elsewhere: Double?,
                               restartedAgo: TimeInterval? = nil, models: [(String, Double)]) -> WeekValue {
         let resets = now.addingTimeInterval(left)
         let begin = restartedAgo.map { now.addingTimeInterval(-$0) } ?? resets.addingTimeInterval(-7 * 86400)
@@ -127,12 +129,16 @@ enum Fixtures {
         var i = 0
         while day < resets, let next = cal.date(byAdding: .day, value: 1, to: day) {
             let before = next <= begin
-            let spend = day <= now && !before ? perDay[max(0, perDay.count - 1 - (back - i))] : 0
-            days.append(ValueDay(day: day, mac: spend, future: day > now, before: before))
+            let counts = day <= now && !before
+            let spend = counts ? perDay[max(0, perDay.count - 1 - (back - i))] : 0
+            var cloud = 0.0
+            if counts, let c = cloudPerDay, !c.isEmpty { cloud = c[max(0, c.count - 1 - (back - i))] }
+            days.append(ValueDay(day: day, mac: spend, cloud: cloud, future: day > now, before: before))
             day = next
             i += 1
         }
-        var v = WeekValue(begin: begin, resets: resets, mac: days.reduce(0) { $0 + $1.mac }, elsewhere: elsewhere)
+        var v = WeekValue(begin: begin, resets: resets, mac: days.reduce(0) { $0 + $1.mac },
+                          cloud: cloudPerDay.map { _ in days.reduce(0) { $0 + $1.cloud } }, elsewhere: elsewhere)
         v.days = days
         v.models = models.map { Row(id: $0.0, cost: $0.1, tokens: 0) }
         return v
@@ -200,7 +206,8 @@ enum Fixtures {
         s.models = [Row(id: "Opus 5.5", cost: 138, tokens: 0), Row(id: "Sonnet 5.5", cost: 0.36, tokens: 0),
                     Row(id: "Haiku 4.5", cost: 0.07, tokens: 0)]
         s.daily = days([310, 28, 140, 22, 25, 72, 139])
-        s.weekValue = value(left: 16.3 * 3600, perDay: [90, 310, 28, 140, 22, 25, 139], elsewhere: 109,
+        s.weekValue = value(left: 16.3 * 3600, perDay: [90, 310, 28, 140, 22, 25, 139],
+                            cloudPerDay: [0, 12, 0, 38, 9, 0, 21], elsewhere: 29,
                             models: [("Opus 5.5", 690), ("Sonnet 5.5", 41)])
         return Popover(snapshot: s)
     }
@@ -242,7 +249,8 @@ enum Fixtures {
         s.models = [Row(id: "Opus 5.5", cost: 205, tokens: 0), Row(id: "Fable 5.1", cost: 6.2, tokens: 0),
                     Row(id: "Haiku 4.5", cost: 0.8, tokens: 0)]
         s.daily = days([180, 240, 160, 30, 90, 260, 212])
-        s.weekValue = value(left: 1.6 * 86400, perDay: [60, 180, 240, 160, 30, 90, 212], elsewhere: 140,
+        s.weekValue = value(left: 1.6 * 86400, perDay: [60, 180, 240, 160, 30, 90, 212],
+                            cloudPerDay: [0, 24, 51, 0, 0, 18, 7], elsewhere: 40,
                             models: [("Opus 5.5", 940), ("Fable 5.1", 32)])
         return Popover(snapshot: s)
     }
@@ -299,7 +307,8 @@ enum Fixtures {
         var p = warn
         p.snapshot.weekShares = [
             Share(id: "Pocket Saloon", pct: 41, cost: 610), Share(id: "Frontier Universe", pct: 14, cost: 205),
-            Share(id: "Claude Meter", pct: 9, cost: 131), Share(id: "Five Card Poker", pct: 3, cost: 44),
+            Share(id: "Cloud: Nightly dependency sweep across every repo", pct: 5, cost: 74, cloud: true),
+            Share(id: "Claude Meter", pct: 4, cost: 57), Share(id: "Five Card Poker", pct: 3, cost: 44),
         ]
         p.snapshot.weekElsewhere = 6
         p.weekScope = true
@@ -330,7 +339,8 @@ enum Fixtures {
                                Row(id: "x", cost: 22, tokens: 0), Row(id: "Claude Meter", cost: 0.004, tokens: 0)]
         p.snapshot.daily = days([1200, 4_812, 300, 0, 0, 2_200, 4_812])
         // The widest the weekly card's value line gets: "~$12.4k" and a three-digit multiple.
-        p.snapshot.weekValue = value(left: 1.6 * 86400, perDay: [400, 1200, 4_812, 300, 0, 0, 4_812], elsewhere: 876,
+        p.snapshot.weekValue = value(left: 1.6 * 86400, perDay: [400, 1200, 4_812, 300, 0, 0, 4_812],
+                                     cloudPerDay: [0, 140, 320, 0, 0, 96, 210], elsewhere: 110,
                                      models: [("Opus 5.5", 11_000)])
         return p
     }
@@ -386,7 +396,7 @@ enum Fixtures {
         h.weekAtReset = 70
         h.weekRate = 0.42
         h.exactSince = now.addingTimeInterval(-6 * 86400)
-        h.value = value(left: 3.5 * 86400, perDay: [38, 112, 96, 148, 146], elsewhere: 109,
+        h.value = value(left: 3.5 * 86400, perDay: [38, 112, 96, 148, 146], cloudPerDay: [0, 14, 31, 0, 22], elsewhere: 42,
                         models: [("Opus 5.5", 402), ("Sonnet 5.5", 18.4), ("Fable 5.1", 7.9), ("Haiku 5.5", 2.6), ("Opus 5", 0.4)])
         h.plans = plans(current: .max5x, [
             (.pro, 4, 290, nil, now.addingTimeInterval(86400), false),
@@ -402,6 +412,14 @@ enum Fixtures {
         var h = fits
         h.value = value(left: 2.5 * 86400, perDay: [0, 0, 0, 22, 61, 8.4], elsewhere: nil, restartedAgo: 2 * 86400,
                         models: [("Sonnet 5.5", 61), ("Haiku 5.5", 30.4)])
+        return h
+    }
+
+    /// The cloud sessions account for everything beyond this Mac (no Other), so the total is exact: no "~".
+    private static var cloudonly: History {
+        var h = fits
+        h.value = value(left: 3.5 * 86400, perDay: [38, 112, 96, 148, 146], cloudPerDay: [6, 41, 0, 58, 33], elsewhere: nil,
+                        models: [("Opus 5.5", 402), ("Sonnet 5.5", 18.4), ("Fable 5.1", 7.9), ("Haiku 5.5", 2.6), ("Opus 5", 0.4)])
         return h
     }
 

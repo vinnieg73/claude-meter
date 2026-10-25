@@ -1,10 +1,108 @@
 # Claude Meter: handoff
 
-Updated 2026-10-23 by Claude, from a background worker (v0.9.25: fixes from the 2026-10-23 audit, on branch
-`fix/audit-2026-10-23`, not merged, not built, not installed).
+Updated 2026-10-25 by Claude, from a background worker (v0.9.26: the cloud sessions feed, on branch
+`feat/cloud-feed` off `main` c48ee1b; not merged, not built, not installed).
 
 ## Status
 
+v0.9.26 (build 39): **one cloud feed shared by Meter, Dashboard and Swarm Watch**, asked for by Vinnie ("Give Claude
+Meter that same feed. 'Elsewhere' stops reading about $0 and the weekly total becomes a real number instead of a
+floor."). Written on a Linux box with no Swift compiler: **not compiled, not replayed, not rendered**. A Python mirror
+of the ledger rules and the replay's cloud expectations was run here (scratch, not committed): they hold. Run the Mac
+test plan below before merging or installing.
+
+What was built:
+- `CloudFeed.swift` (new). `CloudSessions.read()`: Swarm Watch's reader (`Bridge.fetch` + `Credentials`, as Claude
+  Dashboard's `CloudReader` copied it): GET `https://api.anthropic.com/v1/sessions`, three listings (default,
+  `tags=hearth-thread`, `tags=rc-child`, `limit=50`), `anthropic-version: 2023-06-01`, `anthropic-beta:
+  ccr-byoc-2025-07-29`, `x-organization-uuid` from `.claude.json` (`$CLAUDE_CONFIG_DIR`, `~`, `~/.claude`). Token from
+  `/usr/bin/security find-generic-password -s "Claude Code-credentials" -w` on a utility thread (it can wait on a macOS
+  prompt), in memory only, re-read once on 401/403 (at most every 15 s), dropped when the setting goes off. Signed out
+  or 429 stops a read; another failure keeps whatever listings answered. `CloudFeed` (main actor) polls from the
+  meter's 10 s tick: 20 s after launch, then every `cloudPollSeconds` (300), 900 after a 429.
+- `cloud.json` (`Paths.cloud`, 0600, pretty JSON): `sessions` {id, title, cost_usd, created_at, updated_at, model, cwd,
+  seen_at, local}, kept 60 days after last listed (so one that drops off the 50-row lists and comes back isn't booked
+  whole again); `ledger` [{at, from, seen, session, title, delta, model}] kept 14 days; `rcChild` (same shape);
+  `state`, `readAt`, `triedAt`. Dates are ISO 8601 like every other file the app writes (the brief said epoch seconds;
+  the app's convention won).
+- Booking (`CloudStore.take`): first sighting books the whole `cost_usd` dated `updated_at` (clamped to the read) with
+  `from` = `created_at`; later reads book `cost - last` at `updated_at` when it moved, else at the read, with `from` =
+  the previous read; a fall re-bases silently; an entry is unique by (session, seen). **Spans:** every count of the
+  ledger over a range (week, day, window) takes each entry's share of its [from, at] span inside the range, evenly. So
+  a session already running before the week began counts only its share since, and a first sighting at launch doesn't
+  land whole on today or on the 5-hour window. Remote Control work run on this Mac (tag `rc-child` or
+  `remote-control-sdk`, an id in `~/.claude/sessions/*.json` `bridgeSessionId`, or a `session_context.cwd` that is a
+  folder under your home here) goes to `rcChild`, shown nowhere.
+- Numbers (`Meter`): `cloudSpend` (the ledger, sorted; empty with the setting off) and `spend(from:to:)` = this Mac's
+  turns + `cloudCost`. Used in `impliedCap` (calibration, both windows), the estimate between readings (`fiveHour`,
+  `weekly`, both their lapsed branches) and the pace (`project`). **That is item 4 of the brief, done as a dollar
+  series beside the turns, not as pseudo-turns:** a pseudo-turn would also have reached the probe gate (`windowOpen` /
+  `openWindow` treat any turn as a message here, so a cloud booking could let a probe open a window), Burning now,
+  the runaway alert and its notification, Today, the Fable split and History. None of those use `spend`.
+  No basis bump: `blend` moves the caps toward the cloud-inclusive value at most 1.5× per reading.
+- `WeekValue.cloud` (exact, nil with the setting off or before the first answered read), `ValueDay.cloud`, and
+  `elsewhere` redefined as **Other** = the weekly points left after this Mac's and the cloud's shares (≥ 2 points),
+  in dollars at the cap (= max(0, estimate − cloud)). Total = mac + cloud + Other; "~" only with Other.
+- "This week" (`fillWeekShares`): cloud rows "Cloud: <title>" grouped by title, pct = cloud $ / capWeek × 100
+  (`Share.cloud`, gray bar); the leftover row reads "Other (chat, phone, other computers)"; the summary reads
+  "41% this Mac · 12% cloud" when there is cloud.
+- Views: Value this week's bar and legend have a third gray (mac 0.72, cloud 0.42, Other 0.2; the legend falls back
+  to short names if four entries don't fit), the day columns stack the cloud on this Mac. `WeekValueLine` unchanged.
+  `HistoryFootnote` and Help (Weekly, Today / This week, Value this week, settings, sources) updated.
+- Settings: right-click → "Cloud sessions" (symbol `cloud`, UserDefaults `cloudSessions`, default on).
+  `--status` gains "cloud sessions: <state>, last read Nm ago, last tried …" and "cloud this week: $X across N
+  titles since …". `--cloud-check` does one read and prints the state, row counts, the week's cloud $ (as a first
+  read would book it) and the top 5 titles, without touching `cloud.json` (exit 0 when the list answered).
+- Fixtures: warn, critical, long (popover) and fits (History) carry a cloud part with a smaller Other; `week` has a
+  "Cloud: …" share; new History fixture **`cloudonly`** (cloud > 0, no Other, so no "~"; named lowercase like the
+  others, the brief said `cloudOnly`), added to `render-all.sh`.
+- Replay section 6: `cloudChecks` (18 new checks): booking (first sighting, a JSON round trip then the same listing
+  books nothing, a rise at its update, a rise without one, a fall, a rise after it, `rcChild`, a row without a cost,
+  the 14-day prune, `isLocal`), and the meter (the week's cloud part with a span across the week's start, the days
+  adding up, the "Cloud: …" shares at the cap, Other as the remainder and the total, no Other → no "~", the estimate
+  moving with cloud spend after a reading, the weekly cap learned from mac + cloud, the setting off). The replay's
+  own meter never reads `cloud.json` (`CloudFeed` is lazy and only `start()`/`loadOnce()`/the toggle make it).
+- Version 0.9.26, build 39 (`Resources/Info.plist`). CLAUDE.md has the dated exception.
+
+Not done, follow-ups:
+- `rcChild` is booked and kept 14 days but used nowhere. A later reconciliation could compare it with the transcripts'
+  price for the same sessions (are `cost_usd` and `Pricing.swift` the same prices?). Today rc-child rows carry no
+  `cost_usd` (Claude Dashboard, 2026-10-16), so it is likely empty.
+- History's 5-hour windows, the week chart and Plan fit still estimate from this Mac's logs alone.
+- No UI for the feed's state beyond `--status` (no new window or menu bar text, per the rules). A signed-out feed is
+  quiet: the Cloud part just stops growing.
+
+### Mac test plan (cloud feed, v0.9.26)
+
+All in the background, nothing shown on Vinnie's screen. From `~/Code/Claude Meter`, on branch `feat/cloud-feed`:
+1. `swift build -c release 2>&1 | tail -20`: no errors. Likeliest spots if it fails: `CloudFeed.swift` (the
+   `offMain` generic continuation, the local `Box` class in `check()`, `nonisolated(unsafe)` statics), `Replay.swift`
+   `cloudChecks` (nested functions passed as closures), `WeekValueSection.legend` (`ViewThatFits`).
+2. `./scripts/replay.sh`: no `FAIL: synthetic:` lines; the section 6 line ends "…, cloud sessions)" and its count
+   is 18 higher than on `main`. Data FAILs from before may still show; compare with the same run on `main` (only new
+   FAILs count). Replay doesn't read `cloud.json`, so the data checks must be unchanged.
+3. `"$(swift build -c release --show-bin-path)/ClaudeMeter" --cloud-check; echo "exit $?"`: the first run may show
+   one macOS keychain prompt (allow it); expect `cloud sessions: ok`, a "listed: N sessions (…)" line, and "cloud this
+   week since <weekly start>: $X across N titles", exit 0. Note the numbers here. "signed_out" means no token was read
+   (or a 401/403 twice): check `security find-generic-password -s "Claude Code-credentials"` finds the item (it prints
+   its attributes, no secret). If Vinnie's Claude Code uses `CLAUDE_CONFIG_DIR`, the keychain service may carry a
+   suffix; Swarm Watch's plain name is what is used here.
+4. `scripts/render-all.sh build/renders-cloud`: no failures. Look at `history-fits-*`, `history-cloudonly-*` (three
+   grays on the bar, the legend in one line, stacked day columns, no "~" in cloudonly), `history-thismac-*` (unchanged:
+   no cloud), `popover-week-*` (a "Cloud: …" row with a gray bar, "Other (…)" row, summary "… this Mac · 5% cloud"),
+   `popover-warn-*`/`popover-long-*` (the weekly card's "Worth …" line, still with "~"; `long` must still be 340 pt),
+   and `help-*` (new sentences). Fixture renders use the dev binary's plan (Max 5x).
+5. `"$(swift build -c release --show-bin-path)/ClaudeMeter" --window-check; echo "exit $?"`: exit 0, as before.
+6. After Vinnie's go-ahead to install (`scripts/build.sh --install`, background relaunch): within a minute,
+   `~/Applications/ClaudeMeter.app/Contents/MacOS/ClaudeMeter --status` shows "cloud sessions: ok, last read 0m ago"
+   (the installed app is another binary, so the keychain may prompt once more, on screen: say so to Vinnie first) and a
+   "cloud this week" figure close to step 3's. `ls -l ~/Library/Application\ Support/ClaudeMeter/cloud.json` shows
+   `-rw-------`; `grep -c -i 'bearer\|accessToken\|sk-ant' ~/Library/Application\ Support/ClaudeMeter/cloud.json`
+   prints 0. A day later, `--status` "calibrated caps" week should sit higher than before on cloud-heavy weeks.
+
+Deploy: only with Vinnie's typed go-ahead (merge `feat/cloud-feed` into `main`, then `scripts/build.sh --install`).
+
+v0.9.25 (build 38), from 2026-10-23 (`fix/audit-2026-10-23`, merged to `main` as c48ee1b):
 v0.9.25 (build 38): every finding of `tool-reviews/2026-10-23/claude-meter.md` (0 High, 1 Medium, 4 Low), fixed in
 the report's order on branch `fix/audit-2026-10-23` and pushed. Written on a Linux box with no Swift compiler: **not
 compiled, not replayed, not rendered yet**. Run the Mac test plan below before merging or installing.
@@ -320,9 +418,9 @@ The "Claude Meter workbench" thread's 20x retune is this v0.9.18.
 
 - Value this week (v0.9.23): option A is built; option B (the receipt) only means rewriting `WeekValueSection`'s body.
   Day columns are 8 (a 3 PM reset touches 8 dates), not the brief's 7; the alternative is 7 24-hour slices labelled by
-  the weekday each starts on. Elsewhere is usually $0 because the weekly cap absorbs cloud use (see Status), so the
-  total is closer to a floor than the full value; fixing that means a cap calibrated only from Claude Code-only stretches,
-  which was tried and rejected once (Gotchas).
+  the weekday each starts on. Elsewhere was usually $0 because the weekly cap absorbed cloud use; v0.9.26 counts the
+  cloud sessions exactly and in the cap, so "Other" is what's left (claude.ai chat, the phone, other computers) and
+  can still be absorbed by the cap the same way.
 
 - Mascots (v0.9.16): commit and push v0.9.16 (his typed words). Read "keep the model name text" in Burning now as keeping the model in the row's tooltip (moved there in v0.9.6 at Vinnie's request), not adding it back inline as the mockup shows; say if it should be inline. Help's section headers still wear the flame and snowflake, and its Burning now sample row has no mascot; left as is. Going cold names get about 70 pt now (was about 110) because of the mascot and family column.
 
@@ -337,6 +435,15 @@ The "Claude Meter workbench" thread's 20x retune is this v0.9.18.
 - Audit leftovers: the 12 'skip' items in `claude-meter-open-findings-2026-10-11`, plus replay's drawn-vs-group window counting at the 7-day edge (#23, second half).
 
 ## Gotchas
+
+- Cloud sessions (v0.9.26): the sessions list is an unofficial API (`anthropic-beta: ccr-byoc-2025-07-29`); if it
+  changes or breaks, the feed goes quiet ("error" in `--status`), the ledger keeps what it had, and the numbers fall back
+  to this Mac + Other as the days pass. Only the 50 newest rows of each listing are read, so a session that drops off
+  and is resumed later is re-based from its stored cost (kept 60 days), not booked whole. `cost_usd` is taken as priced
+  like `Pricing.swift` (API list price); not checked. A Remote Control session on another Mac with the same folder path
+  under the same home would be taken for this Mac's (not counted). `rcChild` is a reconciliation stub, counted nowhere.
+- The keychain prompt (if any) names the binary that asks: the dev build in `.build/` and the installed app each may
+  ask once. The token is never written; `cloud.json` holds titles, costs, times, models and folders only.
 
 - Mascots: `--render` draws them still (motion is off outside the open dropdown), so a bob problem won't show in renders. To check it, temporarily flip `MascotsMoveKey.defaultValue` to true and render. Reduce Motion can only be checked on the real app.
 

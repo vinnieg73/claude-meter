@@ -2,7 +2,8 @@ import Foundation
 
 /// Runs one tiny headless Claude Code turn (Haiku, no tools, a one-line system prompt, no saved
 /// session, none of your settings or hooks) and reads the plan limits Claude Code reports
-/// alongside it. About $0.001 of usage. Claude Code owns its login; this app never reads it.
+/// alongside it. About $0.001 of usage. Claude Code owns its login; the probe never reads it (only the
+/// cloud sessions list does, read only and held in memory: `CloudFeed.swift`).
 enum Probe {
     enum Outcome {
         case reading(ExactReading)

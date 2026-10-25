@@ -83,7 +83,7 @@ struct HelpView: View {
                 "Pace: where your usual pace lands by the reset, then where today's pace would.",
                 "Budget: how much you can use per day and still last until the reset, next to what you normally use. It turns orange when you're using more than that.",
                 "Some weeks also show a separate limit per model, in rows underneath.",
-                "\"Worth $540 so far · 11.7× your plan\" is what this week's use would have cost at pay-as-you-go prices, and how many times what your plan costs for a week that is. Click History on that line for the details.",
+                "\"Worth $540 so far · 11.7× your plan\" is what this week's use would have cost at pay-as-you-go prices, and how many times what your plan costs for a week that is. A \"~\" before the amount means part of it is an estimate (Other, see Value this week). Click History on that line for the details.",
             ])
         }
     }
@@ -165,8 +165,8 @@ struct HelpView: View {
         HelpSection(symbol: "sun.max", title: "Today / This week") {
             Bullets([
                 "Today: how much you've used today, by project, in pay-as-you-go dollars.",
-                "This week: each project's share of your weekly limit.",
-                "In This week, \"Elsewhere\" is use the meter can't see on this Mac: claude.ai chat, the phone, other computers.",
+                "This week: each project's share of your weekly limit, and each cloud session (\"Cloud: …\", gray bar) by its title: claude.ai/code sessions and project threads, from the sessions list.",
+                "In This week, \"Other\" is use neither this Mac nor the sessions list accounts for: claude.ai chat, the phone, other computers.",
                 "The small chart shows what you used each day for the last 7 days.",
             ])
         }
@@ -195,9 +195,10 @@ struct HelpView: View {
             Para("The first thing in History: what your use since the weekly limit last reset would have cost if you paid Anthropic's pay-as-you-go prices instead of a plan.")
             Bullets([
                 "The big number is the total. The one next to it is how many times what your plan costs for a week that is: $20, $100 or $200 a month (Pro, Max 5x, Max 20x, from the plan picker in Plan fit), spread over 52 weeks.",
-                "The bar splits it into this Mac's Claude Code (dark gray, counted from its records) and \"Elsewhere\" (light gray): claude.ai, cloud sessions and other devices, worked out from your weekly %. The blue tick is your plan's week.",
-                "A \"~\" before the total means it includes Elsewhere, so part of it is an estimate. With no Elsewhere, there's no \"~\".",
-                "The columns are each day of the week so far, this Mac only (Elsewhere can't be split by day). A reset in the afternoon makes the first and last days partial, so the reset's weekday shows twice. Today's label is bold.",
+                "The bar splits it in three. This Mac's Claude Code (dark gray), counted from its records. Cloud sessions (mid gray): claude.ai/code sessions and project threads, exact, from the sessions list Anthropic keeps, read every 5 minutes with the Claude Code sign-in on this Mac. Other (light gray): claude.ai chat, the phone and other computers, worked out from your weekly %. The blue tick is your plan's week.",
+                "The first time, macOS may ask once to let Claude Meter read Claude Code's sign-in from the keychain. It's only held in memory and only sent to Anthropic. Remote Control sessions run on this Mac aren't counted twice: their records here already are. Turn it off with Cloud sessions in the settings.",
+                "A \"~\" before the total means it includes Other, so part of it is an estimate. With no Other, there's no \"~\".",
+                "The columns are each day of the week so far, this Mac with the cloud stacked on top (Other can't be split by day). A reset in the afternoon makes the first and last days partial, so the reset's weekday shows twice. Today's label is bold.",
                 "Underneath, this Mac's part by model.",
             ])
         }
@@ -229,6 +230,7 @@ struct HelpView: View {
             VStack(alignment: .leading, spacing: 3) {
                 SettingRow(symbol: "arrow.up.forward.app", name: "Open at login", text: "starts the meter when you log in.")
                 SettingRow(symbol: "calendar", name: "Weekly % in menu bar", text: "adds the weekly % to the title; the ring then shows the 5-hour %.")
+                SettingRow(symbol: "cloud", name: "Cloud sessions", text: "reads Anthropic's list of your cloud sessions and what each cost (on unless you turn it off).")
                 SettingRow(symbol: "bell", name: "Notifications", text: "turns all alerts on or off.")
                 SettingRow(symbol: "bell.badge", name: "Send test notification", text: "sends one now.")
                 SettingRow(symbol: "command", name: "Shortcut ⌃⌥⌘U", text: "turns the shortcut on or off.")
@@ -240,9 +242,10 @@ struct HelpView: View {
         HelpSection(symbol: "dot.radiowaves.left.and.right", title: "Where the numbers come from") {
             Bullets([
                 "Exact readings come from Anthropic, once a minute while a 5-hour window is open, so use on other devices shows up too. None while no window is open, since asking would start one. A window opened on another device is noticed within about 5 minutes. Each uses a tiny sliver of your limit.",
-                "In between, the meter estimates from Claude Code's own records on this Mac.",
+                "In between, the meter estimates from Claude Code's own records on this Mac, and from what your cloud sessions cost (Anthropic's sessions list, read every 5 minutes).",
                 "The Fable limit comes from Claude Code's usage report, which costs nothing to read.",
                 "It can't see claude.ai chat, the phone app or your other computers. The next exact reading catches up, and until then the meter leans toward showing a bit too much rather than too little.",
+                "Cloud sessions are counted from what each session cost. A session already running when the meter first saw it is spread evenly over its life, so only its share since the week began counts toward this week.",
             ])
             Callout(symbol: "exclamationmark.triangle.fill", tint: .orange) {
                 Para("If the line at the bottom of the meter turns orange, it can't get exact readings. Usually Claude Code is signed out: open Terminal, type claude, then /login.")

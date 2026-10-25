@@ -17,7 +17,7 @@ for f in live calm warn critical idle empty loading trouble week long nofable sa
     "$BIN" "${args[@]}" >/dev/null || { echo "render failed: ${args[*]}"; exit 1; }
   done
 done
-for f in live fits thismac uncalibrated; do
+for f in live fits thismac cloudonly uncalibrated; do
   for look in light dark; do
     args=(--render "$OUT/history-$f-$look.png" --history)
     [[ $f == live ]] || args+=(--fixture "$f")
