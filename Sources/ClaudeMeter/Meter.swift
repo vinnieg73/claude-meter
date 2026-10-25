@@ -887,8 +887,13 @@ final class Meter: ObservableObject {
             c.basis5h = Self.costBasis
             changed = true
         }
+        // A first weekly cap (none yet, or an old basis) only from 10%, as the 5-hour's: the blend moves a held cap
+        // slowly at low %, so one taken at 5% lingers. From a blank state on Oct 23 it came at 5% ($142 from $7, the
+        // week's start spent away from this Mac), still read $170 at 10% while the week's spend implied $225, and the
+        // "This week" shares stood above the weekly card for an hour. A held cap still learns from 5%.
+        let firstWeek = c.capWeek == nil || c.basisWeek != Self.weekBasis
         if fresh.contains("week"), let w = r.weekly,
-           let cap = impliedCap(w, span: Self.week, at: w.at ?? r.at, minPct: 5, minSpend: 2) {
+           let cap = impliedCap(w, span: Self.week, at: w.at ?? r.at, minPct: firstWeek ? 10 : 5, minSpend: 2) {
             c.capWeek = blend(c.basisWeek == Self.weekBasis ? c.capWeek : nil, cap, pct: w.pct)
             c.basisWeek = Self.weekBasis
             changed = true

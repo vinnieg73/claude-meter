@@ -108,6 +108,11 @@ list price (`Pricing.swift`); a model the table doesn't know is priced as the ne
 family (a vendor's prefix, as in Bedrock's `us.anthropic.claude-…`, is ignored). An exact reading fixes the
 $-equivalent that equals 100% of each window (the *cap*); between readings the % moves by
 logged spend ÷ cap. Checked 2026-09-24: estimate 22% vs exact 23% after 12 heavy minutes.
+A reading teaches a cap from 10% used (5-hour) or 5% (weekly), where whole-percent rounding stops
+dominating it. The *first* weekly cap (none learned yet, as on a fresh install) waits for 10% too:
+each later reading only nudges a held cap, so one taken at 5% lingers (v0.9.27; from a blank state on
+Oct 23 a 5% reading gave $142 against a real ~$209, and "This week" stood above the weekly card for
+an hour).
 
 What the estimate cannot see: claude.ai chat, the phone, other machines. Those are corrected
 at the next exact reading, and they push the cap estimate low, so the meter errs high. Cloud
@@ -207,11 +212,14 @@ on a failure. It checks:
    and its days, the "Cloud: …" shares, Other as the remainder, the estimate between readings, the
    weekly cap). The replay itself never reads `cloud.json`.
 
-It also fails when it ran too little to mean anything (fewer than 8 openings, 15 gate points or
+It also fails when it ran too little to mean anything (fewer than 6 openings, 15 gate points or
 30 accuracy checks, each scaled down when the readings span under 3 days, but never below one). The weekly floor is lower the less of the week the logs cover: they reach back
 8 days, so just after a weekly reset there is little or nothing to check, and that isn't a failure.
 It's the full 30 once the week's readings span half a week, scaled down below that, and with under
-a day's worth it asks for none (and judges no fewer than 8 checks).
+a day's worth it asks for none (and judges no fewer than 8 checks). The openings floor was 8 until
+v0.9.27: with cloud and phone use, 7 of the 8 days' 16 windows on Oct 25 were opened away from this
+Mac (which can't be checked), leaving 7. More openings skipped before calibration than checked still
+fails.
 
 Each reading is replayed with only the windows it measured: the history log also keeps windows
 carried over from earlier readings (past the 5-hour cap the probe stopped reporting the weekly), and
