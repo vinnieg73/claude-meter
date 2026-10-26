@@ -25,7 +25,8 @@ struct PopoverView: View {
                     Module {
                         WindowCard(w: w)
                         ExtrasRows(extras: s.extras)
-                        if let v = s.weekValue {
+                        // Its Other part is the weekly estimate's, which a blind card doesn't show.
+                        if let v = s.weekValue, !w.blind {
                             WeekValueLine(v: v, plan: meter.plan, openHistory: openHistory)
                         }
                     }

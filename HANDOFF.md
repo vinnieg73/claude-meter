@@ -1,9 +1,42 @@
 # Claude Meter: handoff
 
-Updated 2026-10-25 by Claude (v0.9.27: replay back to PASS; committed fef3929 on `main`, pushed, installed and relaunched 23:09, which also
-starts the v0.9.26 cloud feed for the first time).
+Updated 2026-10-26 by Claude (v0.9.28: signed-out cards; built, rendered, **not committed, not installed**).
 
 ## Status
+
+v0.9.28 (build 41): **while Claude Code is signed out, a card with nothing recent behind it says so instead of a guess.**
+Vinnie saw "~0% · Idle. Next message opens a window." on the 5-hour card while the CLI had been signed out since about
+Oct 24 (last probe reading Oct 23 21:43Z), and took the meter for broken. He signed in on Oct 26 17:28Z; the probe
+answered again at 17:32:30Z.
+- `Probe.isSignedOut` (the signed-out reason only; not-found and couldn't-start keep their old cards).
+- `WindowView.blind`, set in `recompute()` after the cards are built, view only: `pct`, `exact`, alerts, calibration and
+  the replay see nothing new. 5-hour: blind when idle, `stale`, or last measured more than `staleAfter` (10 min) ago.
+  Weekly: blind when not exact and last measured more than a day ago. A Dashboard-fed reading inside those limits
+  still shows as before.
+- `WindowCard`: a blind card shows "—", an empty track, "Signed out, so no reading." / "Sign in to Claude Code to see
+  this." on two lines (one was too long for the card), no chip, chart, projection or budget, and the popover drops the
+  "Worth …" line under a blind weekly card (its Other part is the weekly estimate). The orange footer stays.
+- A good `/usage` report (`refreshFable`, which runs before the window gate) clears a signed-out `probeError` and
+  `probeRetryAt`: the report needs a sign-in too. Without it, signing in while idle left the cards on "Signed out"
+  until the next message, since probes only run while a window is open.
+- Help's orange-line callout mentions it. New popover fixture `signedout` (also in `render-all.sh`).
+- Checked: `swift build -c release` OK; `scripts/render-all.sh build/renders-0928` OK, `popover-signedout-*` look
+  right, `long` still 680 px (340 pt).
+- **Replay FAILs, identically on unchanged `main`** (back-to-back stash runs, same lines): 12 probe gate points (need
+  15), 5-hour growth 0.47×, weekly growth 0.79× (an earlier pair also had only 4 window openings, need 6; the numbers
+  move as live readings arrive). Data drift from the signed-out gap (Oct 24–26 has no
+  probe readings, only Dashboard-fed ones), not this change. Not fixed here; it should recover as probe readings
+  build up again over the next days, or the floors need another look.
+
+Not done / known gaps:
+- The menu bar title still shows "~0%" when the 5-hour card is blind (out of this brief; the title has tight width
+  rules, see CLAUDE.md notes).
+- The replay doesn't exercise the blind rule; `signedout` sets the flag by hand, so the `recompute()` rule and the
+  `/usage` clear are checked by reading only. No Tests target exists.
+- Install (`scripts/build.sh --install`, background relaunch) waits for Vinnie's OK: a new binary can raise one
+  on-screen keychain prompt for the cloud feed.
+
+Previous status (v0.9.27) follows.
 
 v0.9.27 (build 40): **replay PASS again.** `./scripts/replay.sh` had failed 3 real-data checks on `main` c3a0301 and
 identically on c48ee1b (before the cloud feed), so not a cloud regression:

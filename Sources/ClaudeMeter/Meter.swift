@@ -44,6 +44,9 @@ struct WindowView {
     /// Anthropic reset it in between. No alert is raised from it; it is raised once it is measured.
     /// So is a window that lapsed since the last reading: the one open now is this Mac's spend alone.
     var stale = false
+    /// Claude Code was signed out at the last probe and nothing has measured this window lately, so any
+    /// % here would be a guess (an idle ~0% looks like a reading). The card says so instead of a number.
+    var blind = false
 
     /// From the whole percent shown, so "70%" is never drawn in the colour of 69.
     var level: Level {
@@ -562,6 +565,13 @@ final class Meter: ObservableObject {
             case .limits(let limits):
                 fableFailures = 0
                 fableRetryAt = nil
+                // The report needs a sign-in too, so this one says Claude Code is signed in again. Probes wait
+                // for an open window, so signing in while idle would otherwise leave the cards on "Signed out"
+                // until the next message.
+                if let error = store.state.probeError, Probe.isSignedOut(error) {
+                    store.state.probeError = nil
+                    store.state.probeRetryAt = nil
+                }
                 let wasOpen = windowOpen(clock())
                 takeFable(limits, at: launched)
                 // A window opened away from this Mac: probe now rather than at the next tick.
@@ -972,6 +982,15 @@ final class Meter: ObservableObject {
             if var w = s.weekly, !w.exact {
                 setAccuracy(&w, window: "week")
                 s.weekly = w
+            }
+            // Signed out, the probe can't measure, so a card with nothing recent behind it (an idle ~0%
+            // most of all) would show a guess that reads like a reading. A Dashboard-fed one still shows.
+            if let error = store.state.probeError, Probe.isSignedOut(error) {
+                func old(_ w: WindowView, after: TimeInterval) -> Bool {
+                    w.asOf.map { now.timeIntervalSince($0) > after } ?? true
+                }
+                if let f = s.fiveHour, f.idle || f.stale || old(f, after: Self.staleAfter) { s.fiveHour?.blind = true }
+                if let w = s.weekly, !w.exact, old(w, after: 86400) { s.weekly?.blind = true }
             }
             s.extras = extras(now)
             let recent = recentBySession(now)

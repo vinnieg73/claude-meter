@@ -248,7 +248,7 @@ struct HelpView: View {
                 "Cloud sessions are counted from what each session cost. A session already running when the meter first saw it is spread evenly over its life, so only its share since the week began counts toward this week.",
             ])
             Callout(symbol: "exclamationmark.triangle.fill", tint: .orange) {
-                Para("If the line at the bottom of the meter turns orange, it can't get exact readings. Usually Claude Code is signed out: open Terminal, type claude, then /login.")
+                Para("If the line at the bottom of the meter turns orange, it can't get exact readings. Usually Claude Code is signed out: open Terminal, type claude, then /login. While it is, a card with no recent reading shows — and \"Signed out, so no reading\" rather than a guess.")
             }
         }
     }

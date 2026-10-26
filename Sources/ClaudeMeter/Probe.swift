@@ -20,6 +20,9 @@ enum Probe {
         reason == signedOut || reason == notFound || reason == couldntStart
     }
 
+    /// The one failure that leaves the meter blind for certain: no probe answers until you log in.
+    static func isSignedOut(_ reason: String) -> Bool { reason == signedOut }
+
     static func run() async -> Outcome {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async { continuation.resume(returning: runNow()) }

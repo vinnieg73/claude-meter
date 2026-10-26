@@ -11,7 +11,7 @@ struct WindowCard: View {
 
     /// "exact · 2m ago", or "est. ±0.7 · 12m ago" counting from the last exact reading.
     private var status: String? {
-        guard let asOf = w.asOf else { return nil }
+        guard !w.blind, let asOf = w.asOf else { return nil }
         if w.exact { return "exact · \(Fmt.ago(asOf))" }
         return ["est.", w.accuracy].compactMap { $0 }.joined(separator: " ") + " · \(Fmt.ago(asOf))"
     }
@@ -26,7 +26,12 @@ struct WindowCard: View {
         VStack(alignment: .leading, spacing: 3) {
             titleRow
 
-            if w.series.count > 1, w.start != nil {
+            if w.blind {
+                // An empty track: a guessed fill or pace would read as a measurement.
+                WindowBar(pct: 0, projected: nil, color: color, projectedColor: color)
+                    .padding(.top, 2)
+                    .accessibilityHidden(true) // the title row already says there is no reading
+            } else if w.series.count > 1, w.start != nil {
                 PaceChart(w: w, color: color)
             } else {
                 WindowBar(pct: w.pct, projected: w.averageAtReset ?? w.atReset, color: color,
@@ -36,9 +41,11 @@ struct WindowCard: View {
                     .accessibilityHidden(w.idle) // the title row already says it is idle
             }
 
-            if w.idle || w.resetsAt != nil || status != nil { resetLine }
+            if w.blind {
+                blindLine
+            } else if w.idle || w.resetsAt != nil || status != nil { resetLine }
 
-            if w.projection != nil || w.budget != nil {
+            if !w.blind, w.projection != nil || w.budget != nil {
                 VStack(alignment: .leading, spacing: 0) {
                     if let p = w.projection { metaLine(p, warn: w.projectionWarn) }
                     if let b = w.budget { metaLine(b, warn: w.budgetWarn) }
@@ -57,7 +64,11 @@ struct WindowCard: View {
                 .alignmentGuide(.firstTextBaseline) { $0[.lastTextBaseline] }
             Spacer(minLength: 0)
             // Nothing is open while idle, so its 0% stays quiet rather than taking the level colour.
-            WindowHero(pct: w.pct, exact: w.exact, color: w.idle ? Color.secondary : color)
+            if w.blind {
+                Text("—").font(Theme.hero).foregroundStyle(.secondary).fixedSize()
+            } else {
+                WindowHero(pct: w.pct, exact: w.exact, color: w.idle ? Color.secondary : color)
+            }
         }
         // The hero's line box carries more air than its digits need; trimmed, the digits sit about as
         // far from the module's top edge as the title does from its left.
@@ -66,7 +77,19 @@ struct WindowCard: View {
         .padding(.bottom, 1)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(w.title)
-        .accessibilityValue(WindowHero.spoken(pct: w.pct, exact: w.exact, idle: w.idle))
+        .accessibilityValue(w.blind ? "no reading, Claude Code is signed out"
+                            : WindowHero.spoken(pct: w.pct, exact: w.exact, idle: w.idle))
+    }
+
+    /// In place of the reset line while signed out: two lines, as one is too long for the card.
+    private var blindLine: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text("Signed out, so no reading.")
+            Text("Sign in to Claude Code to see this.").foregroundStyle(.secondary)
+        }
+        .font(Theme.row)
+        .padding(.top, 1)
+        .accessibilityElement(children: .combine)
     }
 
     /// When it resets with a secondary countdown, or the idle note; the status chip at the end.

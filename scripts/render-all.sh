@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 swift build --quiet
 BIN="$(swift build --show-bin-path)/ClaudeMeter"
 
-for f in live calm warn critical idle empty loading trouble week long nofable samename; do
+for f in live calm warn critical idle signedout empty loading trouble week long nofable samename; do
   for look in light dark; do
     args=(--render "$OUT/popover-$f-$look.png")
     [[ $f == live ]] || args+=(--fixture "$f")

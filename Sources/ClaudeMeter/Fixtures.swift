@@ -5,7 +5,7 @@ import Foundation
 /// by the running app.
 @MainActor
 enum Fixtures {
-    static let popover = ["calm", "warn", "critical", "idle", "empty", "loading", "trouble", "week", "long", "nofable", "samename"]
+    static let popover = ["calm", "warn", "critical", "idle", "signedout", "empty", "loading", "trouble", "week", "long", "nofable", "samename"]
     static let history = ["fits", "thismac", "cloudonly", "uncalibrated"]
 
     /// `weekScope` is the Today / This week picker; `notice` stands in for the meter's own.
@@ -21,6 +21,7 @@ enum Fixtures {
         case "warn": warn
         case "critical": critical
         case "idle": idle
+        case "signedout": signedout
         case "empty": empty
         case "loading": Popover(snapshot: Snapshot())
         case "trouble": trouble
@@ -262,6 +263,29 @@ enum Fixtures {
         s.weekly = weekly(22, left: 5.1 * 86400, exact: true, landing: 51, projection: "7-day pace: ~51% at reset",
                           budget: "Budget ~15%/day to the reset · 7-day average 6.4%/day")
         s.fable = FableView(limit: fable(0, left: 5.1 * 86400), weekCost: 0, weekPts: 0)
+        s.todayCost = 3.1
+        s.todayTokens = 6_200_000
+        s.cacheHit = 0.91
+        s.projects = [Row(id: "Claude Meter", cost: 3.1, tokens: 0)]
+        s.models = [Row(id: "Opus 5.5", cost: 3.1, tokens: 0)]
+        s.daily = days([40, 0, 12, 66, 18, 0, 3.1])
+        return Popover(snapshot: s)
+    }
+
+    /// Signed out since this morning: no probe answers, so both cards say so instead of an idle ~0%
+    /// and a day-old weekly estimate.
+    private static var signedout: Popover {
+        var s = base(.normal, title: "~0%", pct: 0)
+        s.probeStatus = "Probe failed: Claude Code is signed out; run claude /login · retry \(Fmt.when(Date().addingTimeInterval(4 * 60)))"
+        var f = WindowView(title: "5-hour window", pct: 0, exact: false, asOf: now.addingTimeInterval(-4 * 3600), idle: true)
+        f.blind = true
+        s.fiveHour = f
+        var w = weekly(18, left: 2.1 * 86400, landing: 40, projection: "7-day pace: ~40% at reset",
+                       budget: "Budget ~39%/day to the reset · 7-day average 6.4%/day")
+        w.asOf = now.addingTimeInterval(-30 * 3600)
+        w.blind = true
+        s.weekly = w
+        s.fable = FableView(limit: fable(3, left: 2.1 * 86400), weekCost: 0, weekPts: 0)
         s.todayCost = 3.1
         s.todayTokens = 6_200_000
         s.cacheHit = 0.91
