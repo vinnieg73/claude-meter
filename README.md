@@ -39,7 +39,10 @@ item fits beside the notch (at most `cap 10:49 wk ~100%`).
   app never titled ("Remote Control session (from a project)"; its thread's title is only on
   Claude's servers) goes by the app's one-line summary of its last turn (`postTurnSummary`), else
   the project. When two rows in Burning now
-  and Going cold share a name (two threads in one folder), each says when it last ran ("· 4m").
+  and Going cold share a name (two threads in one folder), each says when it started ("Started 1:05 PM"
+  under a burning name, "· started 12:21 PM" after a cold one), so you can tell they're different sessions.
+  The start never changes, so a session keeps its tag as it moves from Burning now to Going cold. One whose
+  start is too old for the logs (or that started the same minute as its twin) says when it last ran instead.
   Hover a row for its whole name and, in Burning now, its model.
 - **Going cold**: sessions idle 15+ minutes whose 1-hour prompt cache expires soon, and what
   their next message would cost on top of a warm one once it has (the whole context is

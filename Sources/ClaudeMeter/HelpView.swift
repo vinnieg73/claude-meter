@@ -117,7 +117,7 @@ struct HelpView: View {
 
     private var burning: some View {
         HelpSection(symbol: "flame.fill", title: "Burning now", tint: .orange) {
-            Para("Every session that used Claude in the last 15 minutes at 50¢ an hour or more (at pay-as-you-go prices), by name. A runaway stays here with its ⚠ for 30 minutes, even once it has gone quiet. If two share a name, each also says when it last ran. Hover a row for its whole name and the model it runs on.")
+            Para("Every session that used Claude in the last 15 minutes at 50¢ an hour or more (at pay-as-you-go prices), by name. A runaway stays here with its ⚠ for 30 minutes, even once it has gone quiet. Two different sessions can share a name (two threads in one folder). Then each also says when it started, here and in Going cold, so you can tell them apart. Hover a row for its whole name and the model it runs on.")
             Sample {
                 HStack(spacing: 4) {
                     ForEach(Array([ModelFamily.opus, .sonnet, .haiku, .fable].enumerated()), id: \.offset) { _, f in

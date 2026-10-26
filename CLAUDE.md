@@ -39,6 +39,11 @@ moving only while the dropdown is open. The menu bar is unchanged. Done in v0.9.
 Going cold two-line rows and put Burning now tags under the name so names read. Scope is back to
 bug elimination.
 
+Exception (2026-10-26, asked for by the user): same-named rows in Burning now and Going cold are tagged with when
+each session started ("Started 1:05 PM"; "· started 12:21 PM" on a cold row), not when it last ran, so a burning and a
+cold "Pocket Fishing" read as two sessions. Last ran stays as the fallback. Done in v0.9.29. Scope is back to bug
+elimination.
+
 Exception (2026-10-17, asked for by the user): Remote Control sessions the desktop app left on its
 placeholder title are named by the app's summary of their last turn, else their project, done in
 v0.9.19. Scope is back to bug elimination.

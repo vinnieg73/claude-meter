@@ -113,7 +113,7 @@ private struct ColdRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(c.name).lineLimit(1).truncationMode(.tail).layoutPriority(1)
                     if let tag = c.tag {
-                        Text("· \(tag)").font(Theme.meta).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                        Text("· " + tagInline(tag)).font(Theme.meta).foregroundStyle(.secondary).lineLimit(1).fixedSize()
                     }
                 }
                 .font(Theme.row)
@@ -149,7 +149,7 @@ private struct SessionRow: View {
     let phase: Double
     let name: String
     let model: String
-    /// When the session last ran, after the name, while another row shares its name.
+    /// When the session started (else last ran), under the name, while another row shares its name.
     let tag: String?
     /// Runs on Fable: its bar is pink, the limit's colour.
     let fable: Bool
@@ -243,10 +243,16 @@ private struct SessionRow: View {
     }
 }
 
-/// What a row's tooltip says about its tag: "Last ran 18m ago", "Started 9:41 PM".
+/// A tag in words: "Started 9:41 PM", or "Last ran 18m ago" when the start isn't known.
 private func tagTip(_ tag: String) -> String {
     if tag.hasPrefix("started") { return "S" + tag.dropFirst() }
     return tag == "now" ? "Last ran just now" : "Last ran \(tag) ago"
+}
+
+/// The same after a name: "started 9:41 PM", "last ran 18m ago".
+private func tagInline(_ tag: String) -> String {
+    let words = tagTip(tag)
+    return words.prefix(1).lowercased() + words.dropFirst()
 }
 
 /// The `Chip` look in cyan, with the text darkened in light appearances: system cyan on its own

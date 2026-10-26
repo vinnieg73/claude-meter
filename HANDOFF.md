@@ -1,8 +1,31 @@
 # Claude Meter: handoff
 
-Updated 2026-10-26 by Claude (v0.9.28: signed-out cards; built, rendered, **not committed, not installed**).
+Updated 2026-10-26 by Claude (v0.9.29: same-named sessions tagged by start time; committed, pushed with v0.9.28,
+and installed 2026-10-26 ~21:20Z; see check results below).
 
 ## Status
+
+v0.9.29 (build 42): **same-named rows say when each session started.** Vinnie saw "Pocket Fishing" under Burning now
+and again under Going cold and asked how one session could be both. They were two threads in one folder. The old tags
+("Last ran just now" on the burning one, "· 42m" on the cold one) didn't read as "different sessions".
+- `Meter.tagSharedNames`: a shared name now tags each row "started <Fmt.when>" (the session's first logged turn) on both
+  lists, so a session keeps one tag as it moves from Burning now to Going cold. Fallback to last ran ("18m"/"now") when
+  the first turn is within 5 hours of the logs' edge (`coveredFrom`), or when two rows' start tags still match.
+- `SessionsSection`: cold rows show the tag in words after the name ("· started 12:21 PM", fallback "· last ran 27m
+  ago", `tagInline`) instead of a bare "· 42m". Burning rows unchanged in layout (tag under the name, gray).
+- `samename` fixture: cold rows carry start tags plus one fallback. README, Help (Burning now) and CLAUDE.md updated.
+- v0.9.28 (517aebf) was committed but not pushed or installed when this started; it went out with this push and install.
+- Checked (2026-10-26 ~20:50Z): `swift build -c release` OK, no warnings in the changed files (only the old
+  `Notifier.swift:175` async hint). `scripts/render-all.sh build/renders-0929` OK; `popover-samename-*` 680×1648,
+  `popover-long-*` still 680×1730 (340 pt). Live render: burning "Pocket Fishing / Started 8:26 PM", cold
+  "Pocket Fishing · started 7:56 PM".
+- **Replay FAILs, the same 4 lines on unchanged `main`** (stash run): "This week" shares over the weekly card at 28
+  steps (all Oct 26, 32% vs 29% at cap $213 up to 37% vs 33% at cap $265), 5 window openings (need 6), 13 gate points
+  (need 15), weekly growth 1.45×. Not this change. The shares/growth pair is new since v0.9.28 and looks like the
+  v0.9.27 cold-start pattern (a low weekly cap learned on Oct 26 after the signed-out gap); worth a look on its own.
+
+Previous status (v0.9.28) follows.
+
 
 v0.9.28 (build 41): **while Claude Code is signed out, a card with nothing recent behind it says so instead of a guess.**
 Vinnie saw "~0% · Idle. Next message opens a window." on the 5-hour card while the CLI had been signed out since about

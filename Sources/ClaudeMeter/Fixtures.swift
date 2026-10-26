@@ -380,8 +380,9 @@ enum Fixtures {
             Burn(id: "c", name: "Claude Meter", model: "Fable 5.1", perHour: 4.12, pctPerHour: 2.5, fable: true),
         ]
         p.snapshot.cooling = [
-            Cooling(id: "d", name: name, coldAt: now.addingTimeInterval(20 * 60), extra: 2.51, extraPct: 1.4, tag: "39m", model: "Opus 5.5"),
-            Cooling(id: "e", name: name, coldAt: now.addingTimeInterval(27 * 60), extra: 1.70, extraPct: 1.0, tag: "32m", model: "Sonnet 5.5"),
+            Cooling(id: "d", name: name, coldAt: now.addingTimeInterval(20 * 60), extra: 2.51, extraPct: 1.4, tag: "started 11:02 AM", model: "Opus 5.5"),
+            Cooling(id: "e", name: name, coldAt: now.addingTimeInterval(27 * 60), extra: 1.70, extraPct: 1.0, tag: "started 12:40 PM", model: "Sonnet 5.5"),
+            // One whose start is past the logs' edge says when it last ran instead.
             Cooling(id: "f", name: name, coldAt: now.addingTimeInterval(32 * 60), extra: 2.24, extraPct: 1.3, tag: "27m", model: "Haiku 4.5"),
         ]
         return p
