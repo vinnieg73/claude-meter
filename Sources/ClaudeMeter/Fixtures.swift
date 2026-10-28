@@ -5,7 +5,8 @@ import Foundation
 /// by the running app.
 @MainActor
 enum Fixtures {
-    static let popover = ["calm", "warn", "critical", "idle", "signedout", "empty", "loading", "trouble", "week", "long", "nofable", "samename"]
+    static let popover = ["calm", "warn", "critical", "idle", "signedout", "empty", "loading", "trouble", "week", "long", "nofable", "samename",
+                                 "credits", "creditslow", "creditstyped", "creditsexpired"]
     static let history = ["fits", "thismac", "cloudonly", "uncalibrated"]
 
     /// `weekScope` is the Today / This week picker; `notice` stands in for the meter's own.
@@ -29,6 +30,16 @@ enum Fixtures {
         case "long": long
         case "nofable": nofable
         case "samename": samename
+        case "credits": credits(.init(left: 137.27, granted: 146.88, expires: now.addingTimeInterval(18 * 86400),
+                                      setAt: now.addingTimeInterval(-86400), live: true, readAt: now.addingTimeInterval(-180),
+                                      spent: 2.04, perDay: 1.62))
+        case "creditslow": credits(.init(left: 31.40, granted: 146.88, expires: now.addingTimeInterval(18 * 86400),
+                                         setAt: now.addingTimeInterval(-9 * 86400), live: true, readAt: now.addingTimeInterval(-180),
+                                         spent: 105.87, perDay: 6.9))
+        case "creditstyped": credits(.init(left: 137.27, granted: 146.88, expires: now.addingTimeInterval(18 * 86400),
+                                           setAt: now.addingTimeInterval(-26 * 3600)))
+        case "creditsexpired": credits(.init(left: 12.10, granted: 146.88, expires: now.addingTimeInterval(-2 * 86400),
+                                             setAt: now.addingTimeInterval(-20 * 86400), expired: true))
         default: nil
         }
     }
@@ -158,6 +169,19 @@ enum Fixtures {
     }
 
     // MARK: - Dropdown states
+
+    /// The calm dropdown with the API credits card; running low, the `long` stress case with it, since the
+    /// card adds height to the tallest dropdown.
+    private static func credits(_ c: CreditsView) -> Popover {
+        let low = c.runsOut.map { out in c.lapses.map { out < $0 } ?? false } ?? false
+        var p = low ? long : calm
+        p.snapshot.credits = c
+        // claude.ai usage credits beside it: under the limit, or (running low) the limit reached.
+        p.snapshot.planCredits = PlanCredits.Reading(at: now.addingTimeInterval(-120), balance: 0, everOn: true,
+                                                     extraOn: !low, usedThisMonth: low ? 42.08 : 12.40, monthlyLimit: 40,
+                                                     limitReached: low)
+        return p
+    }
 
     private static var calm: Popover {
         var s = base(.normal, title: "34% · 2h50m", pct: 34)

@@ -6,6 +6,7 @@ struct FooterView: View {
     let s: Snapshot
     var openHistory: () -> Void = {}
     var openHelp: () -> Void = {}
+    var openCredits: () -> Void = {}
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let fine = Font.system(size: 9.5)
@@ -88,6 +89,7 @@ struct FooterView: View {
                 Toggle("Notifications", isOn: $meter.notificationsOn)
                 Button("Send test notification") { meter.testNotification() }
                 Toggle("Shortcut ⌃⌥⌘U", isOn: $meter.hotkeyOn)
+                Button("API credits…") { openCredits() }
                 Divider()
                 Button { openHelp() } label: { Label("Help…", systemImage: "questionmark.circle") }
                 Divider()

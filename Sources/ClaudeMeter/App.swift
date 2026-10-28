@@ -14,6 +14,8 @@ enum Main {
                ClaudeMeter --unregister-login
                ClaudeMeter --replay             replay this Mac's history through the meter and check it
                ClaudeMeter --cloud-check        read the cloud sessions list once and print it (writes nothing)
+               ClaudeMeter --credits-check [cost_report.json]
+                                                read the Console cost report once (or a saved one) and print it
         """
 
     static func main() {
@@ -25,7 +27,7 @@ enum Main {
             exit(2)
         }
         let known: Set = ["--render", "--dark", "--history", "--help-page", "--icons", "--fixture", "--status", "--unregister-login", "--replay",
-                          "--status-log", "--status-test", "--window-check", "--cloud-check"]
+                          "--status-log", "--status-test", "--window-check", "--cloud-check", "--credits-check", "--extra-check"]
         if args.dropFirst().contains(where: { $0.hasPrefix("--") && !known.contains($0) }) { misused() }
         if let i = args.firstIndex(of: "--render") {
             guard i + 1 < args.count, !args[i + 1].hasPrefix("--") else { misused() }
@@ -46,6 +48,10 @@ enum Main {
         if args.contains("--window-check") { exit(HistoryChrome.check()) }
         if args.contains("--replay") { exit(Replay.run()) }
         if args.contains("--cloud-check") { exit(CloudSessions.check()) }
+        if let i = args.firstIndex(of: "--credits-check") {
+            exit(ConsoleCredits.check(sample: i + 1 < args.count && !args[i + 1].hasPrefix("--") ? args[i + 1] : nil))
+        }
+        if args.contains("--extra-check") { exit(PlanCredits.check()) }
         if args.contains("--unregister-login") { return Status.unregisterLogin() }
 
         // Two meters would post every alert twice, probe twice, and overwrite each other's state. One
@@ -79,10 +85,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     private var subscriptions: Set<AnyCancellable> = []
     private var historyWindow: NSWindow?
     private var helpWindow: NSWindow?
+    /// While the API credits dialog is up, so closing the dropdown doesn't hide the app (and the dialog).
+    private var editingCredits = false
     private var hotKey: HotKey?
     private var sigterm: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.mainMenu = Self.editMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.autosaveName = "ClaudeMeter" // so a ⌘-drag to a new spot sticks across relaunches
         statusItem.button?.target = self
@@ -93,7 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         popover.delegate = self
         let host = NSHostingController(rootView: PopoverRoot(state: popoverState) {
             PopoverView(meter: self.meter, openHistory: { [weak self] in self?.openHistory() },
-                        openHelp: { [weak self] in self?.openHelp() })
+                        openHelp: { [weak self] in self?.openHelp() },
+                        openCredits: { [weak self] in self?.openCredits() }, capToScreen: true)
         })
         host.sizingOptions = .preferredContentSize // the popover follows the content as sections come and go
         popover.contentViewController = host
@@ -209,6 +219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         menu.addItem(menuItem("Notifications", "bell", #selector(toggleNotifications), on: meter.notificationsOn))
         menu.addItem(menuItem("Send test notification", "bell.badge", #selector(testNotification)))
         menu.addItem(menuItem("Shortcut ⌃⌥⌘U", "command", #selector(toggleHotkey), on: meter.hotkeyOn))
+        menu.addItem(menuItem("API credits…", "creditcard", #selector(showCredits)))
         menu.addItem(.separator())
         // No target: the quit action goes down the responder chain to the application.
         let quit = NSMenuItem(title: "Quit Claude Meter", action: #selector(NSApplication.terminate(_:)),
@@ -245,6 +256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     @objc private func toggleHotkey() { meter.hotkeyOn.toggle() }
     @objc private func showHistory() { openHistory() }
     @objc private func showHelp() { openHelp() }
+    @objc private func showCredits() { openCredits() }
 
     private func openHistory() {
         popover.performClose(nil)
@@ -274,6 +286,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         helpWindow?.makeKeyAndOrderFront(nil)
     }
 
+    /// The balance dialog, after the dropdown or menu has closed so the dialog takes the keyboard.
+    private func openCredits() {
+        guard !editingCredits else { return }
+        editingCredits = true
+        popover.performClose(nil)
+        DispatchQueue.main.async { [self] in
+            defer {
+                editingCredits = false
+                // Hand the focus back, as closing the dropdown does.
+                if NSApp.isActive, historyWindow?.isVisible != true, helpWindow?.isVisible != true { NSApp.hide(nil) }
+            }
+            NSApp.unhide(nil)
+            NSApp.activate()
+            let shown = meter.snapshot.credits.map { $0.expired ? nil : max(0, $0.left) } ?? nil
+            switch CreditsEditor.run(current: meter.credits.anchor, shownLeft: shown ?? meter.credits.anchor.map(\.left)) {
+            case .save(let a): meter.setCredits(a)
+            case .remove: meter.setCredits(nil)
+            case .cancel: break
+            }
+        }
+    }
+
     /// Opened from the shortcut, the meter took the focus from whatever you were in; closing
     /// the dropdown hands it back rather than leaving your keystrokes going nowhere.
     /// The mascots run only while the dropdown is open.
@@ -283,7 +317,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
     func popoverDidClose(_ notification: Notification) {
         popoverState.open = false
-        if NSApp.isActive, historyWindow?.isVisible != true, helpWindow?.isVisible != true { NSApp.hide(nil) }
+        if NSApp.isActive, !editingCredits, historyWindow?.isVisible != true, helpWindow?.isVisible != true { NSApp.hide(nil) }
+    }
+
+    /// Never shown (the app has no menu bar of its own), but text fields only get ⌘X ⌘C ⌘V ⌘A ⌘Z
+    /// through a main menu's Edit items: without it, the balance couldn't be pasted into the credits dialog.
+    private static func editMenu() -> NSMenu {
+        let main = NSMenu()
+        let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        let app = NSMenuItem()
+        app.submenu = NSMenu(title: "Claude Meter")
+        main.addItem(app)
+        let item = NSMenuItem()
+        item.submenu = edit
+        main.addItem(item)
+        return main
     }
 
     /// Dropped on close, so its view stops recomputing history every tick.

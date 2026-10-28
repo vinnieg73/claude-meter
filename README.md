@@ -21,6 +21,16 @@ item fits beside the notch (at most `cap 10:49 wk ~100%`).
   ($6.20)"). A plan without the limit gets "No separate Fable limit on your plan" instead. The card
   appears when a limit is known or Fable was used here this week. In Burning now a Fable session's
   bar is pink. The Fable limit raises no notifications.
+- **Usage credits** (v0.9.30): extra usage on the Claude plan (claude.ai › Settings › Usage), read with the
+  Claude Code sign-in like `/usage` does: this month's extra-usage spend against its monthly limit (a bar, red when
+  the limit is reached and extra usage is off) and the prepaid balance. Shown once extra usage was ever on.
+- **API credits** (v0.9.30): the prepaid Console credit balance (platform.claude.com) that pays for API-key
+  calls, separate from the plan's limits. Shown only once you type a balance in (gear menu or right-click →
+  **API credits…**: what's left, optionally the grant and its expiry day). No API returns the balance, so the
+  typed number is the anchor. With a Console key in the keychain, the Admin API's cost report is taken off it
+  and the card says "Console", with spend since and the 7-day $/day pace; red only when that pace runs it out
+  before the expiry day, or it's used up. Gray after the expiry day until you type the new balance. See
+  [API credits](#api-credits).
 - **Weekly**: the same without the chart, plus per-model weekly buckets when a reading has them.
   The forecast leads with your average pace (from exact readings only: this week's average
   until the history log covers 3+ days, then a 7-day average) and gives today's pace second,
@@ -103,6 +113,8 @@ once a minute while a 5-hour window is open and fills the time between from the 
 | usage report | `claude -p /usage`: the weekly Fable limit (exact); the probe's `rate_limit_event` doesn't carry it (it did Sep 25–30, 2026, as `seven_day_fable`) | a local command, so nothing spent and no window opened, and not behind the probe's window gate: every 5 minutes while Fable is in use here or no 5-hour window is known to be open (how a window opened elsewhere is found), every 30 otherwise, when the held reading's week ends, and on **Sync** |
 | statusline tap | Claude Code's own `rate_limits` (exact) | whenever a **terminal** `claude` session redraws its statusline |
 | `tap.json` drop-in | any exact reading, from anywhere (Claude Dashboard writes one as `source: "dashboard"`); counted like the statusline tap (it can raise a window or start a later one, never lower one), since a drop-in is dated when written and can carry an older number | when written |
+| usage credits | `GET https://api.anthropic.com/api/oauth/usage` (`extra_usage`: `used_credits`, `monthly_limit` in minor units, `spend_limit_reached`, `is_enabled`) and `GET /api/oauth/organizations/<org>/prepaid/credits` (`amount` in cents), with the Claude Code sign-in (held in memory) | ~25 s after launch, then every 15 minutes |
+| cost report | `GET https://api.anthropic.com/v1/organizations/cost_report` (`bucket_width=1d`, `limit=31`, every page): real billed spend for the **API credits** card, with the key in the keychain item `Claude Meter Console key` (read per check, held in memory) | ~15 s after launch or a new balance, then every 15 minutes while a balance is set and a key is there |
 | sessions list | `GET https://api.anthropic.com/v1/sessions` (default, `tags=hearth-thread`, `tags=rc-child`): each cloud session's title, model and exact `cost_usd`, with the Claude Code sign-in on this Mac (read only, held in memory); the same feed Swarm Watch and Claude Dashboard read | ~20 s after launch, then every 5 minutes (15 after a 429) while **Cloud sessions** is on |
 
 A turn is logged once per content block, and the first copy can be written mid-stream with a
@@ -362,6 +374,30 @@ ledger of the spend each read saw (14 days):
 
 Right-click → **Cloud sessions** turns it off (on by default); off, the numbers are as before
 v0.9.26 and the in-memory token is dropped.
+
+## API credits
+
+The card starts from the balance you type in (`consoleCredits` in the app's defaults: left, when, optional
+grant and expiry day). Anthropic has no endpoint for the prepaid balance, so that number is the anchor.
+
+With a key in the keychain the meter reads the Admin API's cost report every 15 minutes (`CreditsFeed`):
+cents as decimal strings in daily UTC buckets, about 5 minutes behind, summed over every page. Left = typed
+balance − spend since. The typing day is a partial UTC bucket: the first read that same day stores what the
+bucket already had (`baseline`) and only the rest counts; with no read that day (no key yet) counting starts
+the next UTC day. The pace is the last 7 whole UTC days ÷ 7. The last read is in `consoleCreditsRead`.
+
+Add the key yourself (paste it when asked; `-w` last keeps it out of the shell history):
+
+```
+security add-generic-password -U -s "Claude Meter Console key" -a console -w
+```
+
+The cost report takes an Admin API key, or a personal or service account key not scoped to a workspace;
+workspace keys don't work, and the Admin API is unavailable for individual Console accounts (set the account
+up as an organization first). 401 shows "turned down", 403/404 "can't read costs"; a failed read keeps the
+last good numbers. `ClaudeMeter --credits-check` reads once and prints (saves nothing);
+`--extra-check` prints the usage-credits reads (amounts only). `--credits-check cost_report.json` runs a saved response through the same parsing and sums. `--status`
+prints the balance and the last read.
 
 ## Notifications
 

@@ -147,6 +147,10 @@ struct Snapshot {
     var weekElsewhere: Double?
     /// This week at pay-as-you-go prices, for the weekly card's line and History.
     var weekValue: WeekValue?
+    /// The Console API credits card, while a balance is typed in.
+    var credits: CreditsView?
+    /// claude.ai usage credits (extra usage and the prepaid balance), once read and ever in use.
+    var planCredits: PlanCredits.Reading?
     /// Set while the 5-hour pace hits the cap before the reset: when (the reset itself while
     /// the warning holds on a pace that lands just under it).
     var capWarning: Date?
@@ -212,6 +216,8 @@ final class Meter: ObservableObject {
     private let queue = DispatchQueue(label: "claude-meter.logs", qos: .utility)
     /// Made on first use, so the replay's meter never reads cloud.json.
     private lazy var cloud = CloudFeed()
+    /// Console API credits: the balance you typed in and the cost report read against it.
+    private(set) lazy var credits = CreditsFeed()
     private var started = false
     /// What the cloud sessions spent (the feed's ledger), sorted by when it was booked. Empty with the
     /// setting off. Counted with this Mac's turns wherever the meter turns spend into %: calibration, the
@@ -320,6 +326,7 @@ final class Meter: ObservableObject {
         }
         cloud.setEnabled(cloudOn)
         takeCloud()
+        credits.onChange = { [weak self] in self?.recompute() }
         // Here rather than on the log queue: readings are appended on the main actor, and one
         // landing between compact's read and its rename would be lost.
         HistoryLog.compact()
@@ -371,6 +378,7 @@ final class Meter: ObservableObject {
             sync(force: false)
         }
         cloud.tick()
+        credits.tick()
     }
 
     /// The feed's ledger, or nothing with the setting off.
@@ -394,6 +402,11 @@ final class Meter: ObservableObject {
         refreshLaunchAtLogin()
         recompute()
         scan()
+    }
+
+    /// A new balance from the dialog, or none; read against the cost report at once.
+    func setCredits(_ a: CreditAnchor?) {
+        credits.set(a)
     }
 
     func testNotification() {
@@ -1007,6 +1020,8 @@ final class Meter: ObservableObject {
             fillWeekShares(&s, now: now)
             s.weekValue = weekValue(s, now: now)
             s.fable = fable(s, now: now)
+            s.credits = ConsoleCredits.view(anchor: credits.anchor, read: credits.read, now: now)
+            s.planCredits = credits.plan.flatMap { $0.everOn || ($0.balance ?? 0) > 0 ? $0 : nil }
             s.capWarning = updateWarning(s.fiveHour)
             // In use for an hour since the last reading (its first message after it an hour old, and one
             // in the last 15 minutes) yet nothing exact, when readings come about once a minute while you

@@ -1,9 +1,64 @@
 # Claude Meter: handoff
 
-Updated 2026-10-26 by Claude (v0.9.29: same-named sessions tagged by start time; committed, pushed with v0.9.28,
-and installed 2026-10-26 ~21:20Z; see check results below).
+Updated 2026-10-28 by Claude (v0.9.30: Usage credits + API credits cards, scrolling dropdown; built and checked, NOT committed, pushed or installed).
 
 ## Status
+
+v0.9.30 (build 43), part 1: **Usage credits card** (claude.ai extra usage). Vinnie: "yes i mean both of them" (both
+claude.ai usage credits and Console API credits).
+- Read with the Claude Code sign-in (`Credentials`, as the cloud feed): `GET /api/oauth/usage` → `extra_usage`
+  (`used_credits`, `monthly_limit` in minor units with `decimal_places`, `spend_limit_reached`, `is_enabled`,
+  `credits_ever_enabled`) and `GET /api/oauth/organizations/<org>/prepaid/credits` → `amount` (cents). Both found in
+  Claude Code's own binary (its /usage reads them). `PlanCredits` in `Credits.swift`, polled every 15 min from
+  `CreditsFeed.tickPlan`, saved as `planCreditsRead`. Shown once extra usage was ever on or a balance is there.
+- `--extra-check` against the real account (2026-10-28 ~00:00Z): extra usage $42.08 of $40.00 monthly limit,
+  spend_limit_reached true, is_enabled false (disabled_reason org_level_disabled_until); prepaid balance $0.
+- Card: "$42.08 of $40.00 this month", "balance $0.00", a bar (red at the limit), "Monthly limit reached. Extra
+  usage is off." in red. No reset date in the response, so none shown.
+- **The dropdown now scrolls** (`PopoverView.capToScreen`, live app only): the modules cap at the screen's visible
+  height − 130 pt; header and footer stay. With both cards the `long` stress case is ~1085 pt vs ~945 pt on his
+  14" screen (`critical` alone was 895). Checked in a temporary render: cap 600 → modules 600 pt, a big cap or none →
+  natural height (ScrollView reports its content's height). Renders still draw everything (cap off).
+- Also: an invisible Edit main menu (⌘V/⌘C/⌘A/⌘Z in the credits dialog), and `editingCredits` so closing the
+  dropdown doesn't hide the app under the dialog.
+- Replay 2026-10-28: the same 3 FAILs on this tree and on unchanged `main` (stash run): This week shares 85 steps,
+  14 gate points, 5-hour accuracy ±2.01.
+
+Part 2: **API credits card** for the Console's prepaid credits (Vinnie: "get the usage credit tracker
+included in the claude meter"; read as the Console API credits that fund Parlay Builder, ~$137 left of $146.88,
+expires Nov 14). Mockup: https://claude.ai/artifact/2G5n3LjuH6XWtyBfmZhVBt (A live, B running low, C typed in).
+- No API returns the prepaid balance (checked the Usage and Cost API docs 2026-10-27). So the balance is TYPED IN
+  (gear or right-click → API credits…, an NSAlert with left / granted / expires) and is the anchor. With a key in the
+  keychain item `Claude Meter Console key`, `CreditsFeed` reads `/v1/organizations/cost_report` every 15 min and shows
+  left = typed − spend since (all in `Credits.swift`). Not "grant − spend since grant": cost_report is org-wide and
+  can't say which grant paid (the Parlay logs show ~$100 spent Oct 11–26 while the Console showed only $9.61 drawn
+  from the new grant).
+- Typing day: cost buckets are whole UTC days. The first read on the typing day stores that bucket as `baseline`;
+  with no read that day, counting starts the next UTC day. Pace = last 7 whole UTC days ÷ 7. Amounts are cents.
+- Card after the Fable card, only when a balance is set. Chip "Console" (live) or "Typed in"; red line only when the
+  pace runs out before the expiry day, or used up; gray "Expired <day>" after it. Amounts with cents
+  (`ConsoleCredits.money`). Help section "API credits" (with the `security add-generic-password` command), README
+  "API credits" + sources row, CLAUDE.md exception, `--credits-check [file]`, `--status` lines.
+- Checked: `swift build -c release` OK (only the old Notifier hint). `--credits-check <sample>` on a made-up
+  10-bucket report: cents → dollars right ($1.2429 from "123.78912"+"0.5"), empty bucket 0, next page read, spent and
+  $/day match by hand. `scripts/render-all.sh build/renders-0930` OK; the 4 new fixtures look right (crops in
+  `build/renders-credits/`); `long` still 1730 px tall, `samename` 1648 (unchanged).
+- Replay: the same 3 FAILs as unchanged `main` (stash run, same numbers): This week shares at 86 steps, 14 gate
+  points (need 15), 5-hour growth 0.67×. Replay doesn't touch credits.
+
+Not done / unverified:
+- **Never hit the real API** (no key on this Mac; probing the keychain is blocked by auto mode). Unverified: that
+  omitting `ending_at` returns today's partial bucket, that his key type is accepted, 403 vs 404 for an individual
+  account. First thing once Vinnie adds a key: `ClaudeMeter --credits-check` and `--status`.
+- Vinnie's Console may be an individual account: then the Admin API (cost report) won't work until he sets up an
+  organization (free, Console › Settings › Organization). Typed-in mode works regardless.
+- The dialog was not click-tested (no-windows rule). Whether a `security`-made item prompts when the app reads it is
+  likely-no, not proven.
+- Not committed, pushed or installed: waiting for Vinnie's one sentence.
+
+Previous status (v0.9.29) follows.
+
+## Status (v0.9.29)
 
 v0.9.29 (build 42): **same-named rows say when each session started.** Vinnie saw "Pocket Fishing" under Burning now
 and again under Going cold and asked how one session could be both. They were two threads in one folder. The old tags

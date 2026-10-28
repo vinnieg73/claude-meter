@@ -489,7 +489,7 @@ enum Credentials {
     }
 
     /// `security` asks macOS for the item; the first time, macOS may ask you to allow it.
-    private static func keychainSecret(service: String) -> String? {
+    static func keychainSecret(service: String) -> String? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/security")
         p.arguments = ["find-generic-password", "-s", service, "-w"]

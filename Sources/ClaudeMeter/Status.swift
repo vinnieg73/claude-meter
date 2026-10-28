@@ -86,6 +86,8 @@ enum Status {
         }
         if let error = state.probeError { lines.append("probe: failing (\(error))") }
         lines += CloudSessions.statusLines(state: state)
+        lines += PlanCredits.statusLines()
+        lines += ConsoleCredits.statusLines()
         let caps = [("5h", state.calibration.cap5h), ("week", state.calibration.capWeek)]
             .compactMap { name, cap in cap.map { "\(name) \(Fmt.dollars($0))" } }
         lines.append("calibrated caps: " + (caps.isEmpty ? "none yet" : caps.joined(separator: ", ")))

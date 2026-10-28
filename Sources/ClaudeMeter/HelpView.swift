@@ -29,6 +29,8 @@ struct HelpView: View {
             fiveHour
             weekly
             fable
+            usageCredits
+            credits
             accuracy
             burning
             cold
@@ -99,6 +101,36 @@ struct HelpView: View {
             Para("The reading comes from Claude Code's own usage report (the same numbers as typing /usage): every 5 minutes while Fable is in use on this Mac or no 5-hour window is open (that is how a window opened on another device is noticed), every 30 otherwise, and on Sync. It costs nothing and never starts a 5-hour window. The Fable limit doesn't send notifications.",
                  secondary: true)
             Para("If your plan has no separate Fable limit, the card says so, and Fable simply counts toward the 5-hour and weekly limits above. The card appears once Fable has been used this week.",
+                 secondary: true)
+        }
+    }
+
+    private var usageCredits: some View {
+        HelpSection(symbol: "dollarsign.circle", title: "Usage credits") {
+            Para("Extra usage on your Claude plan (claude.ai › Settings › Usage): once you hit a limit, extra usage keeps you going and is paid from usage credits, up to a monthly limit you set. The card shows this month's extra usage against that limit, and your prepaid balance. It appears once extra usage has ever been turned on.")
+            Bullets([
+                "\"$12.40 of $40.00 this month\" is extra usage spent this month against your monthly limit; \"balance\" is the prepaid credits left.",
+                "Red when the monthly limit is reached: extra usage is off until it resets or you raise the limit on claude.ai.",
+            ])
+            Para("Read the way Claude Code's /usage reads it, with Claude Code's sign-in on this Mac, every 15 minutes. Nothing to set up.", secondary: true)
+        }
+    }
+
+    private var credits: some View {
+        HelpSection(symbol: "creditcard", title: "API credits") {
+            Para("The prepaid credits in your Anthropic Console (platform.claude.com) that pay for API calls made with an API key, such as a tool's own research runs. They are separate from your plan's limits above. The card shows only once you type a balance in: API credits… in the gear menu, or a right-click on the menu bar.")
+            Bullets([
+                "Typed in: copy the total left from the Console's Billing page, and optionally the grant's size and the day it expires. Anthropic has no way for an app to read the balance itself, so this number is the starting point.",
+                "Console: with a Console key in your keychain, the meter reads Anthropic's cost report every 15 minutes (real billed spend, about 5 minutes behind) and takes it off the balance you typed. The line under it is the pace over the last 7 days.",
+                "Red only when, at that pace, the credits run out before they expire, or are used up.",
+                "When a new month's credits land, press Update and type the new total; the meter can't see them arrive. After the expiry day the card goes gray until you do. With more than one grant, type the soonest expiry, or update the balance after it.",
+            ])
+            Para("To add the key, open Terminal and run this, then paste the key when it asks (it never lands in your shell history):", secondary: true)
+            Text("security add-generic-password -U -s \"\(ConsoleCredits.keychainService)\" -a console -w")
+                .font(.system(size: 11, design: .monospaced))
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            Para("The cost report needs a key that can read your organization's costs: an Admin API key (made by an admin in the Console's settings), or a personal key not tied to a workspace. Either works only once your Console account is set up as an organization (Console › Settings › Organization; free). An Admin key can also create keys and manage members, so keep it to this one keychain item. The key is read for each check and kept nowhere else. The day you type a balance in counts from that moment if a key is there; without one, spend counts from the next day (UTC).",
                  secondary: true)
         }
     }
@@ -234,6 +266,7 @@ struct HelpView: View {
                 SettingRow(symbol: "bell", name: "Notifications", text: "turns all alerts on or off.")
                 SettingRow(symbol: "bell.badge", name: "Send test notification", text: "sends one now.")
                 SettingRow(symbol: "command", name: "Shortcut ⌃⌥⌘U", text: "turns the shortcut on or off.")
+                SettingRow(symbol: "creditcard", name: "API credits…", text: "types in your Console credit balance (see API credits).")
             }
         }
     }

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The dropdown: a header, a module per section, and the footer.
@@ -5,6 +6,10 @@ struct PopoverView: View {
     @ObservedObject var meter: Meter
     var openHistory: () -> Void = {}
     var openHelp: () -> Void = {}
+    var openCredits: () -> Void = {}
+    /// The live dropdown: the modules scroll rather than run off the screen. Off for the renders,
+    /// which draw everything.
+    var capToScreen = false
     /// For `--render --fixture`: shown instead of the meter's own snapshot.
     var fixture: Snapshot? = nil
 
@@ -13,39 +18,62 @@ struct PopoverView: View {
         VStack(alignment: .leading, spacing: Theme.gap) {
             PopoverHeader(s: s)
 
-            if !s.loaded {
-                Module { LoadingNote() }
+            // Taller than the screen allows (a heavy moment with both credit cards), the modules scroll
+            // and the header and footer stay put.
+            if capToScreen, let screen = NSScreen.main {
+                // The header, footer and padding take about 95 pt, the popover's arrow and a margin the rest.
+                let cap = max(300, screen.visibleFrame.height - 130)
+                ScrollView(.vertical) { modules(s) }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .frame(maxHeight: cap)
             } else {
-                if let w = s.fiveHour {
-                    Module { WindowCard(w: w) }
-                } else {
-                    Module { NoWindowNote(hasReading: s.hasReading) }
-                }
-                if let w = s.weekly {
-                    Module {
-                        WindowCard(w: w)
-                        ExtrasRows(extras: s.extras)
-                        // Its Other part is the weekly estimate's, which a blind card doesn't show.
-                        if let v = s.weekValue, !w.blind {
-                            WeekValueLine(v: v, plan: meter.plan, openHistory: openHistory)
-                        }
-                    }
-                }
-                if let f = s.fable {
-                    Module { FableCard(f: f) }
-                }
-                if !s.burning.isEmpty || !s.cooling.isEmpty {
-                    Module { SessionsSection(s: s) }
-                }
-                Module { UsageSection(s: s) }
+                modules(s)
             }
 
-            FooterView(meter: meter, s: s, openHistory: openHistory, openHelp: openHelp)
+            FooterView(meter: meter, s: s, openHistory: openHistory, openHelp: openHelp, openCredits: openCredits)
         }
         .padding(.horizontal, Theme.pad)
         .padding(.top, Theme.pad)
         .padding(.bottom, 8) // the footer buttons carry 3pt of their own
         .frame(width: 340)
+    }
+
+    /// The modules between the header and the footer.
+    @ViewBuilder private func modules(_ s: Snapshot) -> some View {
+        VStack(alignment: .leading, spacing: Theme.gap) {
+        if !s.loaded {
+            Module { LoadingNote() }
+        } else {
+            if let w = s.fiveHour {
+                Module { WindowCard(w: w) }
+            } else {
+                Module { NoWindowNote(hasReading: s.hasReading) }
+            }
+            if let w = s.weekly {
+                Module {
+                    WindowCard(w: w)
+                    ExtrasRows(extras: s.extras)
+                    // Its Other part is the weekly estimate's, which a blind card doesn't show.
+                    if let v = s.weekValue, !w.blind {
+                        WeekValueLine(v: v, plan: meter.plan, openHistory: openHistory)
+                    }
+                }
+            }
+            if let f = s.fable {
+                Module { FableCard(f: f) }
+            }
+            if let p = s.planCredits {
+                Module { UsageCreditsCard(r: p) }
+            }
+            if let c = s.credits {
+                Module { CreditsCard(c: c, edit: openCredits) }
+            }
+            if !s.burning.isEmpty || !s.cooling.isEmpty {
+                Module { SessionsSection(s: s) }
+            }
+            Module { UsageSection(s: s) }
+        }
+        }
     }
 }
 

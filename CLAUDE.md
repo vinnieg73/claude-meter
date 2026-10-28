@@ -61,6 +61,15 @@ counts in calibration, the estimate between readings and the pace, so cloud use 
 setting "Cloud sessions" (on), `--cloud-check`, and cloud lines in `--status`. Done in v0.9.26. Scope is back to bug
 elimination.
 
+Exception (2026-10-27, asked for by the user): an API credits card for the Console's prepaid credits (mockup
+https://claude.ai/artifact/2G5n3LjuH6XWtyBfmZhVBt). The balance is typed in (gear or right-click → API credits…); a
+Console key in the keychain adds real spend from the Admin API's cost report (`Credits.swift`). `--credits-check`, lines
+in `--status`, fixtures `credits`, `creditslow`, `creditstyped`, `creditsexpired`. Also asked for: a Usage credits card
+for claude.ai extra usage (monthly spend vs limit, prepaid balance), read with the Claude Code sign-in from
+`/api/oauth/usage` and `.../prepaid/credits` (`PlanCredits`, `--extra-check`). With both cards the dropdown could outgrow
+the screen, so the live dropdown's modules now scroll past the screen's height (`capToScreen`; renders draw it whole).
+Done in v0.9.30. Scope is back to bug elimination.
+
 Before calling a fix done, run `./scripts/replay.sh` and confirm PASS. It replays the real history
 log and transcripts through the working tree (read-only) and checks window openings, the probe
 gate, duplicate alerts and accuracy. If a fix guards something the replay doesn't cover, say so.
