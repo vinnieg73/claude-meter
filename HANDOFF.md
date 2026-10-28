@@ -1,6 +1,7 @@
 # Claude Meter: handoff
 
-Updated 2026-10-28 by Claude (v0.9.30: Usage credits + API credits cards, scrolling dropdown; built and checked, NOT committed, pushed or installed).
+Updated 2026-10-28 by Claude (v0.9.30: Usage credits + API credits cards, scrolling dropdown; committed as 91d5373,
+pushed to `main` and installed 2026-10-28 ~19:30Z on Vinnie's typed "commit push and install please").
 
 ## Status
 
@@ -54,7 +55,6 @@ Not done / unverified:
   organization (free, Console › Settings › Organization). Typed-in mode works regardless.
 - The dialog was not click-tested (no-windows rule). Whether a `security`-made item prompts when the app reads it is
   likely-no, not proven.
-- Not committed, pushed or installed: waiting for Vinnie's one sentence.
 
 Previous status (v0.9.29) follows.
 
