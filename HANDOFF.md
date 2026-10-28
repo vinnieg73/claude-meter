@@ -1,7 +1,8 @@
 # Claude Meter: handoff
 
-Updated 2026-10-28 by Claude (v0.9.30: Usage credits + API credits cards, scrolling dropdown; committed as 91d5373,
-pushed to `main` and installed 2026-10-28 ~19:30Z on Vinnie's typed "commit push and install please").
+Updated 2026-10-28 by Claude (v0.9.31: `--credits-check` prints Anthropic's refusal reason; the Console key now
+works live. Committed, pushed to `main` and installed 2026-10-28 ~20:55Z on Vinnie's typed "commit push and
+instal l". v0.9.30 was 91d5373, installed ~19:30Z.)
 
 ## Status
 
@@ -51,6 +52,17 @@ Not done / unverified:
 - **Never hit the real API** (no key on this Mac; probing the keychain is blocked by auto mode). Unverified: that
   omitting `ending_at` returns today's partial bucket, that his key type is accepted, 403 vs 404 for an individual
   account. First thing once Vinnie adds a key: `ClaudeMeter --credits-check` and `--status`.
+- 2026-10-28: Vinnie asked to reuse Parlay Builder's key. Tested from the cloud (Parlay thread): cost_report with
+  CONSOLE_API_KEY gave HTTP 401, so it's a normal key and can't read spend. Walked him through making an Admin key
+  and adding it to the keychain himself. His Console has no Admin keys page; he made an Organization-scoped personal
+  key ("Claude Meter") and added it. `--credits-check` read it, but the API said HTTP 403 "Missing permissions": the
+  docs say the Admin API is unavailable for individual accounts and his is "Vinnie's Individual Org". Asked him to
+  set up an organization at platform.claude.com/settings/organization, then re-run `--credits-check`.
+- 2026-10-28 20:51Z: after he set up the organization, `--credits-check` = ok (spent $15.21 over ~3 days, $8.21/day over
+  7 days). Live reads work. Still unverified: whether today's partial UTC bucket is included. Next: he types his
+  balance (Console header, $107.79 at 20:13Z) via gear › API credits…, then check `--status`.
+- v0.9.31: `--credits-check` now also prints Anthropic's refusal (`HTTP 403: <message>`, via
+  `ConsoleCredits.lastRefusal`, cleared on each response).
 - Vinnie's Console may be an individual account: then the Admin API (cost report) won't work until he sets up an
   organization (free, Console › Settings › Organization). Typed-in mode works regardless.
 - The dialog was not click-tested (no-windows rule). Whether a `security`-made item prompts when the app reads it is

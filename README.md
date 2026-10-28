@@ -395,7 +395,7 @@ security add-generic-password -U -s "Claude Meter Console key" -a console -w
 The cost report takes an Admin API key, or a personal or service account key not scoped to a workspace;
 workspace keys don't work, and the Admin API is unavailable for individual Console accounts (set the account
 up as an organization first). 401 shows "turned down", 403/404 "can't read costs"; a failed read keeps the
-last good numbers. `ClaudeMeter --credits-check` reads once and prints (saves nothing);
+last good numbers. `ClaudeMeter --credits-check` reads once and prints (saves nothing; on a refusal it also prints Anthropic's reason, e.g. `HTTP 403: Missing permissions` for an individual Console account);
 `--extra-check` prints the usage-credits reads (amounts only). `--credits-check cost_report.json` runs a saved response through the same parsing and sums. `--status`
 prints the balance and the last read.
 

@@ -189,6 +189,8 @@ enum ConsoleCredits {
         return URLSession(configuration: c)
     }()
 
+    nonisolated(unsafe) static var lastRefusal: String?
+
     private static func fetch(key: String, from: Date, page: String?) async -> Fetched {
         guard var comps = URLComponents(string: "https://api.anthropic.com/v1/organizations/cost_report") else { return .failure("error") }
         var q = [URLQueryItem(name: "starting_at", value: ISO8601DateFormatter().string(from: from)),
@@ -206,7 +208,14 @@ enum ConsoleCredits {
         req.setValue("ClaudeMeter/\(version)", forHTTPHeaderField: "User-Agent")
         let data: Data, response: URLResponse
         do { (data, response) = try await session.data(for: req) } catch { return .failure("error") }
-        switch (response as? HTTPURLResponse)?.statusCode ?? 0 {
+        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        lastRefusal = nil
+        if !(200..<300).contains(code) {
+            // Anthropic's error body says why (e.g. permission_error); kept for --credits-check. Never holds the key.
+            let err = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["error"] as? [String: Any]
+            lastRefusal = "HTTP \(code)" + ((err?["message"] as? String).map { ": \($0)" } ?? "")
+        }
+        switch code {
         case 200..<300:
             guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return .failure("error") }
             return .success(json)
@@ -299,6 +308,7 @@ enum ConsoleCredits {
         }
         Swift.print("api credits: \(r.state)" + (r.spent.map { ", spent \(ConsoleCredits.money($0)) since \(Fmt.when(anchor.setAt))" } ?? "")
                     + (r.perDay.map { ", \(ConsoleCredits.money($0))/day over 7 days" } ?? "") + " (nothing saved)")
+        if r.state != "ok", let why = lastRefusal { Swift.print("  \(why)") }
         return r.state == "ok" ? 0 : 1
     }
 
