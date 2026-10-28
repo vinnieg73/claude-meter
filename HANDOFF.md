@@ -1,10 +1,31 @@
 # Claude Meter: handoff
 
-Updated 2026-10-28 by Claude (v0.9.31: `--credits-check` prints Anthropic's refusal reason; the Console key now
-works live. Committed, pushed to `main` and installed 2026-10-28 ~20:55Z on Vinnie's typed "commit push and
-instal l". v0.9.30 was 91d5373, installed ~19:30Z.)
+Updated 2026-10-28 by Claude (v0.9.32: Usage / Credits tabs, and the replay fixed to PASS. Committed, pushed to
+`main` and installed ~21:25Z on Vinnie's typed "commit push and ship then". Ask him for a screenshot of each tab.)
 
 ## Status
+
+v0.9.32 (build 45): **dropdown tabs**. Vinnie (with a screenshot of the scrolling dropdown): "move everything that has
+to do with API credits to its own tab in the drop down. there will be 2 tabs at the top". Read as both credit cards.
+- `DropdownTabs` in `PopoverView.swift`: a custom two-segment bar (Usage | Credits) under the header, kept in the
+  `dropdownTab` default. Custom rather than a segmented Picker so Credits can carry a red dot (only while Usage is open
+  and `CreditsView.alarm` or `planCredits.limitReached`). Credits tab: Usage credits card, API credits card, or a
+  `NoCreditsNote` with Set up (opens the editor) when no balance is typed. `capToScreen` scrolling kept as a backstop.
+- Fixtures: `tab` field; the credits fixtures render the Credits tab; new `creditsalert` (Usage tab, red dot) and
+  `nocredits`. Help, README, CLAUDE.md updated. Renders in `build/renders-tabs/` checked light and dark.
+- Replay fixed (Vinnie: "can we fix them first??"). The 4 FAILs (shares, 14 gate points, 5-hour growth 0.87×,
+  accuracy ±2.14) failed identically on v0.9.31: the replay fed NO cloud spend (`cloudSpend` stayed empty) while the
+  live meter counts it, and since Oct 25 most use is cloud (~$500–1000/day vs ~$25 here). Two harness changes, no
+  meter code: (1) each step gets cloud.json's ledger as a feed running all along would have booked it (entry whole
+  once `at` passed, before that its span's elapsed part); `seen`-based was worse (lumps at the first read Oct 26);
+  (2) the gate-shut check also runs after resets whose next window opened away from this Mac >1 min later (half
+  strength: no gate-opens check). Now PASS: 5-hour ±1.02 / 1.05×, weekly ±0.39 / 0.92× (close to the 0.88 edge),
+  19 gate points. Live `--status`: caps 5h $582, week $2.1k; accuracy ±0.5 (5h) and ±0.4 (weekly) over 20 checks.
+  The replay binary is unbundled, so it can't see the app's settings; it reads cloud.json whatever the setting.
+- Checked: release build OK; `scripts/render-all.sh build/renders-0932` OK, all 38 dropdown renders 680 px wide
+  (`long` 1790, `critical` 1850). Unchecked (renders can't show it): the live popover resizing on a tab switch, and
+  Set up opening the dialog from inside the popover (the `editingCredits` path). Ask Vinnie for screenshots after install.
+- Note: Vinnie's live Usage credits card is red (limit reached, $42.08 of $40), so the dot will be on all month.
 
 v0.9.30 (build 43), part 1: **Usage credits card** (claude.ai extra usage). Vinnie: "yes i mean both of them" (both
 claude.ai usage credits and Console API credits).

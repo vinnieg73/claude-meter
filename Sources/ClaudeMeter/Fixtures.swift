@@ -6,13 +6,15 @@ import Foundation
 @MainActor
 enum Fixtures {
     static let popover = ["calm", "warn", "critical", "idle", "signedout", "empty", "loading", "trouble", "week", "long", "nofable", "samename",
-                                 "credits", "creditslow", "creditstyped", "creditsexpired"]
+                                 "credits", "creditslow", "creditstyped", "creditsexpired", "creditsalert", "nocredits"]
     static let history = ["fits", "thismac", "cloudonly", "uncalibrated"]
 
-    /// `weekScope` is the Today / This week picker; `notice` stands in for the meter's own.
+    /// `weekScope` is the Today / This week picker; `tab` the dropdown's tab; `notice` stands in for the
+    /// meter's own.
     struct Popover {
         var snapshot: Snapshot
         var weekScope = false
+        var tab = DropdownTabs.usage
         var notice: String?
     }
 
@@ -40,6 +42,10 @@ enum Fixtures {
                                            setAt: now.addingTimeInterval(-26 * 3600)))
         case "creditsexpired": credits(.init(left: 12.10, granted: 146.88, expires: now.addingTimeInterval(-2 * 86400),
                                              setAt: now.addingTimeInterval(-20 * 86400), expired: true))
+        // The Usage tab with credits running out: the red dot on Credits.
+        case "creditsalert": usageTab(popover("creditslow"))
+        // The Credits tab before a balance is typed in.
+        case "nocredits": { var p = calm; p.tab = DropdownTabs.credits; return p }()
         default: nil
         }
     }
@@ -180,7 +186,12 @@ enum Fixtures {
         p.snapshot.planCredits = PlanCredits.Reading(at: now.addingTimeInterval(-120), balance: 0, everOn: true,
                                                      extraOn: !low, usedThisMonth: low ? 42.08 : 12.40, monthlyLimit: 40,
                                                      limitReached: low)
+        p.tab = DropdownTabs.credits
         return p
+    }
+
+    private static func usageTab(_ p: Popover?) -> Popover? {
+        p.map { var p = $0; p.tab = DropdownTabs.usage; return p }
     }
 
     private static var calm: Popover {

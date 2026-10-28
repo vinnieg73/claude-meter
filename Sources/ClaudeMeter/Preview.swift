@@ -31,7 +31,8 @@ enum Preview {
                     return false
                 }
                 // The argument domain is never saved, so the real setting is left alone.
-                UserDefaults.standard.setVolatileDomain(["weekScope": f.weekScope], forName: UserDefaults.argumentDomain)
+                UserDefaults.standard.setVolatileDomain(["weekScope": f.weekScope, "dropdownTab": f.tab],
+                                                        forName: UserDefaults.argumentDomain)
                 meter.notice = f.notice
                 print("menu bar: \(f.snapshot.menuTitle)")
                 content = AnyView(PopoverView(meter: meter, fixture: f.snapshot))

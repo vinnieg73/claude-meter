@@ -8,7 +8,8 @@ import Foundation
 ///    matches the real one (from the history log) within a minute, or is one 10-minute slot late
 ///    when the first message was logged within a minute of a mark (the logs can't tell which).
 /// 2. Probe gate: between a reset and the next message, a probe would not run (it would open
-///    a window); right after that message it would.
+///    a window); right after that message it would. Also just after a reset whose next window was
+///    opened away from this Mac.
 /// 3. Alerts: none goes out twice for the same window.
 /// 4. Accuracy: estimates made just before each exact reading are within the bar.
 /// 5. Consistency: every threshold, cap warning and runaway the dropdown called for was alerted;
@@ -16,7 +17,8 @@ import Foundation
 ///    never add up to more than the weekly card; History's windows don't overlap or peak above
 ///    their own readings.
 /// 6. Synthetic: made-up early resets, lapsed windows and probe-gate edges the log may never hold,
-///    and how the cloud sessions list is booked and counted (the replay itself never reads it).
+///    and how the cloud sessions list is booked and counted.
+/// The cloud sessions' spend comes from cloud.json's ledger, as the running app left it (read only).
 /// Each reading is replayed with only the windows it measured, not ones carried over.
 @MainActor
 enum Replay {
@@ -106,6 +108,9 @@ extension Meter {
         }
         var openings: [Opening] = []
         var openingsMoved = 0, openingsForeign = 0
+        // Resets whose next window something away from this Mac opened, over a minute later: the gate must
+        // still be shut just after the reset, with nothing logged here.
+        var foreignResets: [Date] = []
         for (reset, next) in zip(resets, resets.dropFirst()) {
             let i = upTo(reset)
             guard i < all.count else { continue }
@@ -116,7 +121,11 @@ extension Meter {
             // Not one that began before the last one's reset: Anthropic moved that reset itself.
             if opened < reset.addingTimeInterval(-60) { openingsMoved += 1; continue }
             // Not one opened well before this Mac's message (claude.ai, the phone): it can't know.
-            if first.timeIntervalSince(opened) > 660 { openingsForeign += 1; continue }
+            if first.timeIntervalSince(opened) > 660 {
+                openingsForeign += 1
+                if opened > reset.addingTimeInterval(60) { foreignResets.append(reset) }
+                continue
+            }
             openings.append(Opening(reset: reset, firstMessage: first, realReset: next))
         }
         /// What the meter knew at a reset: the last reading of the window that ended there.
@@ -169,6 +178,7 @@ extension Meter {
             t.addTimeInterval(600)
         }
         readings.forEach { times.insert($0.at) }
+        foreignResets.forEach { times.insert($0.addingTimeInterval(30)) }
         for o in openings {
             times.insert(o.reset.addingTimeInterval(30))
             times.insert(o.firstMessage.addingTimeInterval(30))
@@ -190,9 +200,24 @@ extension Meter {
         var shareBreaches: [(at: Date, shares: Double, week: Double, cap: Double)] = []
         var next = 0
         loaded = true
+        // Cloud spend from cloud.json as the running app left it (read only), as a feed running all along would
+        // have booked it: each entry whole once its time has passed, before that the part of its span gone by.
+        // Without it, with most use in cloud sessions since Oct 25, the caps were learned from this Mac's spend
+        // alone and the estimates, shares and growth failed on a meter that was fine.
+        let ledger = (CloudSessions.load()?.ledger ?? []).sorted { $0.at < $1.at }
         for t in times.sorted() {
             clock = { t }
             turns = Array(all[..<upTo(t)])
+            cloudSpend = ledger.compactMap { e in
+                if e.at <= t { return e }
+                let start = min(e.from, e.at)
+                guard start < t else { return nil }
+                var part = e
+                part.cost = e.cost * t.timeIntervalSince(start) / e.at.timeIntervalSince(start)
+                part.at = t
+                return part
+            }
+            cloudKnown = !ledger.isEmpty
             while next < readings.count, readings[next].at <= t {
                 let before = store.state.lastExact
                 absorb(readings[next])
@@ -221,20 +246,25 @@ extension Meter {
                 if shares > w.pct + 3 { shareBreaches.append((t, shares, w.pct, store.state.calibration.capWeek ?? 0)) }
             }
 
+            /// Just after a reset, with nothing logged since, the gate is shut. Judged from what the meter knew
+            /// at the reset: a reading taken since then may be the old probe's (pre-0.8 it ran seconds after a
+            /// reset and opened the window itself), and this code wouldn't have taken it.
+            func gateShut(after reset: Date, next: String) {
+                let held = store.state.lastExact
+                store.state.lastExact = lastBefore(reset) ?? held
+                let open = windowOpen(t)
+                store.state.lastExact = held
+                gateChecks += 1
+                if open {
+                    report.failures.append("probe would run at \(t) with no window open (reset \(reset), \(next))")
+                }
+            }
+            for reset in foreignResets where t == reset.addingTimeInterval(30) {
+                gateShut(after: reset, next: "next window opened away from this Mac")
+            }
             for o in openings {
                 if t == o.reset.addingTimeInterval(30), o.firstMessage > o.reset.addingTimeInterval(60) {
-                    // Judged from what the meter knew at the reset: a reading taken since then may be
-                    // the old probe's (pre-0.8 it ran seconds after a reset and opened the window
-                    // itself), and this code wouldn't have taken it.
-                    let held = store.state.lastExact
-                    store.state.lastExact = lastBefore(o.reset) ?? held
-                    let open = windowOpen(t)
-                    store.state.lastExact = held
-                    gateChecks += 1
-                    if open {
-                        report.failures.append("probe would run at \(t) with no window open "
-                                               + "(reset \(o.reset), next message \(o.firstMessage))")
-                    }
+                    gateShut(after: o.reset, next: "next message \(o.firstMessage)")
                 }
                 if t == o.firstMessage.addingTimeInterval(30) {
                     // Also from the reset's side: a reading of the new window (usual since 0.9) would

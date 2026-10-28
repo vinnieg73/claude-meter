@@ -61,6 +61,14 @@ struct CreditsView {
     var lapses: Date? {
         expires.flatMap { Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: $0)) }
     }
+
+    /// The card shows a red line: used up, or the pace runs out before the expiry day.
+    var alarm: Bool {
+        guard problem == nil, !expired else { return false }
+        if left <= 0 { return true }
+        guard let out = runsOut, let lapse = lapses else { return false }
+        return out < lapse
+    }
 }
 
 enum ConsoleCredits {

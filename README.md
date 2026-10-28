@@ -13,6 +13,10 @@ item fits beside the notch (at most `cap 10:49 wk ~100%`).
 
 ## What the dropdown shows
 
+Two tabs under the header (v0.9.32): **Usage** has everything below except the two credit cards, which are on
+**Credits** (with a Set up note until a Console balance is typed in). The tab you leave it on is kept
+(`dropdownTab`); while a credits card shows a red line, the Credits tab has a red dot.
+
 - **5-hour window**: %, reset time, a chart of the window so far with a dashed pace line to
   the reset, and where that pace lands (or when it hits the cap).
 - **Weekly · Fable**: Max plans have a separate weekly limit for Fable. Its card (pink) shows that
@@ -21,10 +25,10 @@ item fits beside the notch (at most `cap 10:49 wk ~100%`).
   ($6.20)"). A plan without the limit gets "No separate Fable limit on your plan" instead. The card
   appears when a limit is known or Fable was used here this week. In Burning now a Fable session's
   bar is pink. The Fable limit raises no notifications.
-- **Usage credits** (v0.9.30): extra usage on the Claude plan (claude.ai › Settings › Usage), read with the
+- **Usage credits** (v0.9.30, Credits tab): extra usage on the Claude plan (claude.ai › Settings › Usage), read with the
   Claude Code sign-in like `/usage` does: this month's extra-usage spend against its monthly limit (a bar, red when
   the limit is reached and extra usage is off) and the prepaid balance. Shown once extra usage was ever on.
-- **API credits** (v0.9.30): the prepaid Console credit balance (platform.claude.com) that pays for API-key
+- **API credits** (v0.9.30, Credits tab): the prepaid Console credit balance (platform.claude.com) that pays for API-key
   calls, separate from the plan's limits. Shown only once you type a balance in (gear menu or right-click →
   **API credits…**: what's left, optionally the grant and its expiry day). No API returns the balance, so the
   typed number is the anchor. With a Console key in the keychain, the Admin API's cost report is taken off it
@@ -200,7 +204,8 @@ on a failure. It checks:
    the reply arrives, so a first message logged within a minute of a 10-minute mark may have opened
    the slot before; there either slot passes (the probe a minute later reads the real reset).
 2. **Probe gate**: between a reset and the next message a probe would not run (it would open a
-   window); right after that message it would.
+   window); right after that message it would. Also just after a reset whose next window was opened
+   away from this Mac (cloud sessions, the phone) over a minute later.
 3. **Alerts**: none goes out twice for the same window unless Anthropic reset it early in between,
    and every threshold, cap warning and runaway the dropdown called for was sent, and every
    threshold alert has a reading of that window behind it, one with no reading of its window at
@@ -225,7 +230,13 @@ on a failure. It checks:
    booked right (a first sighting whole, rises at their update, nothing twice across a relaunch, a
    fall re-based, Remote Control sessions on this Mac apart) and counted right (the week's cloud part
    and its days, the "Cloud: …" shares, Other as the remainder, the estimate between readings, the
-   weekly cap). The replay itself never reads `cloud.json`.
+   weekly cap).
+
+The cloud sessions' spend comes from `cloud.json`'s ledger as the running app left it (read only), fed in
+as a feed running all along would have booked it: each entry whole once its time has passed, before that
+the part of its span gone by. Without it (before v0.9.32) the replay learned the caps from this Mac's
+spend alone, and with most use in cloud sessions since Oct 25 it failed the accuracy, growth and shares
+checks on a meter that was fine. With no `cloud.json` (the setting always off) it replays without them.
 
 It also fails when it ran too little to mean anything (fewer than 6 openings, 15 gate points or
 30 accuracy checks, each scaled down when the readings span under 3 days, but never below one). The weekly floor is lower the less of the week the logs cover: they reach back

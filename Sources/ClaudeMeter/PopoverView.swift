@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The dropdown: a header, a module per section, and the footer.
+/// The dropdown: a header, the Usage / Credits tabs, a module per section, and the footer.
 struct PopoverView: View {
     @ObservedObject var meter: Meter
     var openHistory: () -> Void = {}
@@ -12,14 +12,17 @@ struct PopoverView: View {
     var capToScreen = false
     /// For `--render --fixture`: shown instead of the meter's own snapshot.
     var fixture: Snapshot? = nil
+    /// "usage" or "credits"; kept between openings, like Today / This week.
+    @AppStorage("dropdownTab") private var tab = DropdownTabs.usage
 
     var body: some View {
         let s = fixture ?? meter.snapshot
         VStack(alignment: .leading, spacing: Theme.gap) {
             PopoverHeader(s: s)
+            DropdownTabs(tab: $tab, alarm: s.credits?.alarm == true || s.planCredits?.limitReached == true)
 
-            // Taller than the screen allows (a heavy moment with both credit cards), the modules scroll
-            // and the header and footer stay put.
+            // Taller than the screen allows (a backstop: the tallest Usage states, like `critical`, come to
+            // about 925 pt), the modules scroll and the header, tabs and footer stay put.
             if capToScreen, let screen = NSScreen.main {
                 // The header, footer and padding take about 95 pt, the popover's arrow and a margin the rest.
                 let cap = max(300, screen.visibleFrame.height - 130)
@@ -38,10 +41,19 @@ struct PopoverView: View {
         .frame(width: 340)
     }
 
-    /// The modules between the header and the footer.
+    /// The modules between the tabs and the footer.
     @ViewBuilder private func modules(_ s: Snapshot) -> some View {
         VStack(alignment: .leading, spacing: Theme.gap) {
-        if !s.loaded {
+        if tab == DropdownTabs.credits {
+            if let p = s.planCredits {
+                Module { UsageCreditsCard(r: p) }
+            }
+            if let c = s.credits {
+                Module { CreditsCard(c: c, edit: openCredits) }
+            } else {
+                Module { NoCreditsNote(set: openCredits) }
+            }
+        } else if !s.loaded {
             Module { LoadingNote() }
         } else {
             if let w = s.fiveHour {
@@ -61,12 +73,6 @@ struct PopoverView: View {
             }
             if let f = s.fable {
                 Module { FableCard(f: f) }
-            }
-            if let p = s.planCredits {
-                Module { UsageCreditsCard(r: p) }
-            }
-            if let c = s.credits {
-                Module { CreditsCard(c: c, edit: openCredits) }
             }
             if !s.burning.isEmpty || !s.cooling.isEmpty {
                 Module { SessionsSection(s: s) }
@@ -166,6 +172,79 @@ private struct WorkingPill: View {
         .background(Capsule().fill(Theme.track))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(burning.count) working")
+    }
+}
+
+// MARK: - Tabs
+
+/// Usage (the limits, sessions and spend) and Credits (claude.ai usage credits and the Console's API
+/// credits), full width under the header. A red dot on Credits when a card there shows a red line
+/// and the Usage tab is the one open.
+struct DropdownTabs: View {
+    static let usage = "usage"
+    static let credits = "credits"
+
+    @Binding var tab: String
+    let alarm: Bool
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        HStack(spacing: 2) {
+            segment("Usage", Self.usage)
+            segment("Credits", Self.credits, dot: alarm && tab != Self.credits)
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.track))
+    }
+
+    private func segment(_ title: String, _ id: String, dot: Bool = false) -> some View {
+        let on = tab == id
+        return Button { tab = id } label: {
+            HStack(spacing: 4) {
+                Text(title)
+                if dot {
+                    Circle().fill(Color.red).frame(width: 5, height: 5)
+                }
+            }
+            .font(.system(size: 11, weight: on ? .semibold : .regular))
+            .foregroundStyle(on ? Color.primary : Color.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 3)
+            .background {
+                if on {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(scheme == .dark ? Color.white.opacity(0.16) : Color.white)
+                        .shadow(color: .black.opacity(0.12), radius: 0.5, y: 0.5)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(dot ? "\(title), needs a look" : title)
+        .accessibilityAddTraits(on ? [.isSelected] : [])
+    }
+}
+
+/// The Credits tab before a Console balance is typed in.
+private struct NoCreditsNote: View {
+    let set: () -> Void
+
+    var body: some View {
+        NoteRow {
+            Image(systemName: "creditcard")
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(.secondary)
+        } words: {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("API credits").font(Theme.title)
+                Text("Type in your balance from the Console to track it.")
+                    .font(Theme.meta).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 4)
+            Button("Set up", action: set)
+                .controlSize(.small)
+        }
     }
 }
 

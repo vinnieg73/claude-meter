@@ -70,6 +70,14 @@ for claude.ai extra usage (monthly spend vs limit, prepaid balance), read with t
 the screen, so the live dropdown's modules now scroll past the screen's height (`capToScreen`; renders draw it whole).
 Done in v0.9.30. Scope is back to bug elimination.
 
+Exception (2026-10-28, asked for by the user: "move everything that has to do with API credits to its own tab"): the
+dropdown has two tabs under the header, Usage and Credits (`DropdownTabs`, `dropdownTab` default); both credit cards
+moved to Credits, with a Set up note when no balance is typed and a red dot on the Credits tab while a card there is red
+(`CreditsView.alarm`, `limitReached`). Fixtures `creditsalert`, `nocredits`; the credits fixtures render the Credits tab.
+Done in v0.9.32. Scope is back to bug elimination.
+Same release (asked for: "can we fix them first"): the replay fed no cloud spend, so it failed 4 checks on a meter
+that was fine; it now replays cloud.json's ledger and checks the probe gate after resets opened away from this Mac.
+
 Before calling a fix done, run `./scripts/replay.sh` and confirm PASS. It replays the real history
 log and transcripts through the working tree (read-only) and checks window openings, the probe
 gate, duplicate alerts and accuracy. If a fix guards something the replay doesn't cover, say so.
@@ -92,4 +100,7 @@ a title with the weekly % drops the 5-hour % (the ring shows it): "2h50m wk 41%"
 - A window sized to its content (`sizingOptions = .preferredContentSize`, not resizable) runs under the Dock once the content outgrows the screen: History did at 1025 pt on a 874 pt visible screen after "Value this week" went on top. Windows open at min(content, visibleFrame − margin), scroll, resize in height, and clamp a saved size; check with `ClaudeMeter --window-check` (v0.9.23).
 - A replay starts from a blank state, so it learns caps the way a fresh install does: a first weekly cap taken at 5% (Oct 23: $142 from $7, the real cap ~$209) lingered because the blend only nudges a held cap at low %, and failed "This week" shares and weekly growth. The first weekly cap now waits for 10%. The live app never showed it (its cap carries over), so a replay FAIL can be a real cold-start bug, not aging data (v0.9.27).
 - A signed-out CLI (Oct 24–26) leaves days with no probe readings, so the replay's real-data floors (openings, gate points, 5-hour growth) fail on any code; compare with a stash run on `main` before blaming a change (v0.9.28).
+- The replay fed no cloud spend while the live meter counts it, so once most use moved to cloud sessions (Oct 25 on,
+  ~$500–1000/day vs ~$25 on this Mac) it learned the caps from this Mac alone and failed accuracy, growth and the
+  "This week" shares on a working meter. A test harness has to feed every input the live code reads (v0.9.32).
 - NSStatusItem Preferred Position values on macOS 27 are not screen coordinates and can't be seeded reliably; only autosaveName plus a user ⌘-drag (v0.9.21).
