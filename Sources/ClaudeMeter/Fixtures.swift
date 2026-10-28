@@ -42,7 +42,7 @@ enum Fixtures {
                                            setAt: now.addingTimeInterval(-26 * 3600)))
         case "creditsexpired": credits(.init(left: 12.10, granted: 146.88, expires: now.addingTimeInterval(-2 * 86400),
                                              setAt: now.addingTimeInterval(-20 * 86400), expired: true))
-        // The Usage tab with credits running out: the red dot on Credits.
+        // The Usage tab with credits running out ("Credits · out …" in red) and extra usage off at its limit.
         case "creditsalert": usageTab(popover("creditslow"))
         // The Credits tab before a balance is typed in.
         case "nocredits": { var p = calm; p.tab = DropdownTabs.credits; return p }()

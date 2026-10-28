@@ -19,7 +19,7 @@ struct PopoverView: View {
         let s = fixture ?? meter.snapshot
         VStack(alignment: .leading, spacing: Theme.gap) {
             PopoverHeader(s: s)
-            DropdownTabs(tab: $tab, alarm: s.credits?.alarm == true || s.planCredits?.limitReached == true)
+            DropdownTabs(tab: $tab, usage: DropdownTabs.usageDetail(s), credits: DropdownTabs.creditsDetail(s))
 
             // Taller than the screen allows (a backstop: the tallest Usage states, like `critical`, come to
             // about 925 pt), the modules scroll and the header, tabs and footer stay put.
@@ -57,13 +57,17 @@ struct PopoverView: View {
             Module { LoadingNote() }
         } else {
             if let w = s.fiveHour {
-                Module { WindowCard(w: w) }
+                Module {
+                    WindowCard(w: w)
+                    ExtraOffLine(w: w, credits: s.planCredits)
+                }
             } else {
                 Module { NoWindowNote(hasReading: s.hasReading) }
             }
             if let w = s.weekly {
                 Module {
                     WindowCard(w: w)
+                    ExtraOffLine(w: w, credits: s.planCredits)
                     ExtrasRows(extras: s.extras)
                     // Its Other part is the weekly estimate's, which a blind card doesn't show.
                     if let v = s.weekValue, !w.blind {
@@ -178,34 +182,62 @@ private struct WorkingPill: View {
 // MARK: - Tabs
 
 /// Usage (the limits, sessions and spend) and Credits (claude.ai usage credits and the Console's API
-/// credits), full width under the header. A red dot on Credits when a card there shows a red line
-/// and the Usage tab is the one open.
+/// credits), full width under the header. Each says its headline in words: "Usage · 62%", "Credits · $107
+/// left", and in red, whichever tab is open, "Credits · out Nov 11" while the API credits card's line is red.
+/// Words rather than a dot, which read like a notification that looking clears (v0.9.33).
 struct DropdownTabs: View {
     static let usage = "usage"
     static let credits = "credits"
 
     @Binding var tab: String
-    let alarm: Bool
+    let usage: Detail?
+    let credits: Detail?
     @Environment(\.colorScheme) private var scheme
+
+    struct Detail {
+        var text: String
+        var alarm = false
+    }
+
+    /// The 5-hour % the menu bar's ring shows; nothing while idle or signed out.
+    static func usageDetail(_ s: Snapshot) -> Detail? {
+        guard let w = s.fiveHour, !w.idle, !w.blind else { return nil }
+        return Detail(text: (w.exact ? "" : "~") + Fmt.pct(w.pct))
+    }
+
+    /// What's left of the API credits, or (red) when they run out before they expire, or are used up.
+    static func creditsDetail(_ s: Snapshot) -> Detail? {
+        guard let c = s.credits else { return nil }
+        if c.expired { return Detail(text: "expired") }
+        if c.alarm {
+            if c.left <= 0 { return Detail(text: "used up", alarm: true) }
+            if let out = c.runsOut { return Detail(text: "out \(ConsoleCredits.day.string(from: out))", alarm: true) }
+        }
+        return Detail(text: String(format: "$%.0f left", max(0, c.left.rounded(.down))))
+    }
 
     var body: some View {
         HStack(spacing: 2) {
-            segment("Usage", Self.usage)
-            segment("Credits", Self.credits, dot: alarm && tab != Self.credits)
+            segment("Usage", Self.usage, usage)
+            segment("Credits", Self.credits, credits)
         }
         .padding(2)
         .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.track))
     }
 
-    private func segment(_ title: String, _ id: String, dot: Bool = false) -> some View {
+    private func segment(_ title: String, _ id: String, _ detail: Detail?) -> some View {
         let on = tab == id
         return Button { tab = id } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: 0) {
                 Text(title)
-                if dot {
-                    Circle().fill(Color.red).frame(width: 5, height: 5)
+                if let detail {
+                    Text(" · \(detail.text)")
+                        .monospacedDigit()
+                        .foregroundStyle(detail.alarm ? Color.red : on ? Color.primary : Color.secondary)
                 }
             }
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
             .font(.system(size: 11, weight: on ? .semibold : .regular))
             .foregroundStyle(on ? Color.primary : Color.secondary)
             .frame(maxWidth: .infinity)
@@ -220,8 +252,25 @@ struct DropdownTabs: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(dot ? "\(title), needs a look" : title)
+        .accessibilityLabel(detail.map { "\(title), \($0.text)" } ?? title)
         .accessibilityAddTraits(on ? [.isSelected] : [])
+    }
+}
+
+/// Under the 5-hour or weekly card from 70% (orange, red from 90%, as the card), when claude.ai extra usage is
+/// off: the plan's limit is a hard stop. Where it bites, rather than a marker on the Credits tab.
+private struct ExtraOffLine: View {
+    let w: WindowView
+    let credits: PlanCredits.Reading?
+
+    var body: some View {
+        if let c = credits, c.limitReached || c.extraOn == false, !w.blind, !w.idle, w.level != .normal {
+            Text(c.limitReached ? "Extra usage hit its monthly limit, so you'll stop at this limit."
+                                : "Extra usage is off, so you'll stop at this limit.")
+                .font(Theme.meta)
+                .foregroundStyle(Theme.text(Theme.color(w.level)))
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 

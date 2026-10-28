@@ -1,14 +1,25 @@
 # Claude Meter: handoff
 
-Updated 2026-10-28 by Claude (v0.9.32: Usage / Credits tabs, and the replay fixed to PASS. Committed, pushed to
-`main` and installed ~21:25Z on Vinnie's typed "commit push and ship then". Ask him for a screenshot of each tab.)
+Updated 2026-10-28 by Claude (v0.9.33: tabs say their headline in words, no red dot; extra-usage-off line on the
+cards. Installed ~21:55Z; Vinnie tested it ("alright looks good, commit push and ship please"), then committed and
+pushed to `main` ~22:02Z.)
 
 ## Status
+
+v0.9.33 (build 46): Vinnie didn't like the Credits tab's red dot ("reads like a notification", it cleared on click),
+asked for something "more understandable", and picked my recs 1+2:
+- `DropdownTabs` labels: "Usage · 62%" (5-hour %, "~" estimated; none idle/signed out) and "Credits · $107 left"
+  (floor of left), "expired", or red "out Nov 11" / "used up" while `CreditsView.alarm` (any tab open). No dot.
+  The usage-credits limit no longer marks the tab.
+- `ExtraOffLine` under the 5-hour and weekly cards when `planCredits` says extra usage is off or at its limit and
+  the card is at 70%+ (its orange/red): "Extra usage is off, so you'll stop at this limit."
+- Checked: debug and release build OK; render-all (build/renders-0933) all 680 px wide, tab bars and the alert
+  cards looked right light and dark; replay PASS.
 
 v0.9.32 (build 45): **dropdown tabs**. Vinnie (with a screenshot of the scrolling dropdown): "move everything that has
 to do with API credits to its own tab in the drop down. there will be 2 tabs at the top". Read as both credit cards.
 - `DropdownTabs` in `PopoverView.swift`: a custom two-segment bar (Usage | Credits) under the header, kept in the
-  `dropdownTab` default. Custom rather than a segmented Picker so Credits can carry a red dot (only while Usage is open
+  `dropdownTab` default. Custom rather than a segmented Picker so Credits can carry a red dot (v0.9.32: only while Usage was open
   and `CreditsView.alarm` or `planCredits.limitReached`). Credits tab: Usage credits card, API credits card, or a
   `NoCreditsNote` with Set up (opens the editor) when no balance is typed. `capToScreen` scrolling kept as a backstop.
 - Fixtures: `tab` field; the credits fixtures render the Credits tab; new `creditsalert` (Usage tab, red dot) and

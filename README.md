@@ -15,7 +15,11 @@ item fits beside the notch (at most `cap 10:49 wk ~100%`).
 
 Two tabs under the header (v0.9.32): **Usage** has everything below except the two credit cards, which are on
 **Credits** (with a Set up note until a Console balance is typed in). The tab you leave it on is kept
-(`dropdownTab`); while a credits card shows a red line, the Credits tab has a red dot.
+(`dropdownTab`). Each tab says its headline (v0.9.33): "Usage · 62%" (the 5-hour %, "~" when estimated) and
+"Credits · $107 left", or in red, whichever tab is open, "Credits · out Nov 11" / "used up" when the API credits run
+out before they expire. v0.9.32 had a red dot instead, which read like a notification that looking cleared. While
+claude.ai extra usage is off, the 5-hour and weekly cards add "Extra usage is off, so you'll stop at this limit" (or
+"Extra usage hit its monthly limit, …" when that's why) from 70%, in the card's orange or red.
 
 - **5-hour window**: %, reset time, a chart of the window so far with a dashed pace line to
   the reset, and where that pace lands (or when it hits the cap).

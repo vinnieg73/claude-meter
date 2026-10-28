@@ -111,6 +111,7 @@ struct HelpView: View {
             Bullets([
                 "\"$12.40 of $40.00 this month\" is extra usage spent this month against your monthly limit; \"balance\" is the prepaid credits left.",
                 "Red when the monthly limit is reached: extra usage is off until it resets or you raise the limit on claude.ai.",
+                "While extra usage is off, the 5-hour and weekly cards say so from 70%: the plan's limit is then a hard stop.",
             ])
             Para("Read the way Claude Code's /usage reads it, with Claude Code's sign-in on this Mac, every 15 minutes. Nothing to set up.", secondary: true)
         }
@@ -118,7 +119,7 @@ struct HelpView: View {
 
     private var credits: some View {
         HelpSection(symbol: "creditcard", title: "API credits") {
-            Para("The prepaid credits in your Anthropic Console (platform.claude.com) that pay for API calls made with an API key, such as a tool's own research runs. They are separate from your plan's limits above. The card is on the dropdown's Credits tab once you type a balance in: Set up on that tab, API credits… in the gear menu, or a right-click on the menu bar. While a card on Credits shows a red line, the tab has a red dot.")
+            Para("The prepaid credits in your Anthropic Console (platform.claude.com) that pay for API calls made with an API key, such as a tool's own research runs. They are separate from your plan's limits above. The card is on the dropdown's Credits tab once you type a balance in: Set up on that tab, API credits… in the gear menu, or a right-click on the menu bar. The tab says what's left (\"Credits · $107 left\"), or in red when the credits run out before they expire (\"Credits · out Nov 11\") or are used up.")
             Bullets([
                 "Typed in: copy the total left from the Console's Billing page, and optionally the grant's size and the day it expires. Anthropic has no way for an app to read the balance itself, so this number is the starting point.",
                 "Console: with a Console key in your keychain, the meter reads Anthropic's cost report every 15 minutes (real billed spend, about 5 minutes behind) and takes it off the balance you typed. The line under it is the pace over the last 7 days.",

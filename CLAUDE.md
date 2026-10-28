@@ -77,6 +77,9 @@ moved to Credits, with a Set up note when no balance is typed and a red dot on t
 Done in v0.9.32. Scope is back to bug elimination.
 Same release (asked for: "can we fix them first"): the replay fed no cloud spend, so it failed 4 checks on a meter
 that was fine; it now replays cloud.json's ledger and checks the probe gate after resets opened away from this Mac.
+v0.9.33 (asked for: the red dot "reads like a notification"; then "go ahead with your recs"): no dot. The tabs say their
+headline in words ("Usage · 62%", "Credits · $107 left", red "Credits · out Nov 11"), and while extra usage is off the
+5-hour and weekly cards say so from 70% (`ExtraOffLine`).
 
 Before calling a fix done, run `./scripts/replay.sh` and confirm PASS. It replays the real history
 log and transcripts through the working tree (read-only) and checks window openings, the probe
