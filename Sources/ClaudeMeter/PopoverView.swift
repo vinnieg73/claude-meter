@@ -69,6 +69,7 @@ struct PopoverView: View {
                     WindowCard(w: w)
                     ExtraOffLine(w: w, credits: s.planCredits)
                     ExtrasRows(extras: s.extras)
+                    if let apps = s.weekSurfaces, !w.blind { WeekAppsLine(surfaces: apps) }
                     // Its Other part is the weekly estimate's, which a blind card doesn't show.
                     if let v = s.weekValue, !w.blind {
                         WeekValueLine(v: v, plan: meter.plan, openHistory: openHistory)
@@ -271,6 +272,25 @@ private struct ExtraOffLine: View {
                 .foregroundStyle(Theme.text(Theme.color(w.level)))
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+/// Under the weekly card: Anthropic's split of the week by app, so chat, Cowork and Claude Duet are seen, not
+/// just counted. One gray line; the named apps even at 0%.
+private struct WeekAppsLine: View {
+    let surfaces: [PlanCredits.Surface]
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            Text("Share by app: " + PlanCredits.surfaceText(surfaces, short: true))
+            Text(PlanCredits.surfaceText(surfaces, short: true))
+        }
+        .font(Theme.meta)
+        .monospacedDigit()
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .help("Anthropic's split of this week's usage by app, as claude.ai shows it.")
+        .accessibilityLabel("This week by app: " + PlanCredits.surfaceText(surfaces, short: false))
     }
 }
 

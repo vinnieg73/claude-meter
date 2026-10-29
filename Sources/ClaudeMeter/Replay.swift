@@ -382,6 +382,19 @@ extension Meter {
         // part of it, never more), nor can History draw windows on top of each other, or a window
         // that never reached the cap higher than its readings (it would hold the next one's spend).
         // A capped window's readings stop at 100% while spend goes on, so it is drawn "100%+".
+        // Only a breach that lasts: a wrong cap holds for as long as it's wrong, while a cloud rise Anthropic's % never
+        // counts (Oct 29: $77.65 on one session in 4 minutes, the 5-hour and weekly % unmoved) is gone at the next
+        // recalibration. Runs of breaches no more than one 10-minute step apart; a run shorter than 5 minutes passes.
+        var runs: [[(at: Date, shares: Double, week: Double, cap: Double)]] = []
+        for b in shareBreaches {
+            if let last = runs.last?.last, b.at.timeIntervalSince(last.at) <= 660 { runs[runs.count - 1].append(b) } else { runs.append([b]) }
+        }
+        let brief = runs.filter { ($0.last!.at.timeIntervalSince($0.first!.at)) < 300 }
+        if !brief.isEmpty {
+            report.lines.append("5. \"This week\" shares: \(brief.count) brief run\(brief.count == 1 ? "" : "s") over the weekly card, "
+                                + "under 5 minutes each (\(brief.map { "\($0.first!.at)" }.joined(separator: ", "))), allowed.")
+        }
+        shareBreaches = runs.filter { ($0.last!.at.timeIntervalSince($0.first!.at)) >= 300 }.flatMap { $0 }
         if let first = shareBreaches.first {
             // By day, so the cause shows: a few steps around a recalibration, or a whole span.
             var perDay: [String: Int] = [:]
@@ -420,8 +433,12 @@ extension Meter {
         // readings inside it (an early reset it wasn't cut at) is drawn too long.
         // One exact-backed window for each group of readings, no more: the early reset's window is its
         // own, not pinned to the one it cut short (which would draw a third, and count a cap twice).
-        let groupsDrawn = groups.filter { $0.reset > drawnSince.addingTimeInterval(6 * 3600) }.count
-        let exactDrawn = h.windows.filter { $0.exact && $0.end > drawnSince.addingTimeInterval(6 * 3600) }.count
+        // Both counted from the same cutoff: History draws a window from the history log even where its readings fall
+        // before the replay's first one (the logs start mid-window), so from the later of the two (Oct 29: a window
+        // reset at Oct 23 02:50, drawn from the logs' first turn, had no readings in the replay).
+        let cutoff = max(drawnSince, start).addingTimeInterval(6 * 3600)
+        let groupsDrawn = groups.filter { $0.reset > cutoff }.count
+        let exactDrawn = h.windows.filter { $0.exact && $0.end > cutoff }.count
         if exactDrawn != groupsDrawn {
             report.failures.append("History draws \(exactDrawn) windows backed by readings; the readings are of \(groupsDrawn)")
         }

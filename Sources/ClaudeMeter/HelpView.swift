@@ -85,6 +85,7 @@ struct HelpView: View {
                 "Pace: where your usual pace lands by the reset, then where today's pace would.",
                 "Budget: how much you can use per day and still last until the reset, next to what you normally use. It turns orange when you're using more than that.",
                 "Some weeks also show a separate limit per model, in rows underneath.",
+                "\"Share by app: Code 86% · Chat 8% · Cowork 4% · Duet 2%\" is Anthropic's own split of this week's usage by app: Claude Code anywhere, claude.ai chat (web, desktop and phone), Cowork and Claude Duet. The weekly % already counts all of them; this says where it went. Read every 15 minutes with Claude Code's sign-in.",
                 "\"Worth $540 so far · 11.7× your plan\" is what this week's use would have cost at pay-as-you-go prices, and how many times what your plan costs for a week that is. A \"~\" before the amount means part of it is an estimate (Other, see Value this week). Click History on that line for the details.",
             ])
         }

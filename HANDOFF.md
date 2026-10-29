@@ -1,10 +1,31 @@
 # Claude Meter: handoff
 
-Updated 2026-10-28 by Claude (v0.9.33: tabs say their headline in words, no red dot; extra-usage-off line on the
-cards. Installed ~21:55Z; Vinnie tested it ("alright looks good, commit push and ship please"), then committed and
-pushed to `main` ~22:02Z.)
+Updated 2026-10-29 by Claude (v0.9.34: "Share by app" weekly split; committed, pushed and installed ~19:05Z on Vinnie's
+typed "commit push and install please", with the 5-minute rule I recommended for replay FAIL 1. Version naming question
+(two-number names?) still unanswered; kept 0.9.x.)
 
 ## Status
+
+2026-10-29 question (Vinnie: can the meter see Claude Duet usage; wants "a completely inclusive and holistic overview").
+Answer: the 5-hour/weekly/Fable % are Anthropic's own, so Duet, chat, Cowork, phone already count in them; only Claude
+Code is broken out (this Mac by project, cloud by title), the rest is "Other". `/api/oauth/usage` (already read for
+Usage credits) has `seven_day_breakdown.rows` = weekly % by surface (claude_code, chat, cowork, claude_duet, other).
+He said go ("as long as it doesnt make things too crowded"). v0.9.34 (build 47):
+- `PlanCredits.Reading.surfaces/surfacesFrom` parsed from `seven_day_breakdown`; `currentSurfaces` hides it once that
+  week is over; `Snapshot.weekSurfaces`, `History.surfaces`.
+- Dropdown: one gray meta line in the weekly module after ExtrasRows, "Share by app: Code 99% · Cowork 1% · Chat 0% · Duet
+  0%" (named apps even at 0%, Other from 1%; drops "Share by app:" if tight). History: the same with full names under the
+  legend. `--status`: "this week by app: …". Fixtures `calm` and History `fits` carry a made-up split.
+- Not a breakdown of the 5-hour window or in dollars: Anthropic gives neither.
+- Replay on today's history: 2 new FAILs, identical on committed v0.9.33 (git archive run). FAIL 2 (History 18
+  windows vs 17 groups) was the check's cutoff: History draws a window from the logs' first turn (Oct 23 01:20–02:50)
+  whose readings fall before the replay's first (06:26); both now counted from max(drawnSince, start) + 6 h.
+  FAIL 1 (shares 56% vs weekly 53% at 18:29–18:31, 2 steps): a cloud rise of $77.65 on "Research regional fishing
+  limits" (session_01AF6QFbf7ah4R2vNterbc8Z, 18:12–18:16) that Anthropic's 5-hour/weekly % never reflected (5h went
+  6→12% 17:40–18:45 while cloud alone was $143 ≈ 25% at the $582 cap; $64 without it). Either the % lags or that
+  session's cost isn't charged to the plan. Shipped with my rec: the shares check fails only runs lasting 5+ minutes
+  (runs = breaches ≤ 660 s apart; brief runs listed as "5. …allowed"). Replay PASS. Watch for repeats; if they do,
+  find which sessions aren't charged to the plan and leave them out of cloud spend.
 
 v0.9.33 (build 46): Vinnie didn't like the Credits tab's red dot ("reads like a notification", it cleared on click),
 asked for something "more understandable", and picked my recs 1+2:

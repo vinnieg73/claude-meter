@@ -624,6 +624,44 @@ enum PlanCredits {
         var usedThisMonth: Double?
         var monthlyLimit: Double?
         var limitReached = false
+        /// Anthropic's split of the weekly window by app (`seven_day_breakdown`), and when that week began.
+        var surfaces: [Surface]?
+        var surfacesFrom: Date?
+    }
+
+    /// One app's share of the week's usage: Claude Code, Chats, Cowork, Claude Duet, Other.
+    struct Surface: Codable, Equatable {
+        var key: String
+        var name: String
+        var pct: Double
+
+        /// The short name for the dropdown.
+        var short: String {
+            switch key {
+            case "claude_code": "Code"
+            case "chat": "Chat"
+            case "cowork": "Cowork"
+            case "claude_duet": "Duet"
+            case "other": "Other"
+            default: name
+            }
+        }
+    }
+
+    /// "Code 99% · Cowork 1% · Chat 0% · Duet 0%": the named apps always (so a 0% says it's counted), Other only
+    /// from 1%, biggest first.
+    static func surfaceText(_ surfaces: [Surface], short: Bool) -> String {
+        surfaces.filter { $0.key != "other" || $0.pct >= 0.5 }
+            .sorted { $0.pct > $1.pct }
+            .map { "\(short ? $0.short : $0.name) \(Fmt.pct($0.pct))" }
+            .joined(separator: " · ")
+    }
+
+    /// The split while it is this week's: it covers the 7 days from `surfacesFrom`.
+    static func currentSurfaces(_ r: Reading?, now: Date) -> [Surface]? {
+        guard let r, let s = r.surfaces, !s.isEmpty, let from = r.surfacesFrom,
+              now < from.addingTimeInterval(7 * 86400) else { return nil }
+        return s
     }
 
     static let readKey = "planCreditsRead"
@@ -657,6 +695,13 @@ enum PlanCredits {
             r.monthlyLimit = (x["monthly_limit"] as? NSNumber).map { $0.doubleValue / scale }
             r.limitReached = x["spend_limit_reached"] as? Bool ?? false
         }
+        if let b = usage["seven_day_breakdown"] as? [String: Any], let rows = b["rows"] as? [[String: Any]] {
+            r.surfaces = rows.compactMap { row in
+                guard let key = row["key"] as? String, let pct = (row["percent"] as? NSNumber)?.doubleValue else { return nil }
+                return Surface(key: key, name: row["display_name"] as? String ?? key, pct: pct)
+            }
+            r.surfacesFrom = (b["window_started_at"] as? String).flatMap(JSONCoding.parseDate)
+        }
         if let p = prepaid, let cents = (p["amount"] as? NSNumber)?.doubleValue {
             r.balance = cents / 100
             r.autoReload = (p["auto_reload_settings"] as? [String: Any])?["enabled"] as? Bool
@@ -672,7 +717,9 @@ enum PlanCredits {
         if r.limitReached { line += " (limit reached)" }
         if let on = r.extraOn { line += on ? ", on" : ", off" }
         if let b = r.balance { line += ", prepaid balance \(ConsoleCredits.money(b))" }
-        return [line]
+        var lines = [line]
+        if let s = currentSurfaces(r, now: now) { lines.append("this week by app: " + surfaceText(s, short: false)) }
+        return lines
     }
 
     private static let session: URLSession = {

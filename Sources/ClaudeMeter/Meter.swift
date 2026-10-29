@@ -151,6 +151,8 @@ struct Snapshot {
     var credits: CreditsView?
     /// claude.ai usage credits (extra usage and the prepaid balance), once read and ever in use.
     var planCredits: PlanCredits.Reading?
+    /// Anthropic's split of this week by app (Claude Code, Chats, Cowork, Claude Duet), from the same read.
+    var weekSurfaces: [PlanCredits.Surface]?
     /// Set while the 5-hour pace hits the cap before the reset: when (the reset itself while
     /// the warning holds on a pace that lands just under it).
     var capWarning: Date?
@@ -1022,6 +1024,7 @@ final class Meter: ObservableObject {
             s.fable = fable(s, now: now)
             s.credits = ConsoleCredits.view(anchor: credits.anchor, read: credits.read, now: now)
             s.planCredits = credits.plan.flatMap { $0.everOn || ($0.balance ?? 0) > 0 ? $0 : nil }
+            s.weekSurfaces = PlanCredits.currentSurfaces(credits.plan, now: now)
             s.capWarning = updateWarning(s.fiveHour)
             // In use for an hour since the last reading (its first message after it an hour old, and one
             // in the last 15 minutes) yet nothing exact, when readings come about once a minute while you
@@ -1783,6 +1786,7 @@ final class Meter: ObservableObject {
         }
 
         h.value = snapshot.weekValue
+        h.surfaces = snapshot.weekSurfaces
 
         let peak = h.windows.map(\.peak).max() ?? 0
         // No projection yet: the card says so ("–") rather than passing off the % so far as the % at reset.

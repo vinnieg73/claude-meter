@@ -81,6 +81,11 @@ v0.9.33 (asked for: the red dot "reads like a notification"; then "go ahead with
 headline in words ("Usage · 62%", "Credits · $107 left", red "Credits · out Nov 11"), and while extra usage is off the
 5-hour and weekly cards say so from 70% (`ExtraOffLine`).
 
+Exception (2026-10-29, asked for by the user: Claude Duet usage, "a completely inclusive and holistic overview", "as long
+as it doesnt make things too crowded"): one gray line under the weekly card, "Share by app: Code 86% · Chat 8% · Cowork 4% ·
+Duet 2%", from `seven_day_breakdown` in the usage read (`PlanCredits.Surface`, `weekSurfaces`), repeated under Value this
+week in History and in `--status`. Done in v0.9.34. Scope is back to bug elimination.
+
 Before calling a fix done, run `./scripts/replay.sh` and confirm PASS. It replays the real history
 log and transcripts through the working tree (read-only) and checks window openings, the probe
 gate, duplicate alerts and accuracy. If a fix guards something the replay doesn't cover, say so.
@@ -106,4 +111,8 @@ a title with the weekly % drops the 5-hour % (the ring shows it): "2h50m wk 41%"
 - The replay fed no cloud spend while the live meter counts it, so once most use moved to cloud sessions (Oct 25 on,
   ~$500–1000/day vs ~$25 on this Mac) it learned the caps from this Mac alone and failed accuracy, growth and the
   "This week" shares on a working meter. A test harness has to feed every input the live code reads (v0.9.32).
+- Oct 29: one cloud session rose $77.65 in 4 minutes ("Research regional fishing limits") and Anthropic's 5-hour and weekly %
+  never moved for it, so the "This week" shares ran 3 pts over the weekly card for a minute. The replay now fails only
+  breaches lasting 5 minutes; if such rises repeat, find which sessions aren't charged to the plan (v0.9.34). Its
+  History window count now starts at the later of the 7-day horizon and the replay's first reading.
 - NSStatusItem Preferred Position values on macOS 27 are not screen coordinates and can't be seeded reliably; only autosaveName plus a user ⌘-drag (v0.9.21).

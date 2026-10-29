@@ -176,6 +176,13 @@ enum Fixtures {
 
     // MARK: - Dropdown states
 
+    /// A week spread over the apps: mostly Claude Code, some chat, Cowork and Claude Duet.
+    private static var surfaces: [PlanCredits.Surface] {
+        [.init(key: "claude_code", name: "Claude Code", pct: 86), .init(key: "chat", name: "Chats", pct: 8),
+         .init(key: "cowork", name: "Cowork", pct: 4), .init(key: "claude_duet", name: "Claude Duet", pct: 2),
+         .init(key: "other", name: "Other", pct: 0)]
+    }
+
     /// The calm dropdown with the API credits card; running low, the `long` stress case with it, since the
     /// card adds height to the tallest dropdown.
     private static func credits(_ c: CreditsView) -> Popover {
@@ -199,6 +206,7 @@ enum Fixtures {
         s.fiveHour = fiveHour(34, left: 2.83 * 3600, exact: true, landing: 48)
         s.weekly = weekly(41, left: 3.2 * 86400, landing: 78, projection: "7-day pace: ~78% at reset · today's: ~70%",
                           budget: "Budget ~18%/day to the reset · 7-day average 11%/day")
+        s.weekSurfaces = surfaces
         s.fable = FableView(limit: fable(7, left: 3.2 * 86400), fiveHourCost: 1.1, fiveHourPts: 2.8,
                             weekCost: 6.2, weekTokens: 2_300_000, weekPts: 0.9, todayCost: 2.2)
         s.burning = [Burn(id: "a", name: "Claude Meter", model: "Fable 5.1", perHour: 4.12, pctPerHour: 2.5, fable: true)]
@@ -441,6 +449,7 @@ enum Fixtures {
     private static var fits: History {
         var h = History()
         h.calibrated = true
+        h.surfaces = surfaces
         let peaks: [Double] = [12, 31, 8, 44, 22, 5, 58, 19, 37, 9, 26, 41]
         h.windows = peaks.enumerated().map { i, peak in
             // The last one is still open: it began two hours ago.

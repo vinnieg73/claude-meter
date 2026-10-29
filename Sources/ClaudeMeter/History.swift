@@ -167,6 +167,8 @@ struct History {
     var windows: [HistoryWindow] = []
     var weekStart: Date?
     var weekEnd: Date?
+    /// Anthropic's split of this week by app, for Value this week.
+    var surfaces: [PlanCredits.Surface]?
     var weekSeries: [PacePoint] = []
     var weekNow: Double?
     var weekAtReset: Double?

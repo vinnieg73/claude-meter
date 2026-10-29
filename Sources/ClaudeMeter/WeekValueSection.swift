@@ -29,6 +29,11 @@ struct WeekValueSection: View {
                 hero(v)
                 ValueBar(v: v, plan: plan)
                 legend(v)
+                if let apps = h.surfaces {
+                    Text("Anthropic's split of the week by app: " + PlanCredits.surfaceText(apps, short: false))
+                        .font(Theme.meta).monospacedDigit().foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 ValueDays(days: v.days)
                     .padding(.top, 2)
                 if !v.models.isEmpty { models(v) }

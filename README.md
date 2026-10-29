@@ -39,7 +39,10 @@ claude.ai extra usage is off, the 5-hour and weekly cards add "Extra usage is of
   and the card says "Console", with spend since and the 7-day $/day pace; red only when that pace runs it out
   before the expiry day, or it's used up. Gray after the expiry day until you type the new balance. See
   [API credits](#api-credits).
-- **Weekly**: the same without the chart, plus per-model weekly buckets when a reading has them.
+- **Weekly**: the same without the chart, plus per-model weekly buckets when a reading has them, and (v0.9.34)
+  "Share by app: Code 86% · Chat 8% · Cowork 4% · Duet 2%": Anthropic's split of the week by app, `seven_day_breakdown` in
+  the same `/api/oauth/usage` read as Usage credits (every 15 minutes). The named apps show even at 0% (so a 0% says
+  it's counted); Other only from 1%. Hidden once that week is over. History repeats it under Value this week.
   The forecast leads with your average pace (from exact readings only: this week's average
   until the history log covers 3+ days, then a 7-day average) and gives today's pace second,
   plus a **budget**: what's left per day to last to the reset, against what you average.
@@ -99,7 +102,8 @@ sessions](#cloud-sessions)), and **Other** (claude.ai chat, the phone, other com
 points neither of the first two accounts for, in dollars at the weekly cap, so an estimate). Total =
 this Mac + cloud + Other. A "~" before the total means Other is in it; with the cloud accounting for
 everything beyond this Mac there is no "~". The day columns stack the cloud on this Mac (Other can't
-be split by day). Before v0.9.26 the cloud part hid in "Elsewhere", which usually read about $0
+be split by day). Under the legend, Anthropic's split of the week by app (Claude Code, Chats, Cowork, Claude Duet)
+says what Other is made of in percent; Anthropic gives no dollars for it. Before v0.9.26 the cloud part hid in "Elsewhere", which usually read about $0
 because the weekly cap was calibrated from readings that included it; the total was then a floor.
 
 **Help** (gear menu, or right-click → Help…): a window that explains everything above in plain
@@ -221,7 +225,8 @@ on a failure. It checks:
    days are counted back from the newest reading, so the same history gives the same verdict
    whenever it's replayed.
 5. **Consistency**: the early resets the meter recorded are the ones the readings show; the
-   "This week" shares never add up to more than the weekly card; History's windows don't overlap,
+   "This week" shares never add up to more than the weekly card for 5 minutes or more (a brief run, as when a cloud
+   rise Anthropic's % never counted, is listed and allowed: a wrong cap would last); History's windows don't overlap,
    don't hold another window's readings, there is one window for each group of readings (an early
    reset's is its own, not stuck on the one it cut short), and an uncapped one doesn't peak above
    its readings.
