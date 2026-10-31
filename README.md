@@ -6,6 +6,7 @@ to reset, a pace projection, and where today's usage went by project.
 ```
 ◔ 23% · 18m          ← 5-hour window used · time to reset. ~ means estimated.
 ◔ 18m wk 41%         ← with weekly % in the title: the ring is the 5-hour %, then time to reset, weekly %.
+◔ 41% · 3d4h         ← no 5-hour limit (verified Ultra): the ring and the number are the week's.
 ```
 
 The ring fills to the exact 5-hour %. With the week in the title the 5-hour % is left to the ring, so the
@@ -23,7 +24,15 @@ claude.ai extra usage is off, the 5-hour and weekly cards add "Extra usage is of
 
 - **5-hour window**: %, reset time, a chart of the window so far with a dashed pace line to
   the reset, and where that pace lands (or when it hits the cap).
-- **Weekly · Fable**: Max plans have a separate weekly limit for Fable. Its card (pink) shows that
+- **No 5-hour limit** (Ultra, from 2026-10-30): Max 20x became Ultra ($200, listed as 10x Pro every week), and a
+  verified Ultra account has no 5-hour limit (Anthropic verifies it by itself; until then it has a temporary one).
+  The meter switches once two usage reports in a row (`/api/oauth/usage`, every 15 minutes) list the week but no
+  `session` limit, and back at the first that lists one (`--status` says which: "5-hour limit: …"). Then the
+  5-hour card, its alerts and History windows go, the menu bar is the week (`41% · 3d4h`, `~71% · cap Sun 9:40`),
+  Burning now's %/hr is of the week, the Weekly % in menu bar toggle is hidden, and probes run only within 10
+  minutes of use here or in the cloud, or when the usage report's week is above the last reading (no window to
+  open). Fixture `ultra`.
+- **Weekly · Fable**: Max and Ultra have a separate weekly limit for Fable (up to half the week). Its card (pink) shows that
   limit as Claude Code's own usage report last gave it, exact as of then, and under it this Mac's
   Fable use as points of the overall windows ("This Mac: ~3% of the 5-hour window · ~1% of the week
   ($6.20)"). A plan without the limit gets "No separate Fable limit on your plan" instead. The card
@@ -92,7 +101,8 @@ is 30 minutes out. It clears once the pace lands under 95% at the reset.
 pay-as-you-go prices, as a multiple of what the plan picked in Plan fit costs for a week, by day and
 by model; the weekly card carries it as one line, "Worth $540 so far · 11.7× your plan"), every 5-hour window of the last 7 days at its
 peak, this week's climb against an even pace, and plan fit: how the same usage would have
-gone on Pro, Max 5x and Max 20x. Exact readings are logged to `history.jsonl` from 0.6 on;
+gone on Pro, Max and Ultra (Max 5× Pro on both limits; Ultra 10× the week, no 5-hour limit, its temporary
+one taken as the old 20×). Exact readings are logged to `history.jsonl` from 0.6 on;
 windows before that are estimated from the logs.
 
 **Value this week** is three parts, three grays on one bar: **this Mac** (Claude Code turns from
@@ -139,7 +149,10 @@ A reading teaches a cap from 10% used (5-hour) or 5% (weekly), where whole-perce
 dominating it. The *first* weekly cap (none learned yet, as on a fresh install) waits for 10% too:
 each later reading only nudges a held cap, so one taken at 5% lingers (v0.9.27; from a blank state on
 Oct 23 a 5% reading gave $142 against a real ~$209, and "This week" stood above the weekly card for
-an hour).
+an hour). The weekly cap is the larger of the week's average (spend since the week began ÷ its %) and the last
+day's climb (spend since this week's reading of a day ago ÷ the points gained, from 10 points): from Oct 28–30
+each point took more spend as the week went on, the average lagged at $2.2–2.7k against ~$3k, and the estimate
+ran 14% ahead of the readings (v0.9.35).
 
 What the estimate cannot see: claude.ai chat, the phone, other machines. Those are corrected
 at the next exact reading, and they push the cap estimate low, so the meter errs high. Cloud

@@ -36,7 +36,7 @@ struct PlanFitSection: View {
     private var judged: Bool { h.calibrated || h.weekNow != nil }
     /// Both measured: the windows (calibrated) and the week. A plan is only said to fit on both; a
     /// problem found on either is still a problem.
-    private var complete: Bool { h.calibrated && h.weekNow != nil }
+    private var complete: Bool { (h.calibrated || h.noFiveHourLimit) && h.weekNow != nil }
     private var pace: String { h.weekRateIsAverage ? "at your average pace" : "at this pace" }
 
     /// What happened on the current plan, and the smallest plan that would have covered it.
@@ -49,7 +49,8 @@ struct PlanFitSection: View {
             return Verdict(text: "Nothing has gone over on \(current.plan.name) so far, but only one of its two limits has been measured.", tone: .neutral)
         }
         if current.fits {
-            let smaller = h.plans.filter { $0.plan.multiplier < current.plan.multiplier && $0.fits }
+            // With no 5-hour limit measured, a plan that has one can't be said to have covered it.
+            let smaller = h.plans.filter { $0.plan.multiplier < current.plan.multiplier && $0.fits && ($0.peak != nil || !$0.hasFiveHour) }
                 .min { $0.plan.multiplier < $1.plan.multiplier }
             if let smaller { return Verdict(text: "\(smaller.plan.name) would have covered this week too.", tone: tone) }
             return Verdict(text: "\(current.plan.name) has covered this week, and this pace stays inside it.", tone: tone)
@@ -90,7 +91,7 @@ private struct PlanCard: View {
                 Text(fit.plan.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
                 if fit.current { Chip(text: "you", tint: .accentColor).fixedSize() }
                 Spacer(minLength: 4)
-                if judged, complete || !fit.fits {
+                if judged, (complete && (fit.peak != nil || !fit.hasFiveHour)) || !fit.fits {
                     Image(systemName: fit.fits ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                         .font(.system(size: 13))
                         .foregroundStyle(fit.fits ? Color.green : Color.orange)
@@ -99,7 +100,7 @@ private struct PlanCard: View {
             }
             .padding(.bottom, 2)
             PlanStat(label: "Capped (7 days)", value: capped, warn: fit.capped > 0)
-            PlanStat(label: "Busiest window", value: busiest, warn: fit.peak >= 100)
+            PlanStat(label: "Busiest window", value: busiest, warn: (fit.peak ?? 0) >= 100)
             PlanStat(label: "Weekly limit \(paceLabel)", value: weekly, warn: fit.weekOver || fit.weekRunsOut != nil)
         }
         .padding(9)
@@ -117,7 +118,8 @@ private struct PlanCard: View {
     }
 
     private var busiest: StatValue {
-        let (number, unit) = StatValue.split(HistoryView.peak(fit.peak))
+        guard let peak = fit.peak else { return StatValue(number: fit.hasFiveHour ? "not measured" : "no 5-hour limit", quiet: true) }
+        let (number, unit) = StatValue.split(HistoryView.peak(peak))
         return StatValue(number: number, unit: unit)
     }
 
@@ -254,7 +256,7 @@ struct HistoryFootnote: View {
     private var text: String {
         var text = "Estimates use this Mac's Claude Code logs and today's calibration; claude.ai chat and other devices only show up in exact readings. Days spent on other models (Opus 5 before Sep 22, Fable) are priced differently and may read high."
         if let since = h.exactSince { text += " Exact readings logged since \(Fmt.when(since))." }
-        text += " Plan fit assumes each plan's limits scale with its multiplier (Pro 1×, Max 5×, Max 20×)."
+        text += " Plan fit scales your use by each plan's limits as claude.com/pricing lists them: Pro 1×, Max 5× (5-hour and week), Ultra 10× the week with no 5-hour limit once Anthropic verifies the account (before that, its temporary 5-hour limit is taken as the old Max 20×)."
         text += " In Value this week, \"Cloud sessions\" is exact, from the sessions list; \"Other\" is claude.ai chat, the phone and other computers, estimated from the weekly %; and \(plan.name) is priced at $\(Int(plan.monthlyPrice)) a month (\(WeekValueSection.price(plan.weeklyPrice)) a week)."
         return text
     }

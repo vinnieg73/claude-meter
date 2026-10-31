@@ -69,7 +69,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             // Also when Anthropic ended it early (the new window carries a restart): `now` is before the
             // reset it was due to.
             let early = s.fiveHour?.restartedAt != nil
-            if post, let previous = currentReset, now >= previous || early, peak >= thresholds[0] {
+            if post, !s.noFiveHourLimit, let previous = currentReset, now >= previous || early, peak >= thresholds[0] {
                 announceReset("reset|\(Int(previous.timeIntervalSince1970))|0", send: send, now: now)
             }
             currentReset = resets
@@ -131,11 +131,12 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         }
 
         // A session eating the window fast enough to look like a loop: once per session per window.
-        if let resets = s.fiveHour?.resetsAt {
+        // With no 5-hour limit, once per session per week.
+        if let resets = s.fiveHour?.resetsAt ?? (s.noFiveHourLimit ? s.weekly?.resetsAt : nil) {
             for r in s.runaways {
                 once("runaway:\(r.id)", resets, "0", now: now,
                      title: "\(r.name) is burning fast",
-                     body: "It used \(Fmt.pct(r.pct)) of your 5-hour window in the last 30 minutes.")
+                     body: "It used \(r.share.replacingOccurrences(of: "of the", with: "of your")) in the last 30 minutes.")
             }
         }
     }

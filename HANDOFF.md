@@ -1,8 +1,71 @@
 # Claude Meter: handoff
 
-Updated 2026-10-29 by Claude (v0.9.34: "Share by app" weekly split; committed, pushed and installed ~19:05Z on Vinnie's
-typed "commit push and install please", with the 5-minute rule I recommended for replay FAIL 1. Version naming question
-(two-number names?) still unanswered; kept 0.9.x.)
+Updated 2026-10-31 by Claude (v0.9.35 Ultra / no-5-hour switch + weekly cap fix built, replay PASS, uncommitted; waiting on Vinnie's commit/push/install sentence.)
+
+## Ultra / no 5-hour limit (2026-10-30, built, NOT committed)
+
+On 2026-10-30, Anthropic renamed Max 20x to **Ultra**. It is still $200, and claude.com/pricing lists it as "10x Pro usage
+every week". Verified Ultra accounts have no 5-hour limit. Verification is automatic, from account and payment history,
+and Settings > Usage then shows no "Current session" bar. Fable gets up to 50% of the week. At 18:50Z, Vinnie's
+`/api/oauth/usage` still listed `limits[]` kind "session", so he isn't verified yet. Both his windows reset when he
+switched, at 18:49:07Z (week 100→0, 5h 58→0).
+
+Vinnie saw the mockups (Usage tab and menu bar) and said "that looks good". He wants the layout change only once his
+5-hour limit is gone. So it is built to switch on by itself, and until then nothing he sees changes, except the plan
+names in Plan fit.
+
+**Working tree, uncommitted:**
+- **Plans:** Pro, Max, Ultra. Raw values are unchanged.
+  - `Plan.multiplier` is the weekly multiple (Ultra 10).
+  - `fiveHourMultiplier` is nil for Ultra.
+  - In Plan fit, Ultra shows "no 5-hour limit". Its temporary limit is compared as the old 20x.
+  - `PlanFit.peak` is optional.
+- **Detection:**
+  - `PlanCredits.Reading.sessionLimit` is whether `limits[]` has an entry with kind "session". It only counts when
+    `weekly_all` is present, and it checks the entry exists, not `is_active`.
+  - `Meter.noteSessionLimit` runs from `credits.onChange` and is deduped by read time. Two reads with no session limit
+    set `fiveHourGoneSince` and clear the held 5-hour window and `sessionResets`. One read that lists a session limit
+    clears it.
+  - `--status` has a line "5-hour limit: …".
+- **Behaviour while it is on:**
+  - `fiveHour(now)` is nil, and `absorb` drops the 5-hour window.
+  - The title is "41% · 3d4h", or "cap Sun 9:40" (`Fmt.dayClock`) when more than 20 hours out.
+  - The ring shows the week, and `capWarning` comes from the week.
+  - Burn %/hr is of `capWeek`.
+  - Runaways still use the 5-hour-sized cap and say "% of the week". Their alert is keyed to the week.
+  - No 5-hour reset alert.
+  - History draws no windows that open after the switch.
+  - The footer hides the "Weekly % in menu bar" toggle.
+  - `windowOpen` = a turn or cloud spend in the last 10 minutes, or the usage report's week above the last reading
+    (`reportWeek`, not saved).
+- **Replay:**
+  - The 5-hour floors (openings, gate, 5-hour accuracy) scale with how long the readings carried a 5-hour window.
+  - A synthetic case covers the switch: two reads, a duplicate, a nil read, the menu bar, a probe's 5-hour window
+    dropped, no phantom window, the gate, and switching back.
+- **Docs and renders:** Fixture `ultra` is in render-all. Help, README and CLAUDE.md (the exception) are updated.
+- **Review follow-ups (done):**
+  - Readings logged while the flag is on carry `noFiveHourLimit: true`. The replay sets and clears the flag from
+    them, so it replays the meter that actually ran.
+  - Plan fit: your own plan's windows use factor 1, including Ultra's temporary limit. After the switch, no row is
+    judged on the 5-hour limit: Pro and Max show "not measured" with no checkmark, and no smaller plan is suggested.
+  - The cap time shows the weekday unless it is today. "~99% · cap Wed 10:49" is 139.9 pt of text, about 178.4 pt
+    with the ring, against the 178.5 budget: it just fits.
+  - Synthetic check: a usage report whose week is a minute off doesn't let probes run.
+- **Version:** Info.plist is 0.9.35, build 48. The version-naming question is still unanswered.
+- **Not tested on live data:** the real switch hasn't happened yet.
+
+**Weekly cap fix (2026-10-31):** `recentWeekCap` takes spend since this week's reading of a day ago, divided by the
+points gained (needs 10 or more). `calibrate` then uses max(the week's average, that). Using the recent climb alone
+failed the "This week" shares around the uncharged $77.65 rise on Oct 29 (9 minutes over), so it takes the larger.
+Replay: **PASS**. Weekly growth went from 1.14 to 1.06.
+
+**Live check 2026-10-31 13:35Z:**
+- Vinnie said "my 5 hour limit is gone".
+- `/api/oauth/usage` shows `five_hour: null`. `limits[]` has only `weekly_all` (55%) and `weekly_scoped` Fable, with no
+  session entry. That matches the trigger exactly.
+- The probe stopped reporting a 5-hour window after 2026-10-30 23:34Z. The installed v0.9.34 keeps showing the old
+  window (pct 84, reset 23:40) and walks made-up windows. v0.9.35 switches about 15 minutes after launch (two usage
+  reads).
 
 ## Status
 

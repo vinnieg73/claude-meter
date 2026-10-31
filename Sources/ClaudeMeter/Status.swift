@@ -76,6 +76,14 @@ enum Status {
         } else {
             lines.append("last exact reading: none")
         }
+        // Ultra, once Anthropic verifies the account: what the usage reports said of the 5-hour (session) limit.
+        if let gone = state.fiveHourGoneSince {
+            lines.append("5-hour limit: none since \(Fmt.when(gone)) (usage reports list no session limit)")
+        } else if let at = state.sessionReadAt {
+            lines.append(state.noSessionReads > 0
+                ? "5-hour limit: missing from the last usage report (\(Fmt.when(at))), switching after a second"
+                : "5-hour limit: listed in the usage report (\(Fmt.when(at)))")
+        }
         if let f = state.fable {
             let age = Int(max(0, Date().timeIntervalSince(f.at ?? state.fableChecked ?? Date())) / 60)
             var line = "fable limit: \(Fmt.pct(f.pct)) of its week, \(age)m ago"

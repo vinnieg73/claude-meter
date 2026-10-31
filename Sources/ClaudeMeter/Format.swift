@@ -50,6 +50,10 @@ enum Fmt {
 
     /// The time of day without AM/PM ("10:49"; "22:49" on a 24-hour clock), for the menu bar's cap time,
     /// which is always within the next 5 hours, so the period adds nothing but width.
+    /// "Sun 9:40": a bare clock with its weekday, for a time more than a day out.
+    static func dayClock(_ date: Date) -> String { weekday.string(from: date) + " " + bareClock(date) }
+    private static let weekday = formatter("EEE")
+
     static func bareClock(_ date: Date) -> String {
         bareTime.string(from: Date(timeIntervalSince1970: (date.timeIntervalSince1970 / 60).rounded() * 60))
     }

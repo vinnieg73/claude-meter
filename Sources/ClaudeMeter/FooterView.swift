@@ -85,7 +85,8 @@ struct FooterView: View {
             Menu {
                 Toggle("Open at login", isOn: Binding(get: { meter.launchAtLogin },
                                                       set: { meter.setLaunchAtLogin($0) }))
-                Toggle("Weekly % in menu bar", isOn: $meter.showWeeklyInTitle)
+                // With no 5-hour limit the week is all the menu bar shows.
+                if !s.noFiveHourLimit { Toggle("Weekly % in menu bar", isOn: $meter.showWeeklyInTitle) }
                 Toggle("Notifications", isOn: $meter.notificationsOn)
                 Button("Send test notification") { meter.testNotification() }
                 Toggle("Shortcut ⌃⌥⌘U", isOn: $meter.hotkeyOn)

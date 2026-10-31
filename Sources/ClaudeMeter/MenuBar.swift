@@ -187,6 +187,10 @@ enum MenuBar {
             ("3h10m wk 91%", 20, .critical), // the week sets the colour
             ("4h59m wk ~100%", 100, .critical),
             ("cap 10:49 wk ~100%", 94, .critical), // the longest it gets
+            ("41% · 3d4h", 41, .normal), // no 5-hour limit: the ring and the title are the week's
+            ("~71% · cap Sun 9:40", 71, .warn),
+            ("~99% · cap Wed 10:49", 99, .critical), // the longest without a 5-hour limit (178 pt with the ring)
+            ("~92% · 18h20m", 92, .critical),
         ]
         let scale: CGFloat = 4 // sheet pixels per point
         let densities: [(density: CGFloat, label: String)] = [(scale, "ring 4x"), (2, "Retina 2x"), (1, "plain 1x")]

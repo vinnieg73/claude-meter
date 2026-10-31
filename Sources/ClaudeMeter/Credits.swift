@@ -627,6 +627,9 @@ enum PlanCredits {
         /// Anthropic's split of the weekly window by app (`seven_day_breakdown`), and when that week began.
         var surfaces: [Surface]?
         var surfacesFrom: Date?
+        /// Whether the report's `limits` list a 5-hour (session) limit, as Settings › Usage's "Current session"
+        /// bar shows it; nil when it listed no weekly limit either (nothing to go by).
+        var sessionLimit: Bool?
     }
 
     /// One app's share of the week's usage: Claude Code, Chats, Cowork, Claude Duet, Other.
@@ -701,6 +704,10 @@ enum PlanCredits {
                 return Surface(key: key, name: row["display_name"] as? String ?? key, pct: pct)
             }
             r.surfacesFrom = (b["window_started_at"] as? String).flatMap(JSONCoding.parseDate)
+        }
+        // Whether the entry is there, not `is_active`: the week's own entry reads inactive while the week runs.
+        if let limits = usage["limits"] as? [[String: Any]], limits.contains(where: { $0["kind"] as? String == "weekly_all" }) {
+            r.sessionLimit = limits.contains { $0["kind"] as? String == "session" }
         }
         if let p = prepaid, let cents = (p["amount"] as? NSNumber)?.doubleValue {
             r.balance = cents / 100

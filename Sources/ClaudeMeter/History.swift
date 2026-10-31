@@ -72,22 +72,32 @@ enum HistoryLog {
     }
 }
 
-/// The subscription tiers, by how much each allows relative to Pro.
+/// The subscription tiers, by how much each allows relative to Pro. Since Oct 30, 2026 they are Pro, Max (5x)
+/// and Ultra (what was Max 20x); the raw values stay the old ones, so a saved choice carries over.
 enum Plan: String, CaseIterable, Identifiable {
     case pro, max5x, max20x
     var id: String { rawValue }
     var name: String {
         switch self {
         case .pro: "Pro"
-        case .max5x: "Max 5x"
-        case .max20x: "Max 20x"
+        case .max5x: "Max"
+        case .max20x: "Ultra"
         }
     }
+    /// The weekly limit against Pro's, as claude.com/pricing lists it ("10x Pro usage every week" for Ultra).
     var multiplier: Double {
         switch self {
         case .pro: 1
         case .max5x: 5
-        case .max20x: 20
+        case .max20x: 10
+        }
+    }
+    /// The 5-hour limit against Pro's; nil where there is none (a verified Ultra account).
+    var fiveHourMultiplier: Double? {
+        switch self {
+        case .pro: 1
+        case .max5x: 5
+        case .max20x: nil
         }
     }
     /// What the plan costs a month, in US dollars.
@@ -155,12 +165,15 @@ struct PlanFit: Identifiable {
     let plan: Plan
     let current: Bool
     let capped: Int
-    let peak: Double
+    /// The busiest 5-hour window on this plan; nil on a plan with no 5-hour limit.
+    let peak: Double?
     let weekAtReset: Double?
     /// When this plan's weekly limit would run out at the current pace, if before the reset.
     let weekRunsOut: Date?
     /// Already past this plan's weekly limit.
     let weekOver: Bool
+    /// The plan has a 5-hour limit (for `peak` nil: not measured, rather than none).
+    var hasFiveHour = true
 }
 
 struct History {
@@ -180,6 +193,8 @@ struct History {
     /// When exact readings start in the history log.
     var exactSince: Date?
     var calibrated = false
+    /// The plan has no 5-hour limit, so the week alone is measured.
+    var noFiveHourLimit = false
     /// This week at pay-as-you-go prices. Nil without a weekly window.
     var value: WeekValue?
 }

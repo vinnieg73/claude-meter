@@ -6,7 +6,7 @@ import Foundation
 @MainActor
 enum Fixtures {
     static let popover = ["calm", "warn", "critical", "idle", "signedout", "empty", "loading", "trouble", "week", "long", "nofable", "samename",
-                                 "credits", "creditslow", "creditstyped", "creditsexpired", "creditsalert", "nocredits"]
+                                 "ultra", "credits", "creditslow", "creditstyped", "creditsexpired", "creditsalert", "nocredits"]
     static let history = ["fits", "thismac", "cloudonly", "uncalibrated"]
 
     /// `weekScope` is the Today / This week picker; `tab` the dropdown's tab; `notice` stands in for the
@@ -21,6 +21,7 @@ enum Fixtures {
     static func popover(_ name: String) -> Popover? {
         switch name {
         case "calm": calm
+        case "ultra": ultra
         case "warn": warn
         case "critical": critical
         case "idle": idle
@@ -222,6 +223,18 @@ enum Fixtures {
         s.weekValue = value(left: 3.2 * 86400, perDay: [38, 140, 52, 12, 0, 21.4], elsewhere: nil,
                             models: [("Opus 5.5", 240), ("Fable 5.1", 18)])
         return Popover(snapshot: s)
+    }
+
+    /// Calm on a verified Ultra account: no 5-hour limit, so the weekly card leads and the ring shows the week.
+    private static var ultra: Popover {
+        var p = calm
+        p.snapshot.noFiveHourLimit = true
+        p.snapshot.fiveHour = nil
+        p.snapshot.menuPct = 41
+        p.snapshot.menuTitle = "41% · 3d4h"
+        p.snapshot.fable?.fiveHourCost = nil
+        p.snapshot.burning = [Burn(id: "a", name: "Claude Meter", model: "Fable 5.1", perHour: 4.12, pctPerHour: 0.15, fable: true)]
+        return p
     }
 
     private static var warn: Popover {
@@ -441,9 +454,9 @@ enum Fixtures {
 
     // MARK: - History states
 
-    private static func plans(current: Plan, _ rows: [(Plan, Int, Double, Double?, Date?, Bool)]) -> [PlanFit] {
+    private static func plans(current: Plan, _ rows: [(Plan, Int, Double?, Double?, Date?, Bool)]) -> [PlanFit] {
         rows.map { PlanFit(plan: $0.0, current: $0.0 == current, capped: $0.1, peak: $0.2, weekAtReset: $0.3,
-                           weekRunsOut: $0.4, weekOver: $0.5) }
+                           weekRunsOut: $0.4, weekOver: $0.5, hasFiveHour: $0.0.fiveHourMultiplier != nil) }
     }
 
     private static var fits: History {
@@ -470,7 +483,7 @@ enum Fixtures {
         h.plans = plans(current: .max5x, [
             (.pro, 4, 290, nil, now.addingTimeInterval(86400), false),
             (.max5x, 0, 58, 70, nil, false),
-            (.max20x, 0, 15, 18, nil, false),
+            (.max20x, 0, nil, 35, nil, false),
         ])
         return h
     }
@@ -495,7 +508,7 @@ enum Fixtures {
     private static var uncalibrated: History {
         var h = History()
         h.plans = plans(current: .max5x, [
-            (.pro, 0, 0, nil, nil, false), (.max5x, 0, 0, nil, nil, false), (.max20x, 0, 0, nil, nil, false),
+            (.pro, 0, 0, nil, nil, false), (.max5x, 0, 0, nil, nil, false), (.max20x, 0, nil, nil, nil, false),
         ])
         return h
     }

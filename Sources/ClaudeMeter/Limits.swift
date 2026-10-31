@@ -38,6 +38,8 @@ struct ExactReading: Codable {
     var weekly: Window?
     /// Per-model weekly buckets, keyed by label ("Weekly · Fable").
     var extras: [String: Window] = [:]
+    /// Taken while the plan had no 5-hour limit (`Meter.noFiveHourLimit`), so the replay knows when it switched.
+    var noFiveHourLimit: Bool?
 
     init(at: Date, source: String, fiveHour: Window? = nil, weekly: Window? = nil, extras: [String: Window] = [:]) {
         self.at = at
@@ -54,6 +56,7 @@ struct ExactReading: Codable {
         fiveHour = try c.decodeIfPresent(Window.self, forKey: .fiveHour)
         weekly = try c.decodeIfPresent(Window.self, forKey: .weekly)
         extras = try c.decodeIfPresent([String: Window].self, forKey: .extras) ?? [:]
+        noFiveHourLimit = try c.decodeIfPresent(Bool.self, forKey: .noFiveHourLimit)
     }
 }
 
@@ -102,12 +105,21 @@ struct PersistedState: Codable {
     /// none. The report counts use from everywhere and opens no window, so it is how the meter learns a
     /// window was opened away from this Mac (a cloud session, claude.ai) and that a probe is safe.
     var sessionResets: Date?
+    /// Since when the plan has had no 5-hour limit (a verified Ultra account): set once two usage reports in a
+    /// row listed the week but no session limit, cleared by the first that lists one again. `noSessionReads`
+    /// counts that run, `sessionReadAt` is the report last counted, so one report read twice counts once.
+    var fiveHourGoneSince: Date?
+    var noSessionReads = 0
+    var sessionReadAt: Date?
+    /// The week as the last usage report listed it, for the probe gate with no 5-hour limit. Not saved.
+    var reportWeek: Window?
     /// A field was there but wouldn't read, so it fell back to its default. Not saved: it tells the
     /// store to set the file aside before writing the rest back over it.
     var damaged = false
 
     enum CodingKeys: String, CodingKey {
         case lastExact, checks, calibration, probeError, probeRetryAt, tapSeen, notified, fable, fableChecked, fableNone, sessionResets
+        case fiveHourGoneSince, noSessionReads, sessionReadAt
     }
 
     init() {}
@@ -129,6 +141,9 @@ struct PersistedState: Codable {
         fableChecked = field(Date.self, .fableChecked)
         fableNone = field(Date.self, .fableNone)
         sessionResets = field(Date.self, .sessionResets)
+        fiveHourGoneSince = field(Date.self, .fiveHourGoneSince)
+        noSessionReads = field(Int.self, .noSessionReads) ?? 0
+        sessionReadAt = field(Date.self, .sessionReadAt)
         damaged = bad
     }
 }

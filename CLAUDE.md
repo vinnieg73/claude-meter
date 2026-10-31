@@ -86,6 +86,14 @@ as it doesnt make things too crowded"): one gray line under the weekly card, "Sh
 Duet 2%", from `seven_day_breakdown` in the usage read (`PlanCredits.Surface`, `weekSurfaces`), repeated under Value this
 week in History and in `--status`. Done in v0.9.34. Scope is back to bug elimination.
 
+Exception (2026-10-30, asked for by the user: "familiarized with the new changes to the claude plans", then approved the
+mockups "that looks good"): Max 20x became Ultra (10x Pro weekly, no 5-hour limit once Anthropic verifies the account).
+Plans read Pro, Max, Ultra (raw values unchanged), Plan fit uses per-window multipliers, and the meter switches itself to
+week-only (no 5-hour card, alerts or History windows; menu bar "41% · 3d4h"; burn %/hr of the week; probes gated on recent
+use) once two usage reports list no `session` limit, back on the first that lists one (`fiveHourGoneSince`, fixture
+`ultra`, a synthetic replay case, a "5-hour limit:" line in `--status`). Built ahead of his account being verified, so
+the real switch is untested on live data. Scope is back to bug elimination.
+
 Before calling a fix done, run `./scripts/replay.sh` and confirm PASS. It replays the real history
 log and transcripts through the working tree (read-only) and checks window openings, the probe
 gate, duplicate alerts and accuracy. If a fix guards something the replay doesn't cover, say so.
@@ -115,4 +123,5 @@ a title with the weekly % drops the 5-hour % (the ring shows it): "2h50m wk 41%"
   never moved for it, so the "This week" shares ran 3 pts over the weekly card for a minute. The replay now fails only
   breaches lasting 5 minutes; if such rises repeat, find which sessions aren't charged to the plan (v0.9.34). Its
   History window count now starts at the later of the 7-day horizon and the replay's first reading.
+- The weekly cap was the week's average spend per point, which lags when a point costs more as the week goes on (Oct 28–30: $2.2–2.7k against ~$3k from the climb, estimates 1.14× the readings, mostly Opus cloud sessions). It is now the larger of the average and the last day's climb; the larger, because the day's climb alone read low around an uncharged cloud rise and failed the "This week" shares (v0.9.35).
 - NSStatusItem Preferred Position values on macOS 27 are not screen coordinates and can't be seeded reliably; only autosaveName plus a user ⌘-drag (v0.9.21).

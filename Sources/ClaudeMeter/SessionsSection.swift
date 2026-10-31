@@ -22,7 +22,7 @@ struct SessionsSection: View {
         let rows = Array(s.burning.prefix(4))
         // What each runaway's warning says, by session (the first one, should an id repeat).
         let warnings = Dictionary(s.runaways.map {
-            ($0.id, "Used \(Fmt.pct($0.pct)) of the 5-hour window in the last 30 minutes.")
+            ($0.id, "Used \($0.share) in the last 30 minutes.")
         }, uniquingKeysWith: { first, _ in first })
         // One shared column for the warning, so every name stays aligned when a row has it.
         let warned = rows.contains { warnings[$0.id] != nil }
@@ -41,6 +41,9 @@ struct SessionsSection: View {
 
     // MARK: - Burning now
 
+    /// What Burning now's %/hr is of.
+    private var window: String { s.noFiveHourLimit ? "week" : "5-hour window" }
+
     private func burning(_ rows: [Burn], warnings: [String: String], warned: Bool) -> some View {
         let top = rows.map(\.perHour).max() ?? 1
         let total = s.burning.reduce(0) { $0 + $1.perHour }
@@ -55,9 +58,9 @@ struct SessionsSection: View {
                 Text("\(Fmt.dollars(total))/hr" + (s.calibrated ? " · +\(Fmt.rate(pct))%/hr" : ""))
                     .font(Theme.meta).monospacedDigit().foregroundStyle(.secondary)
                     .accessibilityLabel("\(Fmt.dollars(total)) per hour"
-                                        + (s.calibrated ? ", plus \(Fmt.rate(pct)) percent of the 5-hour window per hour" : ""))
+                                        + (s.calibrated ? ", plus \(Fmt.rate(pct)) percent of the \(window) per hour" : ""))
             }
-            .help("Spend over the last 15 minutes. %/hr is of the 5-hour window.")
+            .help("Spend over the last 15 minutes. %/hr is of the \(window).")
 
             VStack(spacing: 1) {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { i, b in

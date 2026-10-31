@@ -220,6 +220,16 @@ extension Meter {
             cloudKnown = !ledger.isEmpty
             while next < readings.count, readings[next].at <= t {
                 let before = store.state.lastExact
+                // The plan's 5-hour limit as the live meter had it (from usage reports the replay doesn't see):
+                // gone from the first reading taken without one, back with the first that has a 5-hour window again.
+                if readings[next].noFiveHourLimit == true {
+                    if store.state.fiveHourGoneSince == nil {
+                        store.state.fiveHourGoneSince = readings[next].at
+                        store.state.lastExact?.fiveHour = nil
+                    }
+                } else if readings[next].fiveHour != nil {
+                    store.state.fiveHourGoneSince = nil
+                }
                 absorb(readings[next])
                 let after = store.state.lastExact
                 if let r = after?.fiveHour?.restartedAt, r != before?.fiveHour?.restartedAt { restarts.append((t, "5h")) }
@@ -481,12 +491,17 @@ extension Meter {
         let history = min(1, end.timeIntervalSince(start) / (3 * 86400))
         // At least one of each, however short: a run that checked nothing proves nothing.
         func floor(_ full: Int) -> Int { max(1, Int(Double(full) * history)) }
-        if openingChecks < floor(Replay.minimum.openings) || openingSkipped > openingChecks {
+        // The 5-hour floors by how long the readings carried a 5-hour window: none once the plan has no 5-hour
+        // limit (a verified Ultra account) and the logs hold no 5-hour readings any more.
+        let fiveHourAt = readings.filter { $0.fiveHour != nil }.map(\.at)
+        let fiveHourSpan = fiveHourAt.count >= 2 ? fiveHourAt.last!.timeIntervalSince(fiveHourAt[0]) : 0
+        func floor5h(_ full: Int) -> Int { fiveHourSpan > 0 ? max(1, Int(Double(full) * min(1, fiveHourSpan / (3 * 86400)))) : 0 }
+        if openingChecks < floor5h(Replay.minimum.openings) || openingSkipped > openingChecks {
             report.failures.append("only \(openingChecks) window openings checked (\(openingSkipped) skipped), "
-                                   + "need \(floor(Replay.minimum.openings))")
+                                   + "need \(floor5h(Replay.minimum.openings))")
         }
-        if gateChecks < floor(Replay.minimum.gate) {
-            report.failures.append("only \(gateChecks) probe gate points checked, need \(floor(Replay.minimum.gate))")
+        if gateChecks < floor5h(Replay.minimum.gate) {
+            report.failures.append("only \(gateChecks) probe gate points checked, need \(floor5h(Replay.minimum.gate))")
         }
         let checks = store.state.checks ?? []
         if accuracyUnscored > 0 {
@@ -510,9 +525,10 @@ extension Meter {
         let weeklyNeed = min(Replay.minimum.accuracy, Int(Double(Replay.minimum.accuracy) * weeklySpan / (3.5 * 86400)))
         for (window, name, bar) in [("5h", "5-hour", Replay.accuracyBar.fiveHour), ("week", "weekly", Replay.accuracyBar.weekly)] {
             let errors = checks.filter { $0.window == window }.map { $0.estimated - $0.exact }
-            let need = window == "week" ? (weeklyNeed < 8 ? 0 : weeklyNeed) : floor(Replay.minimum.accuracy)
+            let need = window == "week" ? (weeklyNeed < 8 ? 0 : weeklyNeed) : floor5h(Replay.minimum.accuracy)
             if need == 0, errors.count < 8 {
-                report.lines.append("4. Accuracy, \(name): \(errors.count) checks, too few to judge (the week began too recently for the logs to teach its cap)")
+                report.lines.append("4. Accuracy, \(name): \(errors.count) checks, too few to judge ("
+                                    + (window == "week" ? "the week began too recently for the logs to teach its cap)" : "no 5-hour readings to check against)"))
                 continue
             }
             guard errors.count >= need else {
@@ -669,6 +685,48 @@ extension Meter {
         store.state.sessionResets = now.addingTimeInterval(-1800)
         expect(!windowOpen(now), "an ended window from the usage report let a probe through")
 
+        // No 5-hour limit (a verified Ultra account, Oct 30, 2026): two usage reports without a session limit switch
+        // it, one read twice doesn't; then no 5-hour card (none drawn from the logs either, after the held window's
+        // reset), the week in the menu bar, a probe's 5-hour window ignored, and a report listing one switches back.
+        now = mark
+        let weekResets = now.addingTimeInterval(3 * 86400)
+        setUp(now: now, turns: [turn(now.addingTimeInterval(-300), output: 10_000)],
+              reading: ExactReading(at: now.addingTimeInterval(-120), source: "probe",
+                                    fiveHour: Window(pct: 30, resetsAt: now.addingTimeInterval(3600), at: now.addingTimeInterval(-120)),
+                                    weekly: Window(pct: 40, resetsAt: weekResets, at: now.addingTimeInterval(-120))),
+              cap5h: 10, capWeek: 100)
+        noteSessionLimit(false, at: now.addingTimeInterval(-900))
+        noteSessionLimit(false, at: now.addingTimeInterval(-900))
+        expect(!noFiveHourLimit, "one usage report without a session limit (read twice) took the 5-hour limit away")
+        noteSessionLimit(nil, at: now.addingTimeInterval(-600))
+        expect(!noFiveHourLimit, "a usage report with no limits to go by counted toward taking the 5-hour limit away")
+        noteSessionLimit(false, at: now)
+        recompute()
+        expect(noFiveHourLimit && snapshot.noFiveHourLimit && snapshot.fiveHour == nil,
+               "two usage reports without a session limit left the 5-hour card up")
+        expect(snapshot.menuPct == snapshot.weekly?.pct && !snapshot.menuTitle.contains(" wk ")
+               && snapshot.menuTitle.hasPrefix((snapshot.weekly?.exact == true ? "" : "~") + Fmt.pct(snapshot.weekly?.pct ?? -1)),
+               "with no 5-hour limit the menu bar isn't the week's (\(snapshot.menuTitle), ring \(snapshot.menuPct)%)")
+        absorb(ExactReading(at: now.addingTimeInterval(30), source: "probe",
+                            fiveHour: Window(pct: 31, resetsAt: now.addingTimeInterval(3600)),
+                            weekly: Window(pct: 41, resetsAt: weekResets)))
+        expect(store.state.lastExact?.fiveHour == nil && store.state.lastExact?.weekly?.pct == 41,
+               "with no 5-hour limit a probe's 5-hour window was kept, or its week dropped")
+        let later = now.addingTimeInterval(3 * 3600)
+        turns.append(turn(later.addingTimeInterval(-120), output: 10_000))
+        clock = { later }
+        recompute()
+        expect(snapshot.fiveHour == nil && !history().windows.contains { $0.start >= now },
+               "with no 5-hour limit a 5-hour window was drawn from the logs")
+        expect(windowOpen(later), "with no 5-hour limit, no probe right after a message")
+        expect(!windowOpen(later.addingTimeInterval(1200)), "with no 5-hour limit, probes ran with nothing to measure")
+        // The usage report floors its reset to the minute: a week a minute off at the same % is the same week.
+        store.state.reportWeek = Window(pct: store.state.lastExact?.weekly?.pct ?? 0, resetsAt: weekResets.addingTimeInterval(-60))
+        expect(!windowOpen(later.addingTimeInterval(1200)), "with no 5-hour limit, a usage report's week a minute off let probes run")
+        noteSessionLimit(true, at: later)
+        recompute()
+        expect(!noFiveHourLimit && snapshot.fiveHour != nil, "a usage report listing a session limit didn't bring the 5-hour card back")
+
         // The usage report's reset text, read on its own: each way it may print one, against the moment it
         // means. `now` is 9:40 PM on Saturday Sep 8 in New York. Only the date form had been seen ("Oct 14 at
         // 2:59pm"); the 5-hour line can print a time alone, which before v0.9.25 read as nothing.
@@ -818,7 +876,7 @@ extension Meter {
 
         cloudChecks(mark: mark, turn: turn, setUp: setUp, expect: expect)
 
-        report.lines.append("6. Synthetic: \(ran) checks (early-reset pace and chart, lapsed windows, probe gate, usage report resets, Fable after a rollover, a probe overtaken by the statusline, cloud sessions).")
+        report.lines.append("6. Synthetic: \(ran) checks (early-reset pace and chart, lapsed windows, probe gate, usage report resets, no 5-hour limit, Fable after a rollover, a probe overtaken by the statusline, cloud sessions).")
     }
 
     /// Cloud sessions (v0.9.26): how the sessions list is booked, and what the booked spend does to the

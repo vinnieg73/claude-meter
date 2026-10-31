@@ -90,8 +90,15 @@ struct Cooling: Identifiable {
 struct Runaway: Identifiable {
     let id: String
     let name: String
-    /// Points of the 5-hour window used in the last 30 minutes.
+    /// Points of the 5-hour window used in the last 30 minutes (found by it even with no 5-hour limit, as a pace).
     let pct: Double
+    /// Points of the week, said instead when the plan has no 5-hour limit.
+    var weekPct: Double?
+
+    /// "34% of the 5-hour window", or "2% of the week" with no 5-hour limit.
+    var share: String {
+        weekPct.map { "\(Fmt.pct($0)) of the week" } ?? "\(Fmt.pct(pct)) of the 5-hour window"
+    }
 }
 
 /// A project's share of the weekly limit, or a cloud session title's ("Cloud: …", `cloud` set).
@@ -133,6 +140,7 @@ struct FableView {
 
 struct Snapshot {
     var loaded = false
+    var noFiveHourLimit = false
     var fiveHour: WindowView?
     var weekly: WindowView?
     var extras: [WindowView] = []
@@ -328,7 +336,11 @@ final class Meter: ObservableObject {
         }
         cloud.setEnabled(cloudOn)
         takeCloud()
-        credits.onChange = { [weak self] in self?.recompute() }
+        credits.onChange = { [weak self] in
+            guard let self else { return }
+            if let r = credits.plan { noteSessionLimit(r.sessionLimit, at: r.at) }
+            recompute()
+        }
         // Here rather than on the log queue: readings are appended on the main actor, and one
         // landing between compact's read and its rename would be lost.
         HistoryLog.compact()
@@ -621,6 +633,9 @@ final class Meter: ObservableObject {
         // more than five hours out, so a time read as tomorrow's (or a misread one) opens nothing.
         store.state.sessionResets = limits.first { $0.kind == "session" }?.resetsAt
             .flatMap { $0 > at && $0 <= at.addingTimeInterval(Self.fiveHours + 60) ? $0 : nil }
+        // The week's line, for the probe gate once there is no 5-hour limit: use elsewhere shows here first.
+        store.state.reportWeek = limits.first { $0.kind == "week" && ["week", "all models"].contains($0.name.lowercased()) }
+            .flatMap { l in l.resetsAt.map { Window(pct: l.pct, resetsAt: $0, at: at) } }
         guard let fable = limits.first(where: { $0.name.lowercased().contains("fable") }) else {
             let otherModel = limits.contains { $0.kind == "week" && !["week", "all models"].contains($0.name.lowercased()) }
             let hadOne = store.state.fable.map { at.timeIntervalSince($0.resetsAt) < Self.cachedReportsFor } ?? false
@@ -635,12 +650,46 @@ final class Meter: ObservableObject {
         store.state.fable = Window(pct: fable.pct, resetsAt: resets, at: at).normalized
     }
 
+    /// The plan has no 5-hour limit (a verified Ultra account, from Oct 30, 2026): the 5-hour card, its alerts and
+    /// windows go, and the week leads the menu bar.
+    var noFiveHourLimit: Bool { store.state.fiveHourGoneSince != nil }
+
+    /// What a usage report said about the 5-hour (session) limit. Two reports in a row with the week but no
+    /// session limit say it's gone, so one odd report can't silence the 5-hour alerts; the first that lists
+    /// one again brings it back, since a card shown for nothing costs less than alerts missed.
+    func noteSessionLimit(_ has: Bool?, at: Date) {
+        guard let has, at != store.state.sessionReadAt else { return }
+        store.state.sessionReadAt = at
+        if has {
+            store.state.noSessionReads = 0
+            store.state.fiveHourGoneSince = nil
+        } else {
+            store.state.noSessionReads += 1
+            if store.state.noSessionReads >= 2, store.state.fiveHourGoneSince == nil {
+                store.state.fiveHourGoneSince = at
+                // What's held of the last 5-hour window would carry over and draw a card for it.
+                store.state.lastExact?.fiveHour = nil
+                store.state.sessionResets = nil
+            }
+        }
+        store.save()
+    }
+
     /// A probe is a request, and a request opens a 5-hour window if none is open, moving your
     /// reset. So only probe while a window is known to be open: the last reading's window hasn't
     /// reset (whether or not anything was logged here), the usage report lists a later one (opened
     /// away from this Mac), or a message went out after it did. With no reading to go on, the report's
     /// window or right after a message. Never in the last two minutes of any.
     func windowOpen(_ now: Date) -> Bool {
+        // With no 5-hour limit a probe opens nothing, so it only waits for something to measure: use on this
+        // Mac or in the cloud in the last 10 minutes, or a usage report showing the week above the last reading.
+        if noFiveHourLimit {
+            func recent(_ at: Date?) -> Bool { at.map { (0..<600).contains(now.timeIntervalSince($0)) } ?? false }
+            if recent(turns.last?.at) || recent(cloudSpend.last?.at) { return true }
+            if let listed = store.state.reportWeek, let held = store.state.lastExact?.weekly,
+               listed.resetsAt > now, listed.pct >= held.pct + 1 || !Window.same(listed.resetsAt, held.resetsAt) { return true }
+            return false
+        }
         // Not the last two minutes before any reset, measured or walked: a probe launched then can
         // reach the API after the reset and open the next window.
         func clearOfReset(_ opened: Date) -> Bool {
@@ -729,9 +778,14 @@ final class Meter: ObservableObject {
                 restarted.insert("week")
                 rearmAlerts([Self.weeklyTitle], resets: reading.weekly!.resetsAt)
             }
+            if noFiveHourLimit {
+                reading.fiveHour = nil
+                fresh.remove("5h")
+            }
             // The tap reports no per-model buckets; keep the last ones known until they reset.
             if reading.extras.isEmpty { reading.extras = last.extras.filter { now < $0.value.resetsAt } }
         } else {
+            if noFiveHourLimit { reading.fiveHour = nil }
             if reading.fiveHour != nil { fresh.insert("5h") }
             if reading.weekly != nil { fresh.insert("week") }
         }
@@ -749,6 +803,7 @@ final class Meter: ObservableObject {
         calibrate(from: reading, fresh: fresh)
         // The history log is a file in the real support folder, so a read-only store (the replay,
         // a test harness) never adds to it, whatever else it does.
+        if noFiveHourLimit { reading.noFiveHourLimit = true }
         if !quiet, !store.readOnly { HistoryLog.append(reading) }
         store.state.lastExact = reading
         store.save()
@@ -920,7 +975,10 @@ final class Meter: ObservableObject {
         // "This week" shares stood above the weekly card for an hour. A held cap still learns from 5%.
         let firstWeek = c.capWeek == nil || c.basisWeek != Self.weekBasis
         if fresh.contains("week"), let w = r.weekly,
-           let cap = impliedCap(w, span: Self.week, at: w.at ?? r.at, minPct: firstWeek ? 10 : 5, minSpend: 2) {
+           let average = impliedCap(w, span: Self.week, at: w.at ?? r.at, minPct: firstWeek ? 10 : 5, minSpend: 2) {
+            // The larger: the average lags a climb that costs more per point, while a day's climb can read low
+            // (rounding, use away from this Mac), and a low cap overstates the shares and the estimate both.
+            let cap = max(average, recentWeekCap(w, at: w.at ?? r.at) ?? 0)
             c.capWeek = blend(c.basisWeek == Self.weekBasis ? c.capWeek : nil, cap, pct: w.pct)
             c.basisWeek = Self.weekBasis
             changed = true
@@ -961,6 +1019,25 @@ final class Meter: ObservableObject {
         return spent > minSpend ? spent / (w.pct / 100) : nil
     }
 
+    /// The weekly cap from the last day's climb: the spend since this week's reading of a day ago over the points
+    /// gained since. The whole week's average lags when a point takes more spend as the week goes on (Oct 28–30: the
+    /// average said $2.2–2.7k while the climb said ~$3k, and the estimate ran 14% ahead of the readings). Nil under
+    /// 10 points gained (rounding would rule it), or with no reading of this week from then.
+    private func recentWeekCap(_ w: Window, at: Date) -> Double? {
+        let start = max(w.resetsAt.addingTimeInterval(-Self.week), w.restartedAt ?? .distantPast)
+        let from = max(start, at.addingTimeInterval(-86400))
+        guard from >= coveredFrom else { return nil }
+        guard let past = exactHistory(since: from).first(where: { r in
+                  guard let pw = r.weekly, Self.measured(by: r).contains("week") else { return false }
+                  return Window.same(pw.resetsAt, w.resetsAt) && pw.restartedAt == w.restartedAt && (pw.at ?? r.at) < at
+              }),
+              let pw = past.weekly else { return nil }
+        let gained = w.pct - pw.pct
+        guard gained >= 10 else { return nil }
+        let spent = spend(from: pw.at ?? past.at, to: at)
+        return spent > 2 ? spent / (gained / 100) : nil
+    }
+
     /// Moves toward the new value, more the higher the % (rounding matters less there), and at
     /// most 1.5x either way in one step: usage the logs can't see (chat, the phone) drags one
     /// window's ratio down, and one such window shouldn't carry into the next.
@@ -977,6 +1054,7 @@ final class Meter: ObservableObject {
         let now = clock()
         var s = Snapshot()
         s.loaded = loaded
+        s.noFiveHourLimit = noFiveHourLimit
         s.calibrated = store.state.calibration.cap5h != nil
         s.probing = probing
         if let error = store.state.probeError {
@@ -1025,7 +1103,7 @@ final class Meter: ObservableObject {
             s.credits = ConsoleCredits.view(anchor: credits.anchor, read: credits.read, now: now)
             s.planCredits = credits.plan.flatMap { $0.everOn || ($0.balance ?? 0) > 0 ? $0 : nil }
             s.weekSurfaces = PlanCredits.currentSurfaces(credits.plan, now: now)
-            s.capWarning = updateWarning(s.fiveHour)
+            s.capWarning = updateWarning(noFiveHourLimit ? s.weekly : s.fiveHour)
             // In use for an hour since the last reading (its first message after it an hour old, and one
             // in the last 15 minutes) yet nothing exact, when readings come about once a minute while you
             // work. Not the first message after a break: its reading is a minute away. Counted from when
@@ -1040,7 +1118,19 @@ final class Meter: ObservableObject {
             }
         }
 
-        if let f = s.fiveHour {
+        if s.noFiveHourLimit, let w = s.weekly {
+            // The week alone (2026-10-30): "41% · 3d4h", or "~71% · cap Sun 9:40" when the pace spends it first.
+            var time: String?
+            if let capAt = s.capWarning {
+                // Today's without a weekday; any other day's with one ("cap Wed 10:49", 178 pt with the ring: just fits).
+                time = "cap " + (Calendar.current.isDate(capAt, inSameDayAs: now) ? Fmt.bareClock(capAt) : Fmt.dayClock(capAt))
+            } else if let r = w.resetsAt {
+                time = Fmt.left(r.timeIntervalSince(now)).replacingOccurrences(of: " ", with: "")
+            }
+            s.menuTitle = (w.exact ? "" : "~") + Fmt.pct(w.pct) + (time.map { " · " + $0 } ?? "")
+            s.menuPct = w.pct
+            s.level = max(w.level, s.capWarning != nil ? .warn : .normal)
+        } else if let f = s.fiveHour {
             let fivePct = (f.exact ? "" : "~") + Fmt.pct(f.pct)
             var time: String?
             if let capAt = s.capWarning {
@@ -1106,6 +1196,7 @@ final class Meter: ObservableObject {
     }
 
     func fiveHour(_ now: Date) -> WindowView? {
+        guard !noFiveHourLimit else { return nil }
         let last = store.state.lastExact
         let cap = store.state.calibration.cap5h
         var v: WindowView
@@ -1439,7 +1530,8 @@ final class Meter: ObservableObject {
 
     /// Runaways (`flagged`) first, so the dropdown's four rows always include them; then by spend.
     private func burning(_ recent: [String: Recent], flagged: Set<String>) -> [Burn] {
-        let cap = store.state.calibration.cap5h
+        // %/hr of the 5-hour window, or of the week when there is no 5-hour limit.
+        let cap = noFiveHourLimit ? store.state.calibration.capWeek : store.state.calibration.cap5h
         return recent.compactMap { session, r in
             guard r.last15 > 0 || flagged.contains(session), let t = r.lastTurn else { return nil }
             let perHour = r.last15 / (Self.burnLookback / 3600)
@@ -1475,7 +1567,8 @@ final class Meter: ObservableObject {
         guard let cap = store.state.calibration.cap5h else { return [] }
         return recent.compactMap { session, r in
             let pct = r.last30 / cap * 100
-            return pct >= Self.runawayPct ? Runaway(id: session, name: names[session] ?? "…", pct: pct) : nil
+            let weekPct = noFiveHourLimit ? store.state.calibration.capWeek.map { r.last30 / $0 * 100 } : nil
+            return pct >= Self.runawayPct ? Runaway(id: session, name: names[session] ?? "…", pct: pct, weekPct: weekPct) : nil
         }
         .sorted { $0.pct > $1.pct }
     }
@@ -1624,6 +1717,7 @@ final class Meter: ObservableObject {
         let now = clock()
         var h = History()
         h.calibrated = store.state.calibration.cap5h != nil
+        h.noFiveHourLimit = noFiveHourLimit
         let since = now.addingTimeInterval(-Self.week)
         let readings = exactHistory(since: since.addingTimeInterval(-Self.fiveHours))
         h.exactSince = readings.first?.at
@@ -1701,9 +1795,11 @@ final class Meter: ObservableObject {
                     anchor = pinned
                 }
             }
+            // No windows open once the plan has no 5-hour limit.
+            let gone = store.state.fiveHourGoneSince ?? .distantFuture
             while true {
                 let i = first(atOrAfter: anchor)
-                guard i < turns.count, turns[i].at <= now else { break }
+                guard i < turns.count, turns[i].at <= now, Self.windowOpening(turns[i].at) < gone else { break }
                 var start = max(Self.windowOpening(turns[i].at), anchor)
                 var end = start.addingTimeInterval(Self.fiveHours)
                 var reset = end
@@ -1719,7 +1815,7 @@ final class Meter: ObservableObject {
                 drawn.append(reset)
                 if end > since {
                     let (height, exact) = peak(start, end, reset: reset)
-                    h.windows.append(HistoryWindow(start: start, end: end, peak: height, exact: exact, open: end > now))
+                    h.windows.append(HistoryWindow(start: start, end: end, peak: height, exact: exact, open: end > now && gone > now))
                 }
                 anchor = end
             }
@@ -1791,8 +1887,13 @@ final class Meter: ObservableObject {
         let peak = h.windows.map(\.peak).max() ?? 0
         // No projection yet: the card says so ("–") rather than passing off the % so far as the % at reset.
         let week = h.weekAtReset
+        // Your own plan's windows are measured as they are, Ultra's temporary one before verification too (compared
+        // with the others as the 20x it was on Max 20x: Anthropic gives no size). Once there is no 5-hour limit, no
+        // windows are measured, so no plan's 5-hour side can be judged.
+        let fiveHourBase = plan.fiveHourMultiplier ?? 20
         h.plans = Plan.allCases.map { p in
             let factor = plan.multiplier / p.multiplier
+            let fiveFactor: Double? = noFiveHourLimit ? nil : p == plan ? 1 : p.fiveHourMultiplier.map { fiveHourBase / $0 }
             var runsOut: Date?
             let over = (h.weekNow ?? 0) * factor >= 100
             if !over, let used = h.weekNow, let rate = h.weekRate, rate > 0, let end = h.weekEnd {
@@ -1800,9 +1901,10 @@ final class Meter: ObservableObject {
                 if at < end { runsOut = at }
             }
             return PlanFit(plan: p, current: p == plan,
-                           capped: h.windows.filter { $0.peak * factor >= 100 }.count,
-                           peak: peak * factor, weekAtReset: week.map { $0 * factor },
-                           weekRunsOut: runsOut, weekOver: over)
+                           capped: fiveFactor.map { f in h.windows.filter { $0.peak * f >= 100 }.count } ?? 0,
+                           peak: fiveFactor.map { peak * $0 }, weekAtReset: week.map { $0 * factor },
+                           weekRunsOut: runsOut, weekOver: over,
+                           hasFiveHour: p.fiveHourMultiplier != nil || (p == plan && !noFiveHourLimit))
         }
         return h
     }

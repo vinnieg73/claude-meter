@@ -61,7 +61,7 @@ struct PopoverView: View {
                     WindowCard(w: w)
                     ExtraOffLine(w: w, credits: s.planCredits)
                 }
-            } else {
+            } else if !s.noFiveHourLimit {
                 Module { NoWindowNote(hasReading: s.hasReading) }
             }
             if let w = s.weekly {
@@ -99,7 +99,7 @@ private struct PopoverHeader: View {
             HeaderRing(pct: s.menuPct, tint: ringTint)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(ringLabel)
-                .accessibilityHidden(s.fiveHour == nil)
+                .accessibilityHidden(s.fiveHour == nil && !s.noFiveHourLimit)
             Text("Claude usage")
                 .font(.system(size: 13, weight: .semibold))
                 .accessibilityAddTraits(.isHeader)
@@ -120,6 +120,7 @@ private struct PopoverHeader: View {
     }
 
     private var ringLabel: String {
+        if s.noFiveHourLimit { return "Week, \(s.weekly?.exact == false ? "about " : "")\(Fmt.pct(s.menuPct)) used" }
         if s.fiveHour?.idle == true { return "5-hour window, idle, no window open" }
         return "5-hour window, \(s.fiveHour?.exact == false ? "about " : "")\(Fmt.pct(s.menuPct)) used"
     }
@@ -202,7 +203,7 @@ struct DropdownTabs: View {
 
     /// The 5-hour % the menu bar's ring shows; nothing while idle or signed out.
     static func usageDetail(_ s: Snapshot) -> Detail? {
-        guard let w = s.fiveHour, !w.idle, !w.blind else { return nil }
+        guard let w = s.noFiveHourLimit ? s.weekly : s.fiveHour, !w.idle, !w.blind else { return nil }
         return Detail(text: (w.exact ? "" : "~") + Fmt.pct(w.pct))
     }
 
