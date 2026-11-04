@@ -113,9 +113,10 @@ private struct PopoverHeader: View {
 
     /// Like the menu bar title: the ring stays plain until the title turns orange or red.
     private var ringTint: Color {
-        switch s.level {
+        switch MenuBar.shown(s) {
         case .normal: .primary
-        case .warn, .critical: Theme.color(s.level)
+        case .warn: .orange
+        case .critical: .red
         }
     }
 
@@ -235,7 +236,7 @@ struct DropdownTabs: View {
                 if let detail {
                     Text(" · \(detail.text)")
                         .monospacedDigit()
-                        .foregroundStyle(detail.alarm ? Color.red : on ? Color.primary : Color.secondary)
+                        .foregroundStyle(on ? Color.primary : Color.secondary)
                 }
             }
             .lineLimit(1)

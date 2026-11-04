@@ -168,12 +168,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     private static var testIndex = 0
     private static func testSnapshot() -> Snapshot {
         // The clock as the meter writes it (its locale's spacing), not typed in.
-        let cap = "cap " + Fmt.bareClock(Calendar.current.date(bySettingHour: 22, minute: 49, second: 0, of: Date()) ?? Date())
+        let cap = "cap " + Fmt.periodClock(Calendar.current.date(bySettingHour: 22, minute: 49, second: 0, of: Date()) ?? Date())
         let titles: [(String, Double, Level)] = [
             ("Claude", 0, .normal), ("$0.42 today", 0, .normal), ("8% · 4h52m", 8, .normal),
             ("~62% · 1h05m", 62, .normal), ("31% · " + cap, 31, .warn), ("~94% · " + cap, 94, .critical),
             ("100% · 12m", 100, .critical), ("2h50m wk 41%", 34, .normal), ("1h10m wk ~42%", 78, .warn), ("~100% · " + cap, 100, .critical),
-            (cap + " wk ~100%", 100, .critical), ("4h59m wk ~100%", 100, .warn),
+            (Fmt.periodClock(Calendar.current.date(bySettingHour: 22, minute: 49, second: 0, of: Date()) ?? Date()) + " wk ~100%", 100, .critical), ("4h59m wk ~100%", 100, .warn),
         ]
         testIndex += 1
         let t = titles[testIndex % titles.count]
@@ -181,6 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         s.menuTitle = t.0
         s.menuPct = t.1
         s.level = t.2
+        s.capWarning = MenuBar.isCapTitle(t.0) ? Date() : nil
         return s
     }
 
@@ -214,7 +215,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         menu.addItem(menuItem("Help…", "questionmark.circle", #selector(showHelp)))
         menu.addItem(.separator())
         menu.addItem(menuItem("Open at login", "arrow.up.forward.app", #selector(toggleLogin), on: meter.launchAtLogin))
-        menu.addItem(menuItem("Weekly % in menu bar", "calendar", #selector(toggleWeekly), on: meter.showWeeklyInTitle))
+        // With no 5-hour limit the week is all the menu bar shows, so there's nothing to toggle (as in the gear menu).
+        if !meter.snapshot.noFiveHourLimit {
+            menu.addItem(menuItem("Weekly % in menu bar", "calendar", #selector(toggleWeekly), on: meter.showWeeklyInTitle))
+        }
         menu.addItem(menuItem("Cloud sessions", "cloud", #selector(toggleCloud), on: meter.cloudOn))
         menu.addItem(menuItem("Notifications", "bell", #selector(toggleNotifications), on: meter.notificationsOn))
         menu.addItem(menuItem("Send test notification", "bell.badge", #selector(testNotification)))

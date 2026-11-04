@@ -4,7 +4,7 @@ import SwiftUI
 /// A limit window: its %, the chart or bar, when it resets, and where the pace takes it.
 struct WindowCard: View {
     let w: WindowView
-    /// The card's own colour while its level is normal: the accent unless given (the Fable card's pink).
+    /// The card's own colour while its level is normal: gray unless given.
     var tint: Color? = nil
 
     private var color: Color { w.level == .normal ? (tint ?? Theme.color(.normal)) : Theme.color(w.level) }
@@ -35,7 +35,7 @@ struct WindowCard: View {
                 PaceChart(w: w, color: color)
             } else {
                 WindowBar(pct: w.pct, projected: w.averageAtReset ?? w.atReset, color: color,
-                          projectedColor: w.projectionWarn && w.level == .normal ? .orange : color)
+                          projectedColor: color)
                     // The chart carries its own air above its plot; the bar gets it here.
                     .padding(.top, 2)
                     .accessibilityHidden(w.idle) // the title row already says it is idle
@@ -132,10 +132,10 @@ struct WindowCard: View {
         if let status { Chip(text: status).fixedSize().help(tooltip) }
     }
 
-    /// A projection or budget line: secondary, or orange (and a touch heavier, to hold its own) when warned.
+    /// A projection or budget line: secondary, or primary and a touch heavier when warned (no colour: grayscale first).
     @ViewBuilder private func metaLine(_ text: String, warn: Bool) -> some View {
         if warn {
-            Text(text).fontWeight(.medium).foregroundStyle(Theme.warnText)
+            Text(text).fontWeight(.medium).foregroundStyle(Color.primary)
         } else {
             Text(text).foregroundStyle(Color.secondary)
         }

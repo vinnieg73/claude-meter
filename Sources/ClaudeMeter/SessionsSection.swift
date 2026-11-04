@@ -69,7 +69,8 @@ struct SessionsSection: View {
                                detail: b.pctPerHour.map { "+\(Fmt.rate($0))%" },
                                fraction: top > 0 ? b.perHour / top : 0,
                                warning: warnings[b.id],
-                               warned: warned)
+                               warned: warned,
+                               window: window)
                 }
             }
         }
@@ -88,7 +89,7 @@ struct SessionsSection: View {
                   + "re-writes the whole context instead of reading it from cache.")
 
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(s.cooling.prefix(3)) { c in ColdRow(c: c) }
+                ForEach(s.cooling.prefix(3)) { c in ColdRow(c: c, window: window) }
             }
             .padding(.leading, Inset.lead)
             .padding(.trailing, 6)
@@ -101,6 +102,8 @@ struct SessionsSection: View {
 /// next message would cost on top of a warm one. The model is in the tooltip.
 private struct ColdRow: View {
     let c: Cooling
+    /// What its % is of: "week" or "5-hour window" (`SessionsSection.window`).
+    let window: String
 
     /// The mascot's width and the gap after it: where the second line starts.
     private static let gap: CGFloat = 5
@@ -126,7 +129,8 @@ private struct ColdRow: View {
                 Text("then").foregroundStyle(.secondary)
                 Text("+\(extra)")
                 if let pct = c.extraPct {
-                    Text("(+\(Fmt.rate(pct))%)").font(Theme.meta).foregroundStyle(.secondary)
+                    Text("(+\(Fmt.rate(pct))% of \(window == "week" ? "week" : "5h"))")
+                        .font(Theme.meta).foregroundStyle(.secondary)
                 }
             }
             .font(Theme.row)
@@ -140,12 +144,12 @@ private struct ColdRow: View {
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isStaticText)
         .accessibilityLabel("\(c.name)\(c.tag.map { ", " + tagTip($0) } ?? ""), \(cold), then plus \(extra)"
-                            + (c.extraPct.map { ", plus \(Fmt.rate($0)) percent" } ?? ""))
+                            + (c.extraPct.map { ", plus \(Fmt.rate($0)) percent of the \(window)" } ?? ""))
     }
 }
 
 /// A burning session: its running mascot in its model's colour, its share of the spend drawn behind
-/// its name (the same bar as `BarRow`, pink for Fable), the model in its tooltip, and a warning
+/// its name (the same bar as `BarRow`), the model in its tooltip, and a warning
 /// ahead of the name for a runaway.
 private struct SessionRow: View {
     /// Where its mascot's stride starts, so the rows don't run in lockstep.
@@ -154,7 +158,7 @@ private struct SessionRow: View {
     let model: String
     /// When the session started (else last ran), under the name, while another row shares its name.
     let tag: String?
-    /// Runs on Fable: its bar is pink, the limit's colour.
+    /// Runs on Fable (the mascot says so; the bar is gray like the rest).
     let fable: Bool
     let figure: String
     let detail: String?
@@ -164,17 +168,19 @@ private struct SessionRow: View {
     let warning: String?
     /// Whether the list keeps a column for the warning (some row in it has one).
     let warned: Bool
+    /// What `detail`'s % is of: "week" or "5-hour window".
+    let window: String
 
     private static let gap = SessionsSection.Inset.gap
 
     var body: some View {
-        let tint = warning != nil ? Theme.color(.warn) : fable ? Theme.fable : Theme.color(.normal)
+        let tint = warning != nil ? Color.primary : Theme.neutral // a runaway has its triangle; no colour for it or for Fable
         HStack(alignment: .center, spacing: Self.gap) {
             Mascot(pose: .run, color: ModelFamily(model: model).full, scale: SessionsSection.mascotScale, phase: phase)
             if warned {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 9))
-                    .foregroundStyle(Theme.color(.warn))
+                    .foregroundStyle(Color.primary)
                     .opacity(warning == nil ? 0 : 1)
                     .frame(width: SessionsSection.Inset.warning)
                     .accessibilityHidden(true)
@@ -240,7 +246,7 @@ private struct SessionRow: View {
 
     private var label: String {
         var parts = [name] + (tag.map { [tagTip($0)] } ?? []) + [model, "\(figure) per hour"]
-        if let detail { parts.append("\(detail) of the 5-hour window per hour") }
+        if let detail { parts.append("\(detail) of the \(window) per hour") }
         if let warning { parts.append("warning: \(warning)") }
         return parts.joined(separator: ", ")
     }

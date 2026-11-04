@@ -35,7 +35,8 @@ struct HistoryView: View {
         let h = fixture ?? meter.history()
         return VStack(alignment: .leading, spacing: Self.gap) {
             Module { WeekValueSection(h: h, plan: meter.plan) }
-            Module { HistoryWindowsChart(h: h) }
+            // With no 5-hour limit there are no windows to chart; the week below is the page.
+            if !h.noFiveHourLimit { Module { HistoryWindowsChart(h: h) } }
             Module { HistoryWeekChart(h: h) }
             Module { PlanFitSection(h: h, plan: $meter.plan) }
             HistoryFootnote(h: h, plan: meter.plan)

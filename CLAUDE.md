@@ -94,6 +94,12 @@ use) once two usage reports list no `session` limit, back on the first that list
 `ultra`, a synthetic replay case, a "5-hour limit:" line in `--status`). Built ahead of his account being verified, so
 the real switch is untested on live data. Scope is back to bug elimination.
 
+Exception (2026-11-04, asked for by the user: "i want all the fixes implemented", from the Fable review of 0.9.35, and "AM or
+PM" on the menu bar run-out time): grayscale first (colour only from 90% and for real alerts; mascots keep theirs), no
+5-hour windows or Plan fit rows in History with no 5-hour limit, a fresh week holds today's pace for a day, weekly caps for
+runaways and Going cold in Ultra mode, folder names for "Local session" rows, matching menus, a slower Fable report in
+Ultra mode, Sonnet 5.5 cache reads at $0.20, and the AM/PM title. Scope is back to bug elimination.
+
 Before calling a fix done, run `./scripts/replay.sh` and confirm PASS. It replays the real history
 log and transcripts through the working tree (read-only) and checks window openings, the probe
 gate, duplicate alerts and accuracy. If a fix guards something the replay doesn't cover, say so.
@@ -104,14 +110,18 @@ change nothing, tabular digits (the width only changes when the number of charac
 
 Note (2026-10-19, asked for by the user, v0.9.24): to fit beside the 58 pt Vitals dials (178.5 pt right of the notch),
 a title with the weekly % drops the 5-hour % (the ring shows it): "2h50m wk 41%", at most "cap 10:49 wk ~100%"
-(169 pt). The cap time has no AM/PM anywhere in the title (`Fmt.bareClock`; always within 5 hours).
+(169 pt).
+
+Note (2026-11-04, asked for by the user): the run-out time in the title says AM or PM (`Fmt.periodClock`). This replaces the
+2026-10-19 rule of no AM/PM. The text budget beside the notch is 140 pt (`Fmt.titleTextBudget`); `Fmt.fittingTitle` drops the
+word "cap" when the title would be wider ("~99% · cap Wed 10:49 AM" is 163 pt, "~99% · Wed 10:49 AM" 138 pt).
 
 ## Lessons
 
 - Anything that widens a Going cold or Burning now row can push the whole dropdown past 340 pt (it shifts and clips at both edges): check the `long` fixture, which carries the longest tags and amounts (v0.9.16).
 - Since v0.9.5 any desktop app title beat the project, so its placeholder "Remote Control session (from a project)" named most Remote Control rows; a title source can hold placeholders, not just names (v0.9.19).
 - A `variableLength` status item whose title changes width re-lays out the whole menu bar, so icons slide in and out from behind the notch. Keep one fixed `length`; a fixed-length button centres its content, so pad the image to pin it (v0.9.20).
-- `Fmt.clock` writes "10:49 PM" with a narrow no-break space (U+202F); a typed "10:49 PM" is 2 pt wider. Measure with the real formatter (v0.9.20). (v0.9.24: the title uses `Fmt.bareClock`, no period, and `Fmt.clock` is gone.)
+- `Fmt.clock` writes "10:49 PM" with a narrow no-break space (U+202F); a typed "10:49 PM" is 2 pt wider. Measure with the real formatter (v0.9.20). (v0.9.24: the title used `Fmt.bareClock`, no period; Nov 4: it says AM/PM again via `Fmt.periodClock`, and bareClock is gone.)
 - Only the probe measures at its reading's time. A tap.json drop-in from another tool (Claude Dashboard, Oct 12) carried an old weekly 50% while the week was at 59%; taken as measured it faked an early reset and taught a weekly cap of $150. Drop-ins now count like the statusline (v0.9.18).
 - A window sized to its content (`sizingOptions = .preferredContentSize`, not resizable) runs under the Dock once the content outgrows the screen: History did at 1025 pt on a 874 pt visible screen after "Value this week" went on top. Windows open at min(content, visibleFrame − margin), scroll, resize in height, and clamp a saved size; check with `ClaudeMeter --window-check` (v0.9.23).
 - A replay starts from a blank state, so it learns caps the way a fresh install does: a first weekly cap taken at 5% (Oct 23: $142 from $7, the real cap ~$209) lingered because the blend only nudges a held cap at low %, and failed "This week" shares and weekly growth. The first weekly cap now waits for 10%. The live app never showed it (its cap carries over), so a replay FAIL can be a real cold-start bug, not aging data (v0.9.27).
@@ -124,4 +134,8 @@ a title with the weekly % drops the 5-hour % (the ring shows it): "2h50m wk 41%"
   breaches lasting 5 minutes; if such rises repeat, find which sessions aren't charged to the plan (v0.9.34). Its
   History window count now starts at the later of the 7-day horizon and the replay's first reading.
 - The weekly cap was the week's average spend per point, which lags when a point costs more as the week goes on (Oct 28–30: $2.2–2.7k against ~$3k from the climb, estimates 1.14× the readings, mostly Opus cloud sessions). It is now the larger of the average and the last day's climb; the larger, because the day's climb alone read low around an uncharged cloud rise and failed the "This week" shares (v0.9.35).
+- With the 5-hour limit gone, the replay's 5-hour floors (openings, gate points) still counted the old 5-hour readings as a 3-day span and demanded the full floors, so it FAILed on a working meter; once the switch is seen they are waived (Nov 4).
+- Anything in a view that reads `cap5h` or `fiveHour` goes stale after the Ultra switch (runaways, Going cold prices, "calibrated", History windows, Plan fit rows): grep for both when touching Ultra behaviour (Nov 4).
+- A pace projected from one busy sitting in a week's first hours reads as a cap ("out Tue 5:30 AM" at 5% after 4 hours). Hold projections until the week is a day old (Nov 4).
+- The statusline tap isn't broken when it is quiet: only terminal Claude Code sessions run a statusline, never the desktop app. Check `claude-meter-tap` with a piped sample before blaming it (Nov 4).
 - NSStatusItem Preferred Position values on macOS 27 are not screen coordinates and can't be seeded reliably; only autosaveName plus a user ⌘-drag (v0.9.21).

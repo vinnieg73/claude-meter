@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The Help window: what everything in the meter means, in plain words. Each section wears the
 /// symbol and tint the app gives that thing, and the samples are drawn with the app's own pieces
-/// (chips, the ring, the orange cap title), so a reader can match them to what they see.
+/// (chips, the ring, the cap title), so a reader can match them to what they see.
 struct HelpView: View {
     /// False for `--render`: drawn whole rather than in a scroll view, so all of it can be checked.
     var scrolls = true
@@ -55,16 +55,16 @@ struct HelpView: View {
             Sample { MenuTitleSample(text: "~23% · 18m", fill: 0.23) } says: {
                 Para("A ~ in front means the number is an estimate. No ~ means it's exact.")
             }
-            Sample { MenuTitleSample(text: "31% · cap 10:49", fill: 0.31, tint: Theme.warnText) } says: {
-                Para("Orange with a time: at your current pace you'll hit the limit at 10:49, before it resets. You get one notification when that's 30 minutes away.")
+            Sample { MenuTitleSample(text: "31% · cap 10:49 AM", fill: 0.31, tint: Theme.warnText) } says: {
+                Para("Orange with a time: at your current pace you'll hit the limit at 10:49 AM (or PM), before it resets. You get one notification when that's 30 minutes away.")
             }
             Sample { MenuTitleSample(text: "2h50m wk 41%", fill: 0.23) } says: {
                 Para("With Weekly % in menu bar on: the ring is your 5-hour %, then the time to reset and your weekly %.")
             }
             Sample { MenuTitleSample(text: "41% · 3d4h", fill: 0.41) } says: {
-                Para("With no 5-hour limit (Ultra, once Anthropic verifies the account): the ring and the number are your weekly %, then the time to its reset, or \"cap Sun 9:40\" when your pace would use it up first.")
+                Para("With no 5-hour limit (Ultra, once Anthropic verifies the account): the ring and the number are your weekly %, then the time to its reset, or \"Sun 9:40 AM\" when your pace would use it up first.")
             }
-            Para("The title turns orange at 70% and red at 90%. Click it to open the meter. Right-click it for the menu.",
+            Para("The title stays plain until 90%, then turns red. Orange is kept for a real alert: the pace will hit the limit before it resets (the title with \"cap\" and a time). Click it to open the meter. Right-click it for the menu.",
                  secondary: true)
         }
     }
@@ -75,7 +75,7 @@ struct HelpView: View {
             Bullets([
                 "The big number is how much of it you've used.",
                 "The chart shows how it climbed. The dashed line is where you'll end up if you keep going at this pace.",
-                "The line underneath says it in words: \"At this pace: ~64% by reset\", or, in orange, the time you'd hit the limit.",
+                "The line underneath says it in words: \"At this pace: ~64% by reset\", or the time you'd hit the limit.",
                 "\"Idle\" means no window is open. Your next message starts one.",
                 "Ultra has no 5-hour limit once Anthropic verifies the account (it does that by itself, from your account and payment history). The meter sees that in the usage report, the same one Settings › Usage shows, and drops this card, its alerts and its windows in History. The weekly card then leads, and Burning now's %/hr is of the week. If the limit comes back, so does the card.",
             ])
@@ -87,7 +87,7 @@ struct HelpView: View {
             Para("A second, bigger limit that covers 7 days. Same card, without the chart.")
             Bullets([
                 "Pace: where your usual pace lands by the reset, then where today's pace would.",
-                "Budget: how much you can use per day and still last until the reset, next to what you normally use. It turns orange when you're using more than that.",
+                "Budget: how much you can use per day and still last until the reset, next to what you normally use. It turns darker when you're using more than that.",
                 "Some weeks also show a separate limit per model, in rows underneath.",
                 "\"Share by app: Code 86% · Chat 8% · Cowork 4% · Duet 2%\" is Anthropic's own split of this week's usage by app: Claude Code anywhere, claude.ai chat (web, desktop and phone), Cowork and Claude Duet. The weekly % already counts all of them; this says where it went. Read every 15 minutes with Claude Code's sign-in.",
                 "\"Worth $540 so far · 11.7× your plan\" is what this week's use would have cost at pay-as-you-go prices, and how many times what your plan costs for a week that is. A \"~\" before the amount means part of it is an estimate (Other, see Value this week). Click History on that line for the details.",
@@ -99,11 +99,11 @@ struct HelpView: View {
         HelpSection(symbol: FableCard.symbol, title: "Fable", tint: Theme.fable) {
             Para("Max and Ultra have a separate weekly limit just for Fable, Anthropic's most capable model: Fable can use up to half your week. This card is that limit: how much of it you've used, when it resets, and how fresh the reading is. It only climbs when you use Fable, on any device.")
             Bullets([
-                "The number and the bar are the Fable limit itself, straight from Anthropic. Pink is Fable's colour. It still turns orange at 70% and red at 90%.",
+                "The number and the bar are the Fable limit itself, straight from Anthropic. It is gray like the other cards and turns red at 90%.",
                 "\"This Mac: ~3% of the 5-hour window · ~1% of the week ($2.20)\" is Fable's part of your overall limits, worked out from this Mac's Claude Code records: how much of the 5-hour window and of the week went to Fable, and what that use would cost at pay-as-you-go prices.",
-                "In Burning now, a session running on Fable has a pink bar.",
+                "In Burning now, a session running on Fable has the pink Fable mascot.",
             ])
-            Para("The reading comes from Claude Code's own usage report (the same numbers as typing /usage): every 5 minutes while Fable is in use on this Mac or no 5-hour window is open (that is how a window opened on another device is noticed), every 30 otherwise, and on Sync. It costs nothing and never starts a 5-hour window. The Fable limit doesn't send notifications.",
+            Para("The reading comes from Claude Code's own usage report (the same numbers as typing /usage): every 5 minutes while Fable is in use on this Mac or no 5-hour window is open (that is how a window opened on another device is noticed), every 30 otherwise, and on Sync. With no 5-hour limit there is no window to find, so it is every 30 minutes unless Fable is in use here (the 15-minute usage read notices the week climbing). It costs nothing and never starts a 5-hour window. The Fable limit doesn't send notifications.",
                  secondary: true)
             Para("If your plan has no separate Fable limit, the card says so, and Fable simply counts toward the 5-hour and weekly limits above. The card appears once Fable has been used this week.",
                  secondary: true)
@@ -173,7 +173,7 @@ struct HelpView: View {
                 "+2.5%: how much of your 5-hour limit it uses per hour.",
             ])
             Callout(symbol: "exclamationmark.triangle.fill", tint: .orange) {
-                Para("A ⚠ means a runaway: one session used 20% or more of your 5-hour limit in 30 minutes. You also get one notification. It's usually a loop or a big job running while you're away.")
+                Para("A ⚠ means a runaway: one session used 20% or more of your 5-hour limit in 30 minutes (5% or more of the week, with no 5-hour limit). You also get one notification. It's usually a loop or a big job running while you're away.")
             }
         }
     }
@@ -233,7 +233,7 @@ struct HelpView: View {
             Para("The first thing in History: what your use since the weekly limit last reset would have cost if you paid Anthropic's pay-as-you-go prices instead of a plan.")
             Bullets([
                 "The big number is the total. The one next to it is how many times what your plan costs for a week that is: $20, $100 or $200 a month (Pro, Max, Ultra, from the plan picker in Plan fit), spread over 52 weeks.",
-                "The bar splits it in three. This Mac's Claude Code (dark gray), counted from its records. Cloud sessions (mid gray): claude.ai/code sessions and project threads, exact, from the sessions list Anthropic keeps, read every 5 minutes with the Claude Code sign-in on this Mac. Other (light gray): claude.ai chat, the phone and other computers, worked out from your weekly %. The blue tick is your plan's week.",
+                "The bar splits it in three. This Mac's Claude Code (dark gray), counted from its records. Cloud sessions (mid gray): claude.ai/code sessions and project threads, exact, from the sessions list Anthropic keeps, read every 5 minutes with the Claude Code sign-in on this Mac. Other (light gray): claude.ai chat, the phone and other computers, worked out from your weekly %. The black tick is your plan's week.",
                 "The first time, macOS may ask once to let Claude Meter read Claude Code's sign-in from the keychain. It's only held in memory and only sent to Anthropic. Remote Control sessions run on this Mac aren't counted twice: their records here already are. Turn it off with Cloud sessions in the settings.",
                 "A \"~\" before the total means it includes Other, so part of it is an estimate. With no Other, there's no \"~\".",
                 "The columns are each day of the week so far, this Mac with the cloud stacked on top (Other can't be split by day). A reset in the afternoon makes the first and last days partial, so the reset's weekday shows twice. Today's label is bold.",

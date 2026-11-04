@@ -90,7 +90,7 @@ struct Cooling: Identifiable {
 struct Runaway: Identifiable {
     let id: String
     let name: String
-    /// Points of the 5-hour window used in the last 30 minutes (found by it even with no 5-hour limit, as a pace).
+    /// Points of the 5-hour window used in the last 30 minutes, or of the week with no 5-hour limit.
     let pct: Double
     /// Points of the week, said instead when the plan has no 5-hour limit.
     var weekPct: Double?
@@ -247,9 +247,13 @@ final class Meter: ObservableObject {
         didSet {
             var running = 0.0
             spent = [0] + turns.map { running += $0.cost; return running }
+            firstTurnAt = nil
         }
     }
     private var spent: [Double] = [0]
+    /// Each session's first turn, built once per change to `turns` (`tagSharedNames`), not by scanning
+    /// every turn for every same-named row on every recompute.
+    private var firstTurnAt: [String: Date]?
     private var active: [String] = []
     private var names: [String: String] = [:]
     /// When this meter first had its logs to look at (its clock, so the replay's too): the readings-stopped
@@ -302,6 +306,8 @@ final class Meter: ObservableObject {
     private static let cachedReportsFor: TimeInterval = 86400
     /// A single session using this much of the 5-hour window within 30 minutes is flagged.
     private static let runawayPct: Double = 20
+    /// The same, as points of the week, when the plan has no 5-hour limit.
+    private static let runawayWeekPct: Double = 5
     /// The cards' titles, which the alerts are also filed under.
     static let fiveHourTitle = "5-hour window"
     static let weeklyTitle = "Weekly · all models"
@@ -338,7 +344,14 @@ final class Meter: ObservableObject {
         takeCloud()
         credits.onChange = { [weak self] in
             guard let self else { return }
-            if let r = credits.plan { noteSessionLimit(r.sessionLimit, at: r.at) }
+            if let r = credits.plan {
+                noteSessionLimit(r.sessionLimit, at: r.at)
+                // A week above the last reading starts a probe (`windowOpen`); this read is a plain GET,
+                // far cheaper than the `claude -p /usage` report that otherwise had to look every 5 minutes.
+                if noFiveHourLimit, let w = r.week, store.state.reportWeek.map({ $0.at ?? .distantPast < r.at }) ?? true {
+                    store.state.reportWeek = w
+                }
+            }
             recompute()
         }
         // Here rather than on the log queue: readings are appended on the main actor, and one
@@ -579,7 +592,12 @@ final class Meter: ObservableObject {
                     // The held reading's week has ended and no report has been read since.
                     let lapsed = store.state.fable.map { now >= $0.resetsAt && (checked ?? .distantPast) < $0.resetsAt } ?? false
                     let busy = turns.reversed().prefix { now.timeIntervalSince($0.at) <= Self.burnLookback }.contains { $0.fable }
-                    let every = busy ? Self.fableEveryBusy : !windowOpen(now) ? Self.reportEveryIdle : Self.fableEveryQuiet
+                    // Idle, the report is how a 5-hour window opened elsewhere is found, so it looks every 5
+                    // minutes. With no 5-hour limit there is none to find, and the 15-minute usage read
+                    // (`CreditsFeed`) notices the week climbing, so it keeps the quiet half hour: each run is
+                    // a `claude` launch, about 3 seconds of CPU.
+                    let every = busy ? Self.fableEveryBusy
+                        : !noFiveHourLimit && !windowOpen(now) ? Self.reportEveryIdle : Self.fableEveryQuiet
                     guard lapsed || now.timeIntervalSince(since) >= every else { return }
                 }
             }
@@ -1055,7 +1073,8 @@ final class Meter: ObservableObject {
         var s = Snapshot()
         s.loaded = loaded
         s.noFiveHourLimit = noFiveHourLimit
-        s.calibrated = store.state.calibration.cap5h != nil
+        // The cap the meter leans on: the week once the plan has no 5-hour limit.
+        s.calibrated = (noFiveHourLimit ? store.state.calibration.capWeek : store.state.calibration.cap5h) != nil
         s.probing = probing
         if let error = store.state.probeError {
             let retry = store.state.probeRetryAt.map {
@@ -1063,7 +1082,7 @@ final class Meter: ObservableObject {
             } ?? ""
             s.probeStatus = "Probe failed: \(error)\(retry)"
         }
-        s.tapSeen = store.state.tapSeen
+        s.tapSeen = store.state.tapSeen.flatMap { now.timeIntervalSince($0) < 6 * 3600 ? $0 : nil } // a live feed only (FooterView)
         s.hasReading = store.state.lastExact != nil
         s.activeCount = active.count
         if loaded {
@@ -1120,30 +1139,35 @@ final class Meter: ObservableObject {
 
         if s.noFiveHourLimit, let w = s.weekly {
             // The week alone (2026-10-30): "41% · 3d4h", or "~71% · cap Sun 9:40" when the pace spends it first.
-            var time: String?
+            let pct = (w.exact ? "" : "~") + Fmt.pct(w.pct)
             if let capAt = s.capWarning {
-                // Today's without a weekday; any other day's with one ("cap Wed 10:49", 178 pt with the ring: just fits).
-                time = "cap " + (Calendar.current.isDate(capAt, inSameDayAs: now) ? Fmt.bareClock(capAt) : Fmt.dayClock(capAt))
+                // The run-out time says AM or PM (2026-11-04). Today's has no weekday, any other day's has one; "cap" goes
+                // first when the title won't fit beside the notch with it ("~99% · cap Wed 10:49 AM" is 24 pt too wide).
+                let clock = Calendar.current.isDate(capAt, inSameDayAs: now) ? Fmt.periodClock(capAt) : Fmt.periodDayClock(capAt)
+                s.menuTitle = Fmt.fittingTitle(["\(pct) · cap \(clock)", "\(pct) · \(clock)"])
             } else if let r = w.resetsAt {
-                time = Fmt.left(r.timeIntervalSince(now)).replacingOccurrences(of: " ", with: "")
+                s.menuTitle = pct + " · " + Fmt.left(r.timeIntervalSince(now)).replacingOccurrences(of: " ", with: "")
+            } else {
+                s.menuTitle = pct
             }
-            s.menuTitle = (w.exact ? "" : "~") + Fmt.pct(w.pct) + (time.map { " · " + $0 } ?? "")
             s.menuPct = w.pct
             s.level = max(w.level, s.capWarning != nil ? .warn : .normal)
         } else if let f = s.fiveHour {
             let fivePct = (f.exact ? "" : "~") + Fmt.pct(f.pct)
-            var time: String?
+            // Candidates, longest first; the run-out time says AM or PM (2026-11-04), and "cap" goes if it won't fit.
+            var times: [String] = []
             if let capAt = s.capWarning {
-                time = "cap " + Fmt.bareClock(capAt) // within 5 hours, so no weekday or AM/PM: the title stays short
+                times = ["cap " + Fmt.periodClock(capAt), Fmt.periodClock(capAt)]
             } else if let r = f.resetsAt {
-                time = Fmt.left(r.timeIntervalSince(now))
+                times = [Fmt.left(r.timeIntervalSince(now))]
             }
-            var title = fivePct + (time.map { " · " + $0 } ?? "")
+            var title = Fmt.fittingTitle(times.map { fivePct + " · " + $0 } + [fivePct])
             var level = max(f.level, s.capWarning != nil ? .warn : .normal)
             if showWeeklyInTitle, let w = s.weekly {
                 // With the week, the 5-hour % is left to the ring, so the title fits beside the notch
-                // (2026-10-19): "2h50m wk 41%", at most "cap 10:49 wk ~100%".
-                title = (time ?? fivePct) + " wk " + (w.exact ? "" : "~") + Fmt.pct(w.pct)
+                // (2026-10-19): "2h50m wk 41%", and "10:49 AM wk ~100%" for a cap ("cap 10:49 AM wk ~100%" is 14 pt too wide).
+                let weekPct = " wk " + (w.exact ? "" : "~") + Fmt.pct(w.pct)
+                title = Fmt.fittingTitle(times.map { $0 + weekPct } + [fivePct + weekPct])
                 level = max(level, w.level) // colour only by what the title shows
             }
             s.menuTitle = title
@@ -1251,12 +1275,13 @@ final class Meter: ObservableObject {
             v.restartedAt = w.restartedAt
             v.stale = last.at.timeIntervalSince(measured) > Self.staleAfter
         } else {
-            // Weekly windows reset on a fixed schedule.
-            guard let cap else { return nil }
+            // Weekly windows reset on a fixed schedule. With no cap learned yet (a fresh install, or one
+            // that has only ever seen the 5-hour window) the logs can't be priced as points, so the card
+            // stays up at 0%, estimated, until the next reading, instead of vanishing with its week.
             var resets = w.resetsAt
             while resets <= now { resets.addTimeInterval(Self.week) }
             v = WindowView(title: Self.weeklyTitle,
-                           pct: spend(from: resets.addingTimeInterval(-Self.week), to: now) / cap * 100,
+                           pct: cap.map { spend(from: resets.addingTimeInterval(-Self.week), to: now) / $0 * 100 } ?? 0,
                            resetsAt: resets, exact: false, asOf: measured)
             // Nothing has measured this week yet: if Anthropic reset it early, or the Mac slept across
             // the reset, its % is this Mac's spend (and the cloud sessions') alone, so it raises no alert.
@@ -1264,12 +1289,22 @@ final class Meter: ObservableObject {
         }
 
         if let cap, let resets = v.resetsAt {
-            project(&v, cap: cap, now: now, windowStart: Self.countsFrom(resets, span: Self.week, v.restartedAt),
-                    lookback: 86400, minLookback: 7200)
+            let start = Self.countsFrom(resets, span: Self.week, v.restartedAt)
+            // A week under a day old has one sitting to go on: 5% in four hours "ran out Tue 5:30 AM" and
+            // put "cap" in the title. Until it has a day, today's pace (and the cap time and title that
+            // ride on it) waits, and the 7-day average speaks alone (`forecast`).
+            if now.timeIntervalSince(start) >= Self.youngWeek || v.pct >= 100 {
+                project(&v, cap: cap, now: now, windowStart: start, lookback: 86400, minLookback: 7200)
+            } else {
+                v.projection = "Measuring pace…"
+            }
             forecast(&v, cap: cap, now: now, resets: resets)
         }
         return v
     }
+
+    /// How long a week counts before today's pace is trusted to project it.
+    static let youngWeek: TimeInterval = 86400
 
     /// The last 24 hours overstate a workday and understate a weekend, so the weekly card leads
     /// with an average and gives today's pace second. The budget is what's left per day to last
@@ -1500,8 +1535,14 @@ final class Meter: ObservableObject {
         let shown = s.burning.prefix(4).map(\.name) + s.cooling.prefix(3).map(\.name)
         let shared = Set(shown.filter { name in shown.filter { $0 == name }.count > 1 })
         guard !shared.isEmpty else { return }
+        if firstTurnAt == nil {
+            var firsts: [String: Date] = [:]
+            for t in turns where firsts[t.session] == nil { firsts[t.session] = t.at } // sorted, so the first seen is the first
+            firstTurnAt = firsts
+        }
+        let firsts = firstTurnAt ?? [:]
         func started(_ id: String) -> String? {
-            guard let first = turns.first(where: { $0.session == id }),
+            guard let first = firsts[id].map({ (at: $0, session: id) }),
                   // Its first turn kept, near the edge of the 8 days the logs hold, may not be its first.
                   first.at > coveredFrom.addingTimeInterval(Self.fiveHours) else { return nil }
             return "started " + Fmt.when(first.at)
@@ -1564,17 +1605,29 @@ final class Meter: ObservableObject {
     }
 
     private func runaways(_ recent: [String: Recent]) -> [Runaway] {
+        // With no 5-hour limit the week is the measure: the old 5-hour cap stops updating at the switch
+        // and drifts, and a fresh install never learns one. 5% of the week in half an hour is about the
+        // 20% of a 5-hour window it replaces (Vinnie's caps on Nov 4: $137 against $138).
+        if noFiveHourLimit {
+            guard let cap = store.state.calibration.capWeek else { return [] }
+            return recent.compactMap { session, r in
+                let weekPct = r.last30 / cap * 100
+                return weekPct >= Self.runawayWeekPct
+                    ? Runaway(id: session, name: names[session] ?? "…", pct: weekPct, weekPct: weekPct) : nil
+            }
+            .sorted { $0.pct > $1.pct }
+        }
         guard let cap = store.state.calibration.cap5h else { return [] }
         return recent.compactMap { session, r in
             let pct = r.last30 / cap * 100
-            let weekPct = noFiveHourLimit ? store.state.calibration.capWeek.map { r.last30 / $0 * 100 } : nil
-            return pct >= Self.runawayPct ? Runaway(id: session, name: names[session] ?? "…", pct: pct, weekPct: weekPct) : nil
+            return pct >= Self.runawayPct ? Runaway(id: session, name: names[session] ?? "…", pct: pct) : nil
         }
         .sorted { $0.pct > $1.pct }
     }
 
     private func cooling(_ recent: [String: Recent], now: Date) -> [Cooling] {
-        let cap = store.state.calibration.cap5h
+        // Priced against the 5-hour window, or the week when there is none (`Cooling.extraPct`).
+        let cap = noFiveHourLimit ? store.state.calibration.capWeek : store.state.calibration.cap5h
         return recent.compactMap { session, r -> Cooling? in
             guard let t = r.lastTurn else { return nil }
             let ttl: TimeInterval = r.hourCache ? 3600 : 300

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 enum Fmt {
@@ -48,26 +49,27 @@ enum Fmt {
     private static let dayTime = formatter("EEEjmm")
     private static let dateTime = formatter("MMMdjmm")
 
-    /// The time of day without AM/PM ("10:49"; "22:49" on a 24-hour clock), for the menu bar's cap time,
-    /// which is always within the next 5 hours, so the period adds nothing but width.
-    /// "Sun 9:40": a bare clock with its weekday, for a time more than a day out.
-    static func dayClock(_ date: Date) -> String { weekday.string(from: date) + " " + bareClock(date) }
     private static let weekday = formatter("EEE")
 
-    static func bareClock(_ date: Date) -> String {
-        bareTime.string(from: Date(timeIntervalSince1970: (date.timeIntervalSince1970 / 60).rounded() * 60))
+    /// The time of day with AM or PM ("10:49 AM"), for the title's run-out time (asked for 2026-11-04: a bare
+    /// "10:49" doesn't say which). A 24-hour clock has no period and reads as before.
+    static func periodClock(_ date: Date) -> String {
+        time.string(from: Date(timeIntervalSince1970: (date.timeIntervalSince1970 / 60).rounded() * 60))
     }
-    private static let bareTime: DateFormatter = {
-        let f = formatter("jmm")
-        // Drop the period field ("a", outside quoted text) and the space beside it.
-        var out = "", quoted = false
-        for c in f.dateFormat ?? "h:mm" {
-            if c == "'" { quoted.toggle() }
-            if c != "a" || quoted { out.append(c) }
-        }
-        f.dateFormat = out.trimmingCharacters(in: .whitespaces)
-        return f
-    }()
+    /// "Sun 9:40 AM": the same with its weekday, for a run-out that isn't today.
+    static func periodDayClock(_ date: Date) -> String { weekday.string(from: date) + " " + periodClock(date) }
+
+    /// The widest the menu bar title's text can be: 178.5 pt right of the notch beside the 58 pt Vitals dials,
+    /// less the ring and its gaps (38.5 pt), measured with the real font and formatter.
+    static let titleTextBudget = 140.0
+    private static let titleFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+    static func titleWidth(_ text: String) -> Double {
+        Double(NSAttributedString(string: text, attributes: [.font: titleFont]).size().width)
+    }
+    /// The first of `candidates` (longest first) that fits beside the notch; the last if none does.
+    static func fittingTitle(_ candidates: [String]) -> String {
+        candidates.first { titleWidth($0) <= titleTextBudget } ?? candidates.last ?? ""
+    }
 
     /// "3:50 PM" today, "Wed 3:50 PM" within six days, "Sep 30, 3:50 PM" beyond.
     static func when(_ date: Date) -> String {

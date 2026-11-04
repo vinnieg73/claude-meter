@@ -14,7 +14,7 @@ struct HistoryWeekChart: View {
     private var strong: Bool { contrast == .increased }
     private var evenColor: Color { Color.secondary.opacity(strong ? 1 : 0.75) }
     /// Orange once the average pace reaches the cap.
-    private var averageColor: Color { (h.weekAtReset ?? 0) >= 100 ? Theme.color(.warn) : Color.secondary }
+    private var averageColor: Color { (h.weekAtReset ?? 0) >= 100 ? Color.primary : Color.secondary }
 
     /// The week to draw: nothing without a range, and the empty state stands in.
     private var week: (start: Date, end: Date)? {
@@ -66,7 +66,7 @@ struct HistoryWeekChart: View {
         let gridline = strong ? Theme.quiet : Theme.track
         return Chart {
             RuleMark(y: .value("Cap", 100))
-                .foregroundStyle(Theme.color(.critical).opacity(strong ? 0.8 : 0.45))
+                .foregroundStyle(Color.secondary.opacity(strong ? 0.9 : 0.55))
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
             ForEach(Array([PacePoint(at: start, pct: 0), PacePoint(at: end, pct: 100)].enumerated()),
                     id: \.offset) { _, p in

@@ -54,11 +54,15 @@ enum Theme {
         tint == .orange ? warnText : tint == .cyan ? coldText : tint
     }
 
+    /// Grayscale first: bars, charts and numbers are gray, and colour is kept for 90% and over (red) and for
+    /// real alerts. The warn level (70%) is a darker gray, not a colour. The Credits tab is the model.
+    static let neutral = Color.secondary
+
     static func color(_ level: Level) -> Color {
         switch level {
         case .critical: .red
-        case .warn: .orange
-        case .normal: .accentColor
+        case .warn: .primary
+        case .normal: neutral
         }
     }
 }
@@ -125,7 +129,7 @@ struct BarRow<Leading: View>: View {
     var detail: String? = nil
     /// 0...1 of the row's width; 0 draws no bar.
     let fraction: Double
-    var tint: Color = .accentColor
+    var tint: Color = Theme.neutral
     @ViewBuilder var leading: Leading
 
     var body: some View {
@@ -145,7 +149,7 @@ struct BarRow<Leading: View>: View {
         .background(alignment: .leading) {
             GeometryReader { geo in
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(tint.opacity(fraction > 0 ? (tint == .accentColor ? 0.14 : 0.18) : 0))
+                    .fill(tint.opacity(fraction > 0 ? (tint == Theme.neutral ? 0.16 : 0.18) : 0))
                     .frame(width: max(4, geo.size.width * min(fraction, 1)))
             }
         }
@@ -153,7 +157,7 @@ struct BarRow<Leading: View>: View {
 }
 
 extension BarRow where Leading == EmptyView {
-    init(name: String, value: String, detail: String? = nil, fraction: Double, tint: Color = .accentColor) {
+    init(name: String, value: String, detail: String? = nil, fraction: Double, tint: Color = Theme.neutral) {
         self.init(name: name, value: value, detail: detail, fraction: fraction, tint: tint) { EmptyView() }
     }
 }

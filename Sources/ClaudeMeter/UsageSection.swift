@@ -89,7 +89,7 @@ struct UsageSection: View {
         let top = max(s.weekShares.first?.pct ?? 1, 0.01)
         ForEach(s.weekShares.prefix(4)) { share in
             BarRow(name: share.id, value: Fmt.pct(share.pct), detail: Fmt.dollars(share.cost),
-                   fraction: share.pct / top, tint: share.cloud ? Color.primary : Color.accentColor)
+                   fraction: share.pct / top, tint: share.cloud ? Color.primary : Theme.neutral)
                 .accessibilityElement(children: .combine)
         }
         if let elsewhere = s.weekElsewhere {
@@ -117,7 +117,7 @@ struct DailyChart: View {
             BarMark(x: .value("Day", bar.day, unit: .day), y: .value("Cost", bar.cost), width: .ratio(0.6))
                 // Rounded at the top only: the bottom sits on the baseline.
                 .clipShape(UnevenRoundedRectangle(topLeadingRadius: 3, topTrailingRadius: 3, style: .continuous))
-                .foregroundStyle(isToday ? Color.accentColor : Theme.quiet)
+                .foregroundStyle(isToday ? Color.primary.opacity(0.55) : Theme.quiet)
                 // The accent says "today" to the eye; say it to VoiceOver too.
                 .accessibilityLabel(isToday ? "Today" : bar.day.formatted(.dateTime.weekday(.wide)))
                 .accessibilityValue(Fmt.dollars(bar.cost))

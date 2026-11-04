@@ -11,7 +11,7 @@ enum MenuBar {
         button.setAccessibilityLabel(spoken(s))
         button.imagePosition = .imageLeading
         let center = ringCenter(in: button, scale: scale ?? button.window?.backingScaleFactor ?? 2)
-        button.image = ring(s.menuPct, level: s.level, centerY: center)
+        button.image = ring(s.menuPct, level: shown(s), centerY: center)
     }
 
     /// What VoiceOver says for the status item: the title as shown, said as words ("about 62%,
@@ -42,7 +42,13 @@ enum MenuBar {
     /// minutes tick over.
     private static let titleFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
 
-    /// Orange from the warn level and red from critical, for the title and the ring alike. Nil at
+    /// The level the menu bar draws: grayscale first, so the 70% warn level shows no colour of its own. Red
+    /// from critical (90%), and orange only for a real alert, the pace capping the window before it resets.
+    static func shown(_ s: Snapshot) -> Level {
+        s.level == .warn && s.capWarning == nil ? .normal : s.level
+    }
+
+    /// Orange for the warn level and red from critical, for the title and the ring alike. Nil at
     /// normal, where the menu bar's own tint applies.
     private nonisolated static func tint(_ level: Level) -> NSColor? {
         switch level {
@@ -60,7 +66,7 @@ enum MenuBar {
     /// read as one thing.
     static func title(_ s: Snapshot) -> NSAttributedString {
         var attrs: [NSAttributedString.Key: Any] = [.font: titleFont]
-        if let tint = tint(s.level) { attrs[.foregroundColor] = tint }
+        if let tint = tint(shown(s)) { attrs[.foregroundColor] = tint }
         return NSAttributedString(string: s.menuTitle, attributes: attrs)
     }
 
@@ -169,6 +175,11 @@ enum MenuBar {
     /// title for the states the menu bar can show.
     /// False if the sheet could not be drawn or written.
     @discardableResult
+    /// Whether a title is a cap warning: a run-out clock ("10:49 AM") or the word "cap".
+    static func isCapTitle(_ text: String) -> Bool {
+        text.contains("cap ") || text.contains(" AM") || text.contains(" PM")
+    }
+
     static func renderIcons(to path: String) -> Bool {
         _ = NSApplication.shared
         let rings: [Double] = [0, 3, 25, 50, 75, 90, 95, 100]
@@ -179,17 +190,17 @@ enum MenuBar {
             ("34% · 2h50m", 34, .normal),
             ("~62% · 1h05m", 62, .normal),
             ("~78% · 1h10m", 78, .warn),
-            ("31% · cap 10:49", 31, .warn), // the pace reaches the cap before the reset
-            ("~94% · cap 10:49", 94, .critical),
+            ("31% · cap 10:49 AM", 31, .warn), // the pace reaches the cap before the reset
+            ("~94% · cap 10:49 AM", 94, .critical),
             ("100% · 12m", 100, .critical),
             ("2h50m wk 41%", 34, .normal), // with the week, the ring alone shows the 5-hour %
             ("1h10m wk ~42%", 78, .warn),
             ("3h10m wk 91%", 20, .critical), // the week sets the colour
             ("4h59m wk ~100%", 100, .critical),
-            ("cap 10:49 wk ~100%", 94, .critical), // the longest it gets
+            ("10:49 AM wk ~100%", 94, .critical), // the longest it gets ("cap " goes when it won't fit)
             ("41% · 3d4h", 41, .normal), // no 5-hour limit: the ring and the title are the week's
-            ("~71% · cap Sun 9:40", 71, .warn),
-            ("~99% · cap Wed 10:49", 99, .critical), // the longest without a 5-hour limit (178 pt with the ring)
+            ("~71% · Sun 9:40 AM", 71, .warn),
+            ("~99% · Wed 10:49 AM", 99, .critical), // the longest without a 5-hour limit (176 pt with the ring)
             ("~92% · 18h20m", 92, .critical),
         ]
         let scale: CGFloat = 4 // sheet pixels per point
@@ -244,6 +255,7 @@ enum MenuBar {
                 s.menuTitle = item.text
                 s.menuPct = item.pct
                 s.level = item.level
+                s.capWarning = isCapTitle(item.text) ? Date() : nil // orange is only for a cap warning (`shown`)
                 _ = place(s, row: densities.count + index, x: 4, density: scale)
             }
         }

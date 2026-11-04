@@ -630,6 +630,9 @@ enum PlanCredits {
         /// Whether the report's `limits` list a 5-hour (session) limit, as Settings › Usage's "Current session"
         /// bar shows it; nil when it listed no weekly limit either (nothing to go by).
         var sessionLimit: Bool?
+        /// The weekly window's % and reset (`seven_day`). With no 5-hour limit this is how use away from
+        /// this Mac is noticed between probes, so the `claude -p /usage` report can run less often.
+        var week: Window?
     }
 
     /// One app's share of the week's usage: Claude Code, Chats, Cowork, Claude Duet, Other.
@@ -709,6 +712,10 @@ enum PlanCredits {
         if let limits = usage["limits"] as? [[String: Any]], limits.contains(where: { $0["kind"] as? String == "weekly_all" }) {
             r.sessionLimit = limits.contains { $0["kind"] as? String == "session" }
         }
+        if let w = usage["seven_day"] as? [String: Any], let pct = (w["utilization"] as? NSNumber)?.doubleValue,
+           let resets = (w["resets_at"] as? String).flatMap(JSONCoding.parseDate) {
+            r.week = Window(pct: pct, resetsAt: resets, at: at)
+        }
         if let p = prepaid, let cents = (p["amount"] as? NSNumber)?.doubleValue {
             r.balance = cents / 100
             r.autoReload = (p["auto_reload_settings"] as? [String: Any])?["enabled"] as? Bool
@@ -772,7 +779,14 @@ enum PlanCredits {
                     if let d = try? JSONSerialization.data(withJSONObject: keep, options: [.sortedKeys, .fragmentsAllowed]) {
                         line += " " + String(decoding: d, as: UTF8.self)
                     }
-                    if path.hasSuffix("usage") { line += " (top-level keys: \(j.keys.sorted().joined(separator: ", ")))" }
+                    if path.hasSuffix("usage") {
+                        line += " (top-level keys: \(j.keys.sorted().joined(separator: ", ")))"
+                        // The weekly window the meter takes from this read (`Reading.week`), raw and as parsed.
+                        let raw = (try? JSONSerialization.data(withJSONObject: j["seven_day"] ?? NSNull(), options: [.sortedKeys, .fragmentsAllowed]))
+                            .map { String(decoding: $0, as: UTF8.self) } ?? "?"
+                        let week = parse(usage: j, prepaid: nil, at: Date()).week
+                        line += "\nseven_day: \(raw) -> " + (week.map { "\($0.pct)% resets \($0.resetsAt)" } ?? "not read")
+                    }
                 }
                 box.lines.append(line)
             }

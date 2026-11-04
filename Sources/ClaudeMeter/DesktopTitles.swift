@@ -4,8 +4,8 @@ import Foundation
 /// by transcript session id. Read from the app's own session records, which aren't a documented
 /// format: if they move or change, this finds nothing and sessions are named as before.
 ///
-/// A Remote Control session the app never named keeps the placeholder "Remote Control session
-/// (from a project)"; its thread's title lives only on Claude's servers. Those count as untitled,
+/// A session the app never named keeps a placeholder ("Remote Control session (from a project)",
+/// "Local session (from a project)"); its thread's title lives only on Claude's servers. Those count as untitled,
 /// and the app's one-line summary of the session's latest turn names them instead, when it has one.
 final class DesktopTitles {
     struct Names {
@@ -58,7 +58,7 @@ final class DesktopTitles {
         let ordered = read.sorted { $0.value.mtime != $1.value.mtime ? $0.value.mtime < $1.value.mtime : $0.key < $1.key }
         for r in ordered.map(\.value) {
             guard let id = r.id, let title = Self.clean(r.title) else { continue }
-            if !title.hasPrefix(Self.placeholder) {
+            if !Self.isPlaceholder(title) {
                 names.titles[id] = title
             } else if let summary = Self.clean(r.summary) {
                 names.summaries[id] = Self.capitalized(summary)
@@ -75,8 +75,12 @@ final class DesktopTitles {
         return text.prefix(1).uppercased() + text.dropFirst()
     }
 
-    /// What the app calls a Remote Control session it has no title for.
-    private static let placeholder = "Remote Control session"
+    /// What the app calls a session it has no title for: "Remote Control session (from a project)", and
+    /// since late October "Local session (from a project)" too. Three rows of the second read alike in
+    /// Burning now; as placeholders they fall back to the summary, else the project folder.
+    private static func isPlaceholder(_ title: String) -> Bool {
+        title.hasPrefix("Remote Control session") || title.hasSuffix("session (from a project)")
+    }
 
     /// One line, trimmed, or nil if empty.
     private static func clean(_ text: String?) -> String? {

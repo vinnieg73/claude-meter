@@ -10,7 +10,7 @@ to reset, a pace projection, and where today's usage went by project.
 ```
 
 The ring fills to the exact 5-hour %. With the week in the title the 5-hour % is left to the ring, so the
-item fits beside the notch (at most `cap 10:49 wk ~100%`).
+item fits beside the notch (at most `10:49 AM wk ~100%`).
 
 ## What the dropdown shows
 
@@ -20,7 +20,7 @@ Two tabs under the header (v0.9.32): **Usage** has everything below except the t
 "Credits · $107 left", or in red, whichever tab is open, "Credits · out Nov 11" / "used up" when the API credits run
 out before they expire. v0.9.32 had a red dot instead, which read like a notification that looking cleared. While
 claude.ai extra usage is off, the 5-hour and weekly cards add "Extra usage is off, so you'll stop at this limit" (or
-"Extra usage hit its monthly limit, …" when that's why) from 70%, in the card's orange or red.
+"Extra usage hit its monthly limit, …" when that's why) from 70%, in gray (red from 90%).
 
 - **5-hour window**: %, reset time, a chart of the window so far with a dashed pace line to
   the reset, and where that pace lands (or when it hits the cap).
@@ -28,16 +28,23 @@ claude.ai extra usage is off, the 5-hour and weekly cards add "Extra usage is of
   verified Ultra account has no 5-hour limit (Anthropic verifies it by itself; until then it has a temporary one).
   The meter switches once two usage reports in a row (`/api/oauth/usage`, every 15 minutes) list the week but no
   `session` limit, and back at the first that lists one (`--status` says which: "5-hour limit: …"). Then the
-  5-hour card, its alerts and History windows go, the menu bar is the week (`41% · 3d4h`, `~71% · cap Sun 9:40`),
+  5-hour card, its alerts and History windows go, the menu bar is the week (`41% · 3d4h`, `~71% · Sun 9:40 AM`),
   Burning now's %/hr is of the week, the Weekly % in menu bar toggle is hidden, and probes run only within 10
   minutes of use here or in the cloud, or when the usage report's week is above the last reading (no window to
-  open). Fixture `ultra`.
-- **Weekly · Fable**: Max and Ultra have a separate weekly limit for Fable (up to half the week). Its card (pink) shows that
+  open). Fixture `ultra`. Weekly runaways and "Going cold" prices use the weekly cap there (5% of the week in 30
+  minutes flags a runaway; a cold row says "+0.6% of week"), and the usage report (`claude -p /usage`) runs every 30
+  minutes: the 15-minute usage read already notices the week climbing.
+- **Grayscale first** (1.0): bars, charts, numbers and Plan fit are gray; red from 90%, and orange only for a real
+  alert (the pace will cap the limit before the reset: the title's "cap" time, the menu bar ring). The mascots keep their
+  colours (an approved exception).
+- **A fresh week** holds back today's pace (no cap time, no "cap" title, no History projection from one sitting) until
+  it is a day old; the 7-day average speaks alone before that.
+- **Weekly · Fable**: Max and Ultra have a separate weekly limit for Fable (up to half the week). Its card (gray like the others) shows that
   limit as Claude Code's own usage report last gave it, exact as of then, and under it this Mac's
   Fable use as points of the overall windows ("This Mac: ~3% of the 5-hour window · ~1% of the week
   ($6.20)"). A plan without the limit gets "No separate Fable limit on your plan" instead. The card
-  appears when a limit is known or Fable was used here this week. In Burning now a Fable session's
-  bar is pink. The Fable limit raises no notifications.
+  appears when a limit is known or Fable was used here this week. In Burning now a Fable session wears
+  the pink Fable mascot. The Fable limit raises no notifications.
 - **Usage credits** (v0.9.30, Credits tab): extra usage on the Claude plan (claude.ai › Settings › Usage), read with the
   Claude Code sign-in like `/usage` does: this month's extra-usage spend against its monthly limit (a bar, red when
   the limit is reached and extra usage is off) and the prepaid balance. Shown once extra usage was ever on.
@@ -94,7 +101,7 @@ gets a ⚠ in Burning now and one notification per window, to catch loops and la
 while you're away. It keeps its ⚠ row, at the top, for those 30 minutes even once it has gone quiet.
 
 **Cap warning.** When the 5-hour pace hits the cap at least 10 minutes before the reset, the
-menu bar switches to `31% · cap 10:49` in orange (no AM/PM: it's always within 5 hours), and one notification fires when the cap
+menu bar switches to `31% · cap 10:49 AM` in orange (the time says AM or PM; the word "cap" goes when the title would not fit beside the notch), and one notification fires when the cap
 is 30 minutes out. It clears once the pace lands under 95% at the reset.
 
 **History** (button, or right-click → History…): Value this week (the week so far at
@@ -132,8 +139,8 @@ once a minute while a 5-hour window is open and fills the time between from the 
 |---|---|---|
 | `~/.claude/projects/**/*.jsonl` | every Claude Code turn on this Mac: model, tokens, project | continuously (tailed every 10s); `CLAUDE_CONFIG_DIR` is honoured, read from your login shell since apps don't inherit it, and symlinked project folders are followed |
 | probe | Claude Code's `rate_limit_event` (exact) | once a minute while a window is already open, whether or not anything was logged here (use this Mac can't see, like cloud sessions or claude.ai, moves it too); with no window open, only once one opens, from a message here or a window Claude Code's usage report lists (checked every 5 minutes, for use elsewhere), since a probe would open one; **Sync** on demand |
-| usage report | `claude -p /usage`: the weekly Fable limit (exact); the probe's `rate_limit_event` doesn't carry it (it did Sep 25–30, 2026, as `seven_day_fable`) | a local command, so nothing spent and no window opened, and not behind the probe's window gate: every 5 minutes while Fable is in use here or no 5-hour window is known to be open (how a window opened elsewhere is found), every 30 otherwise, when the held reading's week ends, and on **Sync** |
-| statusline tap | Claude Code's own `rate_limits` (exact) | whenever a **terminal** `claude` session redraws its statusline |
+| usage report | `claude -p /usage`: the weekly Fable limit (exact); the probe's `rate_limit_event` doesn't carry it (it did Sep 25–30, 2026, as `seven_day_fable`) | a local command, so nothing spent and no window opened, and not behind the probe's window gate: every 5 minutes while Fable is in use here or, with a 5-hour limit, no window is known to be open (how a window opened elsewhere is found), every 30 otherwise, when the held reading's week ends, and on **Sync** |
+| statusline tap | Claude Code's own `rate_limits` (exact) | whenever a **terminal** `claude` session redraws its statusline; the desktop app never runs it (Claude Code 2.1.302 still sends `rate_limits` in the statusline input, checked Nov 4), so weeks of silence are normal when you work in the desktop app, and the footer only shows the line while a reading is under 6 hours old (`--status` says when it last spoke) |
 | `tap.json` drop-in | any exact reading, from anywhere (Claude Dashboard writes one as `source: "dashboard"`); counted like the statusline tap (it can raise a window or start a later one, never lower one), since a drop-in is dated when written and can carry an older number | when written |
 | usage credits | `GET https://api.anthropic.com/api/oauth/usage` (`extra_usage`: `used_credits`, `monthly_limit` in minor units, `spend_limit_reached`, `is_enabled`) and `GET /api/oauth/organizations/<org>/prepaid/credits` (`amount` in cents), with the Claude Code sign-in (held in memory) | ~25 s after launch, then every 15 minutes |
 | cost report | `GET https://api.anthropic.com/v1/organizations/cost_report` (`bucket_width=1d`, `limit=31`, every page): real billed spend for the **API credits** card, with the key in the keychain item `Claude Meter Console key` (read per check, held in memory) | ~15 s after launch or a new balance, then every 15 minutes while a balance is set and a key is there |

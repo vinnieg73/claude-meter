@@ -62,7 +62,6 @@ enum Status {
         }
         let prefs = UserDefaults.standard
         lines.append("notifications setting: \(prefs.object(forKey: "notifications") as? Bool ?? true ? "on" : "off")")
-        lines.append("weekly in title: \(prefs.bool(forKey: "showWeeklyInTitle") ? "on" : "off")")
 
         lines.append("claude CLI: \(Probe.cliPath ?? "not found")")
 
@@ -92,6 +91,12 @@ enum Status {
         } else {
             lines.append("fable limit: " + (state.fableNone != nil ? "none on this plan" : "not read yet"))
         }
+        // With no 5-hour limit the title shows the week whatever this says (`Meter.recompute`).
+        lines.append("weekly in title: " + (state.fiveHourGoneSince != nil ? "always (no 5-hour limit)"
+            : prefs.bool(forKey: "showWeeklyInTitle") ? "on" : "off"))
+        // The statusline only runs in terminal Claude Code sessions, never in the desktop app.
+        lines.append("statusline: " + (state.tapSeen.map { "last reading \(Fmt.when($0))" } ?? "no readings yet")
+            + " (runs only in terminal Claude Code sessions)")
         if let error = state.probeError { lines.append("probe: failing (\(error))") }
         lines += CloudSessions.statusLines(state: state)
         lines += PlanCredits.statusLines()

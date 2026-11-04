@@ -57,6 +57,10 @@ struct FooterView: View {
     /// The fixed explanation first; what changes (the statusline, calibration) on its own line.
     private var sources: String {
         var status: [String] = []
+        // Only a live feed is worth a line. The statusline runs only in terminal Claude Code sessions
+        // (the desktop app never runs it), so weeks of silence is normal and the probe carries the
+        // meter; an old "statusline 18d ago" read like a fault. `Meter` passes only one from the last 6 hours,
+        // and `--status` still says when it last spoke.
         if let tap = s.tapSeen { status.append("statusline \(Fmt.ago(tap))") }
         if !s.calibrated { status.append("not calibrated yet") }
         return (["Exact within a minute of activity · ~ = estimated in between"]
@@ -87,6 +91,7 @@ struct FooterView: View {
                                                       set: { meter.setLaunchAtLogin($0) }))
                 // With no 5-hour limit the week is all the menu bar shows.
                 if !s.noFiveHourLimit { Toggle("Weekly % in menu bar", isOn: $meter.showWeeklyInTitle) }
+                Toggle("Cloud sessions", isOn: $meter.cloudOn)
                 Toggle("Notifications", isOn: $meter.notificationsOn)
                 Button("Send test notification") { meter.testNotification() }
                 Toggle("Shortcut ⌃⌥⌘U", isOn: $meter.hotkeyOn)

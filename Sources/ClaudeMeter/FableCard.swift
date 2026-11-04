@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The Fable card: Anthropic's separate weekly limit for Fable (the one limit that is a model's own),
 /// as Claude Code's usage report last gave it, over this Mac's Fable use as a part of the overall
-/// windows. Pink is its colour; the level colours still take over near the limit.
+/// windows. Gray like the other cards; red takes over near the limit.
 struct FableCard: View {
     let f: FableView
 
@@ -12,7 +12,7 @@ struct FableCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             if let w = f.limit {
-                WindowCard(w: w, tint: Theme.fable)
+                WindowCard(w: w)
             } else {
                 titleRow
                 Text(f.noLimit ? "No separate Fable limit on your plan. Fable counts toward the limits above."

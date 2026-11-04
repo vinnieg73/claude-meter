@@ -22,7 +22,7 @@ enum Pricing {
     static let table: [(prefix: String, price: Price)] = [
         ("claude-fable-5-1", Price(input: 10, output: 50, cacheRead: 0.25)),
         ("claude-mythos-5-1", Price(input: 10, output: 50, cacheRead: 0.25)),
-        ("claude-fable-5", Price(input: 10, output: 50, cacheRead: 1.0)),
+        ("claude-fable-5", Price(input: 10, output: 50, cacheRead: 1.0)), // $1 cache reads, 4x Fable 5.1's (checked Nov 4)
         ("claude-mythos-5", Price(input: 10, output: 50, cacheRead: 1.0)),
         ("claude-opus-5-5", Price(input: 4, output: 20, cacheRead: 0.20, fast: true)),
         ("claude-opus-5", Price(input: 5, output: 25, cacheRead: 0.50, fast: true)),
@@ -32,7 +32,7 @@ enum Pricing {
         ("claude-opus-4-5", Price(input: 5, output: 25, cacheRead: 0.50)),
         ("claude-opus-4-1", Price(input: 15, output: 75, cacheRead: 1.50)),
         ("claude-opus-4", Price(input: 15, output: 75, cacheRead: 1.50)),
-        ("claude-sonnet-5-5", Price(input: 2, output: 10, cacheRead: 0.10)),
+        ("claude-sonnet-5-5", Price(input: 2, output: 10, cacheRead: 0.20)), // cache reads $0.20, as Sonnet 5 (checked Nov 4)
         ("claude-sonnet-5", Price(input: 2, output: 10, cacheRead: 0.20)),
         ("claude-sonnet-4-6", Price(input: 3, output: 15, cacheRead: 0.30)),
         ("claude-sonnet-4-5", Price(input: 3, output: 15, cacheRead: 0.30)),
@@ -60,7 +60,7 @@ enum Pricing {
         ("fable", Price(input: 10, output: 50, cacheRead: 0.25)),
         ("mythos", Price(input: 10, output: 50, cacheRead: 0.25)),
         ("opus", Price(input: 4, output: 20, cacheRead: 0.20, fast: true)),
-        ("sonnet", Price(input: 2, output: 10, cacheRead: 0.10)),
+        ("sonnet", Price(input: 2, output: 10, cacheRead: 0.20)),
         ("haiku", haiku55),
     ]
 

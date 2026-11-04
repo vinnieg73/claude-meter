@@ -7,7 +7,7 @@ import Foundation
 enum Fixtures {
     static let popover = ["calm", "warn", "critical", "idle", "signedout", "empty", "loading", "trouble", "week", "long", "nofable", "samename",
                                  "ultra", "credits", "creditslow", "creditstyped", "creditsexpired", "creditsalert", "nocredits"]
-    static let history = ["fits", "thismac", "cloudonly", "uncalibrated"]
+    static let history = ["fits", "thismac", "cloudonly", "uncalibrated", "ultra"]
 
     /// `weekScope` is the Today / This week picker; `tab` the dropdown's tab; `notice` stands in for the
     /// meter's own.
@@ -57,6 +57,7 @@ enum Fixtures {
         case "thismac": thismac
         case "cloudonly": cloudonly
         case "uncalibrated": uncalibrated
+        case "ultra": ultraHistory
         default: nil
         }
     }
@@ -270,7 +271,7 @@ enum Fixtures {
     }
 
     private static var critical: Popover {
-        var s = base(.critical, title: "~94% · cap \(Fmt.bareClock(Date().addingTimeInterval(14 * 60)))", pct: 94)
+        var s = base(.critical, title: "~94% · cap \(Fmt.periodClock(Date().addingTimeInterval(14 * 60)))", pct: 94)
         s.fiveHour = fiveHour(94, left: 55 * 60, capIn: 14 * 60)
         s.capWarning = now.addingTimeInterval(14 * 60)
         s.weekly = weekly(91, left: 1.6 * 86400, landing: 112,
@@ -483,6 +484,19 @@ enum Fixtures {
         h.plans = plans(current: .max5x, [
             (.pro, 4, 290, nil, now.addingTimeInterval(86400), false),
             (.max5x, 0, 58, 70, nil, false),
+            (.max20x, 0, nil, 35, nil, false),
+        ])
+        return h
+    }
+
+    /// Ultra with no 5-hour limit: no windows chart, and Plan fit judges the week alone.
+    private static var ultraHistory: History {
+        var h = fits
+        h.windows = []
+        h.noFiveHourLimit = true
+        h.plans = plans(current: .max20x, [
+            (.pro, 0, nil, 350, now.addingTimeInterval(86400), false),
+            (.max5x, 0, nil, 70, nil, false),
             (.max20x, 0, nil, 35, nil, false),
         ])
         return h

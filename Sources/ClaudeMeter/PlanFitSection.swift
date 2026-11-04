@@ -22,7 +22,7 @@ struct PlanFitSection: View {
             }
             if !h.plans.isEmpty {
                 HStack(alignment: .top, spacing: 8) {
-                    ForEach(h.plans) { PlanCard(fit: $0, judged: judged, complete: complete, paceLabel: h.weekRateIsAverage ? "at your average" : "at this pace") }
+                    ForEach(h.plans) { PlanCard(fit: $0, judged: judged, complete: complete, showWindows: !h.noFiveHourLimit, paceLabel: h.weekRateIsAverage ? "at your average" : "at this pace") }
                 }
             }
             if let verdict {
@@ -83,32 +83,36 @@ private struct PlanCard: View {
     let judged: Bool
     /// Both limits measured: only then is a green check earned.
     let complete: Bool
+    /// False with no 5-hour limit: the plans differ by their week alone, so the window rows go.
+    let showWindows: Bool
     let paceLabel: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
                 Text(fit.plan.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                if fit.current { Chip(text: "you", tint: .accentColor).fixedSize() }
+                if fit.current { Chip(text: "you").fixedSize() }
                 Spacer(minLength: 4)
                 if judged, (complete && (fit.peak != nil || !fit.hasFiveHour)) || !fit.fits {
-                    Image(systemName: fit.fits ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                    Image(systemName: fit.fits ? "checkmark.circle" : "exclamationmark.circle")
                         .font(.system(size: 13))
-                        .foregroundStyle(fit.fits ? Color.green : Color.orange)
+                        .foregroundStyle(fit.fits ? Color.secondary : Color.primary)
                         .accessibilityLabel(fit.fits ? "Fits" : "Doesn't fit")
                 }
             }
             .padding(.bottom, 2)
-            PlanStat(label: "Capped (7 days)", value: capped, warn: fit.capped > 0)
-            PlanStat(label: "Busiest window", value: busiest, warn: (fit.peak ?? 0) >= 100)
+            if showWindows {
+                PlanStat(label: "Capped (7 days)", value: capped, warn: fit.capped > 0)
+                PlanStat(label: "Busiest window", value: busiest, warn: (fit.peak ?? 0) >= 100)
+            }
             PlanStat(label: "Weekly limit \(paceLabel)", value: weekly, warn: fit.weekOver || fit.weekRunsOut != nil)
         }
         .padding(9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(fit.current ? Color.accentColor.opacity(0.08) : Theme.surface))
+            .fill(fit.current ? Color.primary.opacity(0.07) : Theme.surface))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .strokeBorder(fit.current ? Color.accentColor.opacity(0.6) : Theme.hairline,
+            .strokeBorder(fit.current ? Color.primary.opacity(0.35) : Theme.hairline,
                           lineWidth: fit.current ? 1 : 0.5))
         .accessibilityElement(children: .combine)
     }
@@ -172,7 +176,7 @@ private struct StatValue {
     }
 
     func styled(warn: Bool) -> AttributedString {
-        let tint: Color = warn ? Theme.warnText : quiet ? .secondary : .primary
+        let tint: Color = quiet ? .secondary : .primary
         func piece(_ text: String, _ font: Font, _ color: Color) -> AttributedString {
             var piece = AttributedString(text)
             piece.font = font
@@ -206,23 +210,22 @@ private struct VerdictCallout: View {
 
     private var tint: Color {
         switch verdict.tone {
-        case .fits: .green
-        case .trouble: .orange
-        case .neutral: .secondary
+        case .fits, .neutral: .secondary
+        case .trouble: .primary
         }
     }
 
     private var symbol: String {
         switch verdict.tone {
-        case .fits: "checkmark.circle.fill"
-        case .trouble: "exclamationmark.circle.fill"
+        case .fits: "checkmark.circle"
+        case .trouble: "exclamationmark.circle"
         case .neutral: "lightbulb"
         }
     }
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
-        let neutral = verdict.tone == .neutral
+        let neutral = true // no coloured box: the words and the symbol say it
         HStack(alignment: .firstTextBaseline, spacing: 7) {
             Image(systemName: symbol).foregroundStyle(tint).accessibilityHidden(true)
             Text(verdict.text).fixedSize(horizontal: false, vertical: true)

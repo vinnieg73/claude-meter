@@ -493,9 +493,19 @@ extension Meter {
         func floor(_ full: Int) -> Int { max(1, Int(Double(full) * history)) }
         // The 5-hour floors by how long the readings carried a 5-hour window: none once the plan has no 5-hour
         // limit (a verified Ultra account) and the logs hold no 5-hour readings any more.
+        // And none at all once the replay reaches the switch (a reading stamped `noFiveHourLimit`): from then no window
+        // opens, so the days before it hold fewer openings and gate points than a full span would (Nov 4: 3 openings
+        // and 8 gate points over 3.5 days of 5-hour readings failed floors of 4 and 10 on a meter that was fine).
+        // What was checked must still pass.
         let fiveHourAt = readings.filter { $0.fiveHour != nil }.map(\.at)
         let fiveHourSpan = fiveHourAt.count >= 2 ? fiveHourAt.last!.timeIntervalSince(fiveHourAt[0]) : 0
-        func floor5h(_ full: Int) -> Int { fiveHourSpan > 0 ? max(1, Int(Double(full) * min(1, fiveHourSpan / (3 * 86400)))) : 0 }
+        let switchedAt = readings.first { $0.noFiveHourLimit == true }?.at
+        func floor5h(_ full: Int) -> Int {
+            switchedAt == nil && fiveHourSpan > 0 ? max(1, Int(Double(full) * min(1, fiveHourSpan / (3 * 86400)))) : 0
+        }
+        if let switchedAt {
+            report.lines.append("   5-hour floors waived: the plan's 5-hour limit ended \(Fmt.when(switchedAt)).")
+        }
         if openingChecks < floor5h(Replay.minimum.openings) || openingSkipped > openingChecks {
             report.failures.append("only \(openingChecks) window openings checked (\(openingSkipped) skipped), "
                                    + "need \(floor5h(Replay.minimum.openings))")
@@ -726,6 +736,36 @@ extension Meter {
         noteSessionLimit(true, at: later)
         recompute()
         expect(!noFiveHourLimit && snapshot.fiveHour != nil, "a usage report listing a session limit didn't bring the 5-hour card back")
+
+        // A week four hours old, 5% used after one busy sitting: no cap time, no "cap" title, no pace line
+        // (1.0: it read "out Tue 5:30 AM" in orange, and History projected 179%).
+        now = mark
+        let youngResets = now.addingTimeInterval(7 * 86400 - 4 * 3600)
+        setUp(now: now, turns: (1...8).map { turn(now.addingTimeInterval(-Double($0) * 900), output: 30_000) },
+              reading: ExactReading(at: now.addingTimeInterval(-60), source: "probe",
+                                    weekly: Window(pct: 5, resetsAt: youngResets, at: now.addingTimeInterval(-60))),
+              cap5h: nil, capWeek: 100)
+        noteSessionLimit(false, at: now.addingTimeInterval(-900))
+        noteSessionLimit(false, at: now)
+        recompute()
+        expect(noFiveHourLimit && snapshot.weekly?.capAt == nil && snapshot.capWarning == nil
+               && !snapshot.menuTitle.contains("cap") && snapshot.weekly?.projection == "Measuring pace…",
+               "a week four hours old projected a cap from one sitting (\(snapshot.menuTitle), \(snapshot.weekly?.projection ?? "no line"))")
+        // Its reset passed with no weekly cap learned: the card stays up, estimated, not gone with the week.
+        setUp(now: now, turns: [],
+              reading: ExactReading(at: now.addingTimeInterval(-86400), source: "probe",
+                                    weekly: Window(pct: 60, resetsAt: now.addingTimeInterval(-3600), at: now.addingTimeInterval(-86400))),
+              cap5h: nil, capWeek: nil)
+        noteSessionLimit(false, at: now.addingTimeInterval(-900))
+        noteSessionLimit(false, at: now)
+        recompute()
+        expect(snapshot.weekly != nil && snapshot.weekly?.exact == false, "the weekly card vanished after a reset with no cap learned")
+        // The title's run-out time says AM or PM, and gives up the word "cap" before it would overflow the notch gap.
+        let longCap = Fmt.fittingTitle(["~99% · cap Wed 10:49 AM", "~99% · Wed 10:49 AM"])
+        let shortCap = Fmt.fittingTitle(["31% · cap 10:49 AM", "31% · 10:49 AM"])
+        expect(longCap == "~99% · Wed 10:49 AM" && shortCap == "31% · cap 10:49 AM"
+               && Fmt.titleWidth("~99% · Wed 10:49 AM") <= Fmt.titleTextBudget,
+               "the title's run-out time didn't fit beside the notch (\(longCap), \(shortCap))")
 
         // The usage report's reset text, read on its own: each way it may print one, against the moment it
         // means. `now` is 9:40 PM on Saturday Sep 8 in New York. Only the date form had been seen ("Oct 14 at

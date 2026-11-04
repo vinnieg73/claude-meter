@@ -30,8 +30,8 @@ struct HistoryWindowsChart: View {
                 Spacer(minLength: 8)
                 HStack(spacing: 6) {
                     Chip(text: recent.count == 1 ? "1 window" : "\(recent.count) windows")
-                    Chip(text: "capped \(capped)×", tint: capped > 0 ? .orange : .secondary)
-                    Chip(text: "busiest \(HistoryView.peak(peak))", tint: peak >= 100 ? .orange : .secondary)
+                    Chip(text: "capped \(capped)×", tint: .secondary)
+                    Chip(text: "busiest \(HistoryView.peak(peak))", tint: .secondary)
                 }
                 .accessibilityElement(children: .combine)
             }
@@ -52,10 +52,10 @@ struct HistoryWindowsChart: View {
             && !windows.contains { cappedBar($0, between: to.addingTimeInterval(-reach), and: to) }
         return Chart {
             RuleMark(y: .value("Cap", 100))
-                .foregroundStyle(Color.red.opacity(0.45))
+                .foregroundStyle(Color.secondary.opacity(0.55))
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
                 .annotation(position: .top, alignment: labelAtEnd ? .trailing : .leading, spacing: 1) {
-                    Text("cap").font(.system(size: 9, weight: .medium)).foregroundStyle(Color.red.opacity(0.9))
+                    Text("cap").font(.system(size: 9, weight: .medium)).foregroundStyle(Color.secondary)
                         .accessibilityHidden(true)
                 }
                 .accessibilityLabel("Cap")
@@ -155,7 +155,7 @@ private struct LegendKey: View {
     var body: some View {
         HStack(spacing: 4) {
             RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .fill(WindowBarFill(color: .accentColor, exact: exact, dark: scheme == .dark).gradient(heightInPoints: 8))
+                .fill(WindowBarFill(color: Theme.neutral, exact: exact, dark: scheme == .dark).gradient(heightInPoints: 8))
                 .frame(width: 10, height: 8)
                 .accessibilityHidden(true)
             Text(text)

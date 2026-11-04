@@ -20,7 +20,7 @@ struct PaceChart: View {
         Chart {
             if top >= 100 {
                 RuleMark(y: .value("Cap", 100))
-                    .foregroundStyle(Color.red.opacity(strong ? 0.8 : 0.45))
+                    .foregroundStyle(Color.secondary.opacity(strong ? 0.9 : 0.55))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
             }
             ForEach(Array(w.series.enumerated()), id: \.offset) { _, p in
@@ -35,7 +35,7 @@ struct PaceChart: View {
             }
             ForEach(Array(w.pace.enumerated()), id: \.offset) { _, p in
                 LineMark(x: .value("Time", p.at), y: .value("Used", p.pct), series: .value("Series", "pace"))
-                    .foregroundStyle(w.projectionWarn ? Color.orange : Color.secondary.opacity(strong ? 1 : 0.8))
+                    .foregroundStyle(w.projectionWarn ? Color.primary.opacity(0.75) : Color.secondary.opacity(strong ? 1 : 0.8))
                     .lineStyle(StrokeStyle(lineWidth: 1.25, lineCap: .round, dash: [2.5, 3]))
             }
             // Where the window is now: a dot in a soft halo (two discs, so it fades rather than ends).

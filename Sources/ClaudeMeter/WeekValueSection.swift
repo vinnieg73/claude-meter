@@ -12,7 +12,7 @@ struct WeekValueSection: View {
     static let macColor = Color.primary.opacity(0.72)
     static let cloudColor = Color.primary.opacity(0.42)
     static let elsewhereColor = Color.primary.opacity(0.2)
-    static let planColor = Color.blue
+    static let planColor = Color.primary
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {

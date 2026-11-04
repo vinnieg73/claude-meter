@@ -18,7 +18,7 @@ for f in live calm ultra warn critical idle signedout empty loading trouble week
     "$BIN" "${args[@]}" >/dev/null || { echo "render failed: ${args[*]}"; exit 1; }
   done
 done
-for f in live fits thismac cloudonly uncalibrated; do
+for f in live fits thismac cloudonly uncalibrated ultra; do
   for look in light dark; do
     args=(--render "$OUT/history-$f-$look.png" --history)
     [[ $f == live ]] || args+=(--fixture "$f")
