@@ -13,7 +13,7 @@ struct HistoryWeekChart: View {
     /// Increase Contrast firms up what is drawn faintly: the cap line, the gridlines, the even pace.
     private var strong: Bool { contrast == .increased }
     private var evenColor: Color { Color.secondary.opacity(strong ? 1 : 0.75) }
-    /// Orange once the average pace reaches the cap.
+    /// Primary, not secondary, once the average pace reaches the cap.
     private var averageColor: Color { (h.weekAtReset ?? 0) >= 100 ? Color.primary : Color.secondary }
 
     /// The week to draw: nothing without a range, and the empty state stands in.

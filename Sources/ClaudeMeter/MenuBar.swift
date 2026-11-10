@@ -27,6 +27,8 @@ enum MenuBar {
             text += ", " + s.menuTitle.replacingOccurrences(of: "~", with: "about ")
                 .replacingOccurrences(of: " wk ", with: ", weekly ")
                 .replacingOccurrences(of: " · ", with: ", ")
+            // A title too wide for the notch gap drops the word "cap"; VoiceOver still says what the clock is.
+            if s.capWarning != nil, !s.menuTitle.contains("cap ") { text += ", when the pace reaches the cap" }
         }
         switch s.level {
         case .critical: text += ", critical"
@@ -74,7 +76,8 @@ enum MenuBar {
 
     private static let imageSize: CGFloat = 16
 
-    /// A progress ring filled to the 5-hour window's %, clockwise from 12 o'clock. A template
+    /// A progress ring filled to the menu bar's % (the 5-hour window's, or the week's with no 5-hour
+    /// limit), clockwise from 12 o'clock. A template
     /// image at normal, so the menu bar tints it for light and dark; at warn and critical it takes
     /// the title's colour and stops being one. `centerY` is where its centre goes, in points up
     /// from the image's bottom.
@@ -167,6 +170,11 @@ enum MenuBar {
 
     // MARK: - Preview
 
+    /// Whether a title is a cap warning: a run-out clock ("10:49 AM") or the word "cap".
+    static func isCapTitle(_ text: String) -> Bool {
+        text.contains("cap ") || text.contains(" AM") || text.contains(" PM")
+    }
+
     /// `--render out.png --icons`: the status item on a light menu bar and a dark one, at 4x. Real
     /// status bar buttons hosted offscreen and filled through `apply`, so spacing, tint and text
     /// are the system's own. At the top, bare rings (the level colours start at 70 and 90, as in
@@ -175,11 +183,6 @@ enum MenuBar {
     /// title for the states the menu bar can show.
     /// False if the sheet could not be drawn or written.
     @discardableResult
-    /// Whether a title is a cap warning: a run-out clock ("10:49 AM") or the word "cap".
-    static func isCapTitle(_ text: String) -> Bool {
-        text.contains("cap ") || text.contains(" AM") || text.contains(" PM")
-    }
-
     static func renderIcons(to path: String) -> Bool {
         _ = NSApplication.shared
         let rings: [Double] = [0, 3, 25, 50, 75, 90, 95, 100]

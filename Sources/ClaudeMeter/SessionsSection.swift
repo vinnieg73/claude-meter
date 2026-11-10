@@ -64,7 +64,7 @@ struct SessionsSection: View {
 
             VStack(spacing: 1) {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { i, b in
-                    SessionRow(phase: Double(i) * Mascot.stagger,name: b.name, model: b.model, tag: b.tag, fable: b.fable,
+                    SessionRow(phase: Double(i) * Mascot.stagger, name: b.name, model: b.model, tag: b.tag,
                                figure: Fmt.dollars(b.perHour),
                                detail: b.pctPerHour.map { "+\(Fmt.rate($0))%" },
                                fraction: top > 0 ? b.perHour / top : 0,
@@ -158,8 +158,6 @@ private struct SessionRow: View {
     let model: String
     /// When the session started (else last ran), under the name, while another row shares its name.
     let tag: String?
-    /// Runs on Fable (the mascot says so; the bar is gray like the rest).
-    let fable: Bool
     let figure: String
     let detail: String?
     /// 0...1 of the row's width.
@@ -264,9 +262,7 @@ private func tagInline(_ tag: String) -> String {
     return words.prefix(1).lowercased() + words.dropFirst()
 }
 
-/// The `Chip` look in cyan, with the text darkened in light appearances: system cyan on its own
-/// tint is under 2:1 there, too faint for 9.5pt text (the darkened text is about 5:1). Dark
-/// appearances keep plain system cyan.
+/// The gray `Chip` look (secondary text on the track): the words say it is going cold, no colour needed.
 /// Half a point less padding above and below than `Chip`, so it is no taller than the row's text.
 private struct ColdChip: View {
     let text: String
@@ -277,10 +273,10 @@ private struct ColdChip: View {
             .monospacedDigit()
             .lineLimit(1)
             .fixedSize()
-            .foregroundStyle(Theme.coldText)
+            .foregroundStyle(.secondary)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
-            .background(Capsule().fill(Color.cyan.opacity(0.14)))
+            .background(Capsule().fill(Theme.track))
     }
 }
 

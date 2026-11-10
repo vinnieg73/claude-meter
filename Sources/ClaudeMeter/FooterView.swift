@@ -14,8 +14,19 @@ struct FooterView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             sourcesLine
-            ForEach([meter.loginError, meter.notice, meter.hotkeyNotice].compactMap { $0 }, id: \.self) { message in
+            // Red is for what needs you: Open at login refused. A problem that can wait (notifications blocked, the
+            // shortcut taken) is said in primary; what is only information (still reading the logs, no window to
+            // sync in) in gray.
+            if let message = meter.loginError {
                 line(message, symbol: "exclamationmark.circle.fill", tint: .red)
+            }
+            if let message = meter.notice {
+                let information = Meter.isInformation(message)
+                line(message, symbol: information ? "info.circle" : "exclamationmark.circle",
+                     tint: information ? .secondary : .primary)
+            }
+            if let message = meter.hotkeyNotice {
+                line(message, symbol: "exclamationmark.circle", tint: .primary)
             }
             buttons
         }
@@ -25,7 +36,7 @@ struct FooterView: View {
 
     @ViewBuilder private var sourcesLine: some View {
         if let failure = s.probeStatus {
-            line(Self.splitRetry(failure), symbol: "exclamationmark.triangle.fill", tint: Theme.warnText)
+            line(Self.splitRetry(failure), symbol: "exclamationmark.triangle.fill", tint: .primary)
         } else {
             line(sources, symbol: "dot.radiowaves.left.and.right", tint: .secondary)
         }

@@ -100,6 +100,18 @@ PM" on the menu bar run-out time): grayscale first (colour only from 90% and for
 runaways and Going cold in Ultra mode, folder names for "Local session" rows, matching menus, a slower Fable report in
 Ultra mode, Sonnet 5.5 cache reads at $0.20, and the AM/PM title. Scope is back to bug elimination.
 
+Exception (2026-11-10, asked for by the user: "find everything that's broken, inconsistent, inefficient, or no longer
+needed. Fix what you're sure about and list the rest"): a clean-up sweep. Prices for Fable 5.2 and Sonnet 5.5 cache reads
+($0.10), dead code removed, comments brought in line with the grayscale look. The list is in HANDOFF.md. Scope is back
+to bug elimination.
+
+Exception (2026-11-10, asked for by the user: "go ahead and make all recommended changes please", for the list the sweep
+left him, then "the dots that show what model is running need to be accurate"): a weekly cap warning when there is no
+5-hour limit (`pace-week`), Fable limit alerts at 80% and 95% (`fable`), the grayscale pass finished (the cold chip,
+Help, links, the footer's lines), the API credits pace over the days the report reaches back, and a row's mascot and
+model from the session's own loop, not a subagent's (`Turn.sidechain`). The list is in HANDOFF.md. Scope is back to bug
+elimination.
+
 Before calling a fix done, run `./scripts/replay.sh` and confirm PASS. It replays the real history
 log and transcripts through the working tree (read-only) and checks window openings, the probe
 gate, duplicate alerts and accuracy. If a fix guards something the replay doesn't cover, say so.
@@ -139,3 +151,6 @@ word "cap" when the title would be wider ("~99% · cap Wed 10:49 AM" is 163 pt, 
 - A pace projected from one busy sitting in a week's first hours reads as a cap ("out Tue 5:30 AM" at 5% after 4 hours). Hold projections until the week is a day old (Nov 4).
 - The statusline tap isn't broken when it is quiet: only terminal Claude Code sessions run a statusline, never the desktop app. Check `claude-meter-tap` with a piped sample before blaming it (Nov 4).
 - NSStatusItem Preferred Position values on macOS 27 are not screen coordinates and can't be seeded reliably; only autosaveName plus a user ⌘-drag (v0.9.21).
+- Prices come from the live pricing page, not from memory or a cached copy: Fable 5.2 had no row for a week and ran at Fable 5.1's price, and Sonnet 5.5's cache reads were set to $0.20 when the page says $0.10 (Nov 10).
+- A replay FAIL "early resets: the readings show 0, the meter recorded 1" right at the start of the span was a reset from before the span carried in on its first reading (its `restartedAt`), not a meter bug; the replay now counts a restart only against a window the meter already held (Nov 10).
+- "Wrong model colours" (Nov 10: orange Sonnet mascots on threads Vinnie knew as Fable) was the meter being right: a cloud thread on Fable starts a Remote Control session on this Mac with no model, and it takes the Mac's default (Sonnet 5.5). Check `requestedModel` and `message.model` in the session's transcript before blaming the row; `~/.claude/sessions/*.json` records no model.

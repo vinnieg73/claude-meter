@@ -14,6 +14,9 @@ struct Turn: Codable {
     let write5m: Int
     let write1h: Int
     let fast: Bool
+    /// A subagent's turn (a helper the session started), not the session's own loop: its spend counts with
+    /// the session's, but its model isn't the session's (`Meter.recentBySession`).
+    let sidechain: Bool
     /// API-list-price equivalent. Derived, not stored, so a pricing change reaches cached turns.
     let cost: Double
     /// On Fable, the model with a weekly limit of its own. Derived too.
@@ -23,7 +26,7 @@ struct Turn: Codable {
     var tokens: Int { input + output + cacheRead + cacheWrite }
 
     init(key: String, at: Date, project: String, model: String, session: String, input: Int,
-         output: Int, cacheRead: Int, write5m: Int, write1h: Int, fast: Bool) {
+         output: Int, cacheRead: Int, write5m: Int, write1h: Int, fast: Bool, sidechain: Bool = false) {
         self.key = key
         self.at = at
         self.project = project
@@ -35,6 +38,7 @@ struct Turn: Codable {
         self.write5m = write5m
         self.write1h = write1h
         self.fast = fast
+        self.sidechain = sidechain
         cost = Pricing.cost(model: model, input: input, output: output, cacheRead: cacheRead,
                             write5m: write5m, write1h: write1h, fast: fast)
         fable = Pricing.bare(model).lowercased().contains("fable")
@@ -46,7 +50,7 @@ struct Turn: Codable {
         Turn(key: key, at: at, project: project, model: model, session: session,
              input: max(input, other.input), output: max(output, other.output),
              cacheRead: max(cacheRead, other.cacheRead), write5m: max(write5m, other.write5m),
-             write1h: max(write1h, other.write1h), fast: fast || other.fast)
+             write1h: max(write1h, other.write1h), fast: fast || other.fast, sidechain: sidechain)
     }
 
     func grows(_ other: Turn) -> Bool {
@@ -56,7 +60,7 @@ struct Turn: Codable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case key, at, project, model, session, input, output, cacheRead, write5m, write1h, fast
+        case key, at, project, model, session, input, output, cacheRead, write5m, write1h, fast, sidechain
     }
 
     init(from decoder: Decoder) throws {
@@ -71,7 +75,8 @@ struct Turn: Codable {
                   cacheRead: try c.decode(Int.self, forKey: .cacheRead),
                   write5m: try c.decode(Int.self, forKey: .write5m),
                   write1h: try c.decode(Int.self, forKey: .write1h),
-                  fast: try c.decode(Bool.self, forKey: .fast))
+                  fast: try c.decode(Bool.self, forKey: .fast),
+                  sidechain: try c.decodeIfPresent(Bool.self, forKey: .sidechain) ?? false)
     }
 }
 
@@ -100,7 +105,6 @@ final class LogIndex: @unchecked Sendable {
     /// Turns before this were never read. A window that began earlier has spend the index can't see,
     /// so it can't teach a cap.
     private(set) var coveredFrom = Date.distantPast
-    private let activeWindow: TimeInterval = 180
 
     /// How far each file has been read, and which file it was: a transcript replaced in place
     /// has a new inode and is read again from the start.
@@ -140,8 +144,6 @@ final class LogIndex: @unchecked Sendable {
     private var dirty = false
 
     private(set) var turns: [Turn] = []
-    /// Sessions whose log was written in the last few minutes.
-    private(set) var activeSessions: [String] = []
 
     private static let usageMarker = Data("\"usage\"".utf8)
     private static let assistantMarker = Data("\"assistant\"".utf8)
@@ -182,7 +184,6 @@ final class LogIndex: @unchecked Sendable {
             lastDiscovery = uptime
         }
         var changed = false
-        var active: Set<String> = []
 
         for path in known {
             var info = stat()
@@ -190,9 +191,6 @@ final class LogIndex: @unchecked Sendable {
             let mtime = Date(timeIntervalSince1970: TimeInterval(info.st_mtimespec.tv_sec))
             guard mtime > cutoff else { continue }
             let url = URL(fileURLWithPath: path)
-            if now.timeIntervalSince(mtime) < activeWindow {
-                active.insert(Self.session(of: url))
-            }
             let size = UInt64(info.st_size)
             let inode = UInt64(info.st_ino)
             var mark = marks[path] ?? Mark(offset: 0, inode: inode)
@@ -221,7 +219,6 @@ final class LogIndex: @unchecked Sendable {
             if reorder { reindex() }
             dirty = true
         }
-        activeSessions = active.sorted()
         return changed
     }
 
@@ -280,6 +277,8 @@ final class LogIndex: @unchecked Sendable {
         defer { try? handle.close() }
         guard (try? handle.seek(toOffset: start)) != nil else { return false }
 
+        // A subagent's own transcript (`<session>/subagents/…`): its turns are the session's helpers', not its loop's.
+        let helper = url.pathComponents.contains("subagents")
         // Chunked, so the first scan of a few hundred MB of logs never sits in memory at once.
         var changed = false
         var offset = start
@@ -294,7 +293,8 @@ final class LogIndex: @unchecked Sendable {
                 lineStart = newline + 1
                 if line.range(of: Self.usageMarker) != nil, line.range(of: Self.assistantMarker) != nil {
                     autoreleasepool {
-                        if let turn = parseTurn(Data(line)) ?? Self.tail(of: line).flatMap(parseTurn),
+                        if let turn = parseTurn(Data(line), sidechain: helper)
+                            ?? Self.tail(of: line).flatMap({ parseTurn($0, sidechain: helper) }),
                            turn.at >= cutoff, keep(turn) { changed = true }
                     }
                 } else if line.count < 4096,
@@ -331,7 +331,8 @@ final class LogIndex: @unchecked Sendable {
         return true
     }
 
-    private func parseTurn(_ line: Data) -> Turn? {
+    /// `sidechain`: the file is a subagent's (`<session>/subagents/…`), whatever its lines say.
+    private func parseTurn(_ line: Data, sidechain: Bool) -> Turn? {
         guard let entry = try? decoder.decode(LogLine.self, from: line),
               entry.type == "assistant",
               let message = entry.message, var usage = message.usage,
@@ -359,7 +360,7 @@ final class LogIndex: @unchecked Sendable {
         return Turn(key: key, at: at, project: project, model: model, session: session,
                     input: usage.input_tokens ?? 0, output: usage.output_tokens ?? 0,
                     cacheRead: usage.cache_read_input_tokens ?? 0, write5m: write5m,
-                    write1h: write1h, fast: usage.speed == "fast")
+                    write1h: write1h, fast: usage.speed == "fast", sidechain: sidechain || entry.isSidechain == true)
     }
 
     private func parseTitle(_ line: Data) {
@@ -405,7 +406,8 @@ final class LogIndex: @unchecked Sendable {
 
     private struct IndexCache: Codable {
         /// 2: turns keep their largest copy; files are tracked by inode.
-        static let version = 2
+        /// 3: turns say whether a subagent wrote them (`Turn.sidechain`); an older cache can't, so it is read again.
+        static let version = 3
         var version = IndexCache.version
         var marks: [String: Mark]
         var turns: [Turn]
@@ -456,6 +458,7 @@ private struct LogLine: Decodable {
     let requestId: String?
     let sessionId: String?
     let cwd: String?
+    let isSidechain: Bool?
     let message: Message?
 
     struct Message: Decodable {

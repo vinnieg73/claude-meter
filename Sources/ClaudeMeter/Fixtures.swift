@@ -211,8 +211,7 @@ enum Fixtures {
         s.weekSurfaces = surfaces
         s.fable = FableView(limit: fable(7, left: 3.2 * 86400), fiveHourCost: 1.1, fiveHourPts: 2.8,
                             weekCost: 6.2, weekTokens: 2_300_000, weekPts: 0.9, todayCost: 2.2)
-        s.burning = [Burn(id: "a", name: "Claude Meter", model: "Fable 5.1", perHour: 4.12, pctPerHour: 2.5, fable: true)]
-        s.activeCount = 1
+        s.burning = [Burn(id: "a", name: "Claude Meter", model: "Fable 5.1", perHour: 4.12, pctPerHour: 2.5)]
         s.todayCost = 21.4
         s.todayTokens = 48_000_000
         s.cacheHit = 0.96
@@ -234,7 +233,7 @@ enum Fixtures {
         p.snapshot.menuPct = 41
         p.snapshot.menuTitle = "41% · 3d4h"
         p.snapshot.fable?.fiveHourCost = nil
-        p.snapshot.burning = [Burn(id: "a", name: "Claude Meter", model: "Fable 5.1", perHour: 4.12, pctPerHour: 0.15, fable: true)]
+        p.snapshot.burning = [Burn(id: "a", name: "Claude Meter", model: "Fable 5.1", perHour: 4.12, pctPerHour: 0.15)]
         return p
     }
 
@@ -249,13 +248,12 @@ enum Fixtures {
             Burn(id: "a", name: "Pocket Saloon", model: "Opus 5.5", perHour: 8.71, pctPerHour: 5.3),
             Burn(id: "b", name: "Frontier Universe", model: "Opus 5.5", perHour: 6.54, pctPerHour: 4.0),
             Burn(id: "c", name: "Claude Meter", model: "Sonnet 5.5", perHour: 1.20, pctPerHour: 0.7),
-            Burn(id: "h", name: "Shift Hours", model: "Fable 5.1", perHour: 0.90, pctPerHour: 0.5, fable: true),
+            Burn(id: "h", name: "Shift Hours", model: "Fable 5.1", perHour: 0.90, pctPerHour: 0.5),
         ]
         s.cooling = [
             Cooling(id: "d", name: "Five Card Poker", coldAt: now.addingTimeInterval(6 * 60), extra: 1.00, extraPct: 0.6, model: "Fable 5.1"),
             Cooling(id: "e", name: "Pocket Saloon", coldAt: now.addingTimeInterval(39 * 60), extra: 5.75, extraPct: 3.5, model: "Opus 5.5"),
         ]
-        s.activeCount = 4
         s.todayCost = 139
         s.todayTokens = 396_000_000
         s.cacheHit = 0.98
@@ -288,7 +286,7 @@ enum Fixtures {
             Burn(id: "a", name: "Frontier Universe", model: "Opus 5.5", perHour: 48.2, pctPerHour: 29),
             Burn(id: "b", name: "Pocket Saloon", model: "Opus 5.5", perHour: 9.1, pctPerHour: 5.5),
             Burn(id: "c", name: "Pocket Saloon", model: "Opus 5.5", perHour: 6.5, pctPerHour: 3.9),
-            Burn(id: "f", name: "Claude Meter", model: "Fable 5.1", perHour: 3.2, pctPerHour: 1.9, fable: true),
+            Burn(id: "f", name: "Claude Meter", model: "Fable 5.1", perHour: 3.2, pctPerHour: 1.9),
         ]
         s.fable = FableView(limit: fable(92, left: 1.6 * 86400), fiveHourCost: 6.2, fiveHourPts: 3.7,
                             weekCost: 318, weekTokens: 260_000_000, weekPts: 21, todayCost: 6.2)
@@ -298,7 +296,6 @@ enum Fixtures {
             Cooling(id: "e", name: "Pocket Saloon", coldAt: now.addingTimeInterval(21 * 60), extra: 5.75, extraPct: 3.5, model: "Opus 5.5"),
             Cooling(id: "g", name: "Claude Meter", coldAt: now.addingTimeInterval(52 * 60), extra: 2.10, extraPct: 1.3, model: "Fable 5.1"),
         ]
-        s.activeCount = 6
         s.todayCost = 212
         s.todayTokens = 610_000_000
         s.cacheHit = 0.97
@@ -405,7 +402,7 @@ enum Fixtures {
             Burn(id: "b", name: "Another session with a very long custom title", model: "Opus 5.5", perHour: 312, pctPerHour: 38),
             Burn(id: "c", name: "Pocket Saloon", model: "Haiku 4.5", perHour: 0.04, pctPerHour: 0.02),
             Burn(id: "f", name: "Claude Meter", model: "claude-experimental-9", perHour: 12.5, pctPerHour: 7.6),
-            Burn(id: "i", name: "Shift Hours", model: "Fable 5.1", perHour: 2.1, pctPerHour: 1.3, fable: true),
+            Burn(id: "i", name: "Shift Hours", model: "Fable 5.1", perHour: 2.1, pctPerHour: 1.3),
             Burn(id: "j", name: "Surge", model: "Opus 5.5", perHour: 1.4, pctPerHour: 0.8),
             Burn(id: "k", name: "Parlay refresh", model: "Haiku 4.5", perHour: 0.6, pctPerHour: 0.4),
         ]
@@ -434,7 +431,7 @@ enum Fixtures {
         p.snapshot.burning = [
             Burn(id: "a", name: name, model: "Opus 5.5", perHour: 16.83, pctPerHour: 7.6, tag: "started Sun 9:32 PM"),
             Burn(id: "b", name: name, model: "Opus 5.5", perHour: 9.76, pctPerHour: 4.4, tag: "started 12:13 AM"),
-            Burn(id: "c", name: "Claude Meter", model: "Fable 5.1", perHour: 4.12, pctPerHour: 2.5, fable: true),
+            Burn(id: "c", name: "Claude Meter", model: "Fable 5.1", perHour: 4.12, pctPerHour: 2.5),
         ]
         p.snapshot.cooling = [
             Cooling(id: "d", name: name, coldAt: now.addingTimeInterval(20 * 60), extra: 2.51, extraPct: 1.4, tag: "started 11:02 AM", model: "Opus 5.5"),

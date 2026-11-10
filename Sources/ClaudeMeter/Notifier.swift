@@ -1,12 +1,18 @@
 import Foundation
 @preconcurrency import UserNotifications
 
-/// Posts once per window per threshold, and once when a hot 5-hour window resets.
+/// Posts once per window per threshold (the 5-hour window, the week and the Fable limit), once when the pace
+/// is half an hour from a cap, and once when a hot 5-hour window resets.
 @MainActor
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     private let store: StateStore
     private let center: UNUserNotificationCenter?
     private let thresholds: [Double] = [80, 95]
+    /// Alert kinds (the first part of a sent alert's key) that the meter and the replay name too: the weekly
+    /// cap warning with no 5-hour limit, and the Fable limit's thresholds. Neither is a card's title, so the
+    /// replay's "backed by a reading" check of the 5-hour and weekly thresholds leaves them alone.
+    nonisolated static let weekPace = "pace-week"
+    nonisolated static let fable = "fable"
     private var currentReset: Date?
     private var peak = 0.0
     /// The restart the peak was last set for: Anthropic resetting a window's usage early starts it again.
@@ -118,6 +124,32 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
                 once("pace", resets, "0", now: now,
                      title: "Claude 5-hour cap in ~\(Fmt.left(lead))",
                      body: "At this pace you hit it at \(Fmt.when(capAt)). The window resets \(Fmt.when(resets)).")
+            }
+        }
+
+        // With no 5-hour limit the week is the limit that runs out, so it gets the same warning: once per week
+        // (`Meter.absorb` re-arms it after an early reset). The cap time is the last day's pace, held for a
+        // week under a day old (`Meter.youngWeek`), so one sitting can't raise it.
+        if s.noFiveHourLimit, let w = s.weekly, !w.stale, let capAt = w.capAt, s.capWarning != nil, let resets = w.resetsAt {
+            let lead = capAt.timeIntervalSince(now)
+            if lead > 0, lead <= 1800 {
+                once(Self.weekPace, resets, "0", now: now,
+                     title: "Claude weekly cap in ~\(Fmt.left(lead))",
+                     body: "At this pace you hit it at \(Fmt.when(capAt)). The week resets \(Fmt.when(resets)).")
+            }
+        }
+
+        // The separate Fable limit, at the same thresholds. `FableView.limit` is the last real reading of it
+        // while its week is open: never an estimate, and nil once that week has reset or the plan has no
+        // Fable limit, so neither can raise one.
+        if let w = s.fable?.limit, let resets = w.resetsAt {
+            let due = thresholds.filter { w.pct.rounded() >= $0 }
+            for t in due {
+                once(Self.fable, resets, "\(Int(t))", now: now,
+                     title: "Claude Fable limit at \(Fmt.pct(w.pct))",
+                     body: "Resets \(Fmt.when(resets)), in \(Fmt.left(resets.timeIntervalSince(now))). "
+                         + "Fable stops when this fills; other models keep going.",
+                     silent: t != due.last)
             }
         }
 

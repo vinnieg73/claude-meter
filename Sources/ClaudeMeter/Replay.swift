@@ -12,7 +12,8 @@ import Foundation
 ///    opened away from this Mac.
 /// 3. Alerts: none goes out twice for the same window.
 /// 4. Accuracy: estimates made just before each exact reading are within the bar.
-/// 5. Consistency: every threshold, cap warning and runaway the dropdown called for was alerted;
+/// 5. Consistency: every threshold (Fable's too), cap warning (the week's, with no 5-hour limit) and runaway
+///    the dropdown called for was alerted;
 ///    the early resets the meter recorded are the ones the readings show; the "This week" shares
 ///    never add up to more than the weekly card; History's windows don't overlap or peak above
 ///    their own readings.
@@ -232,8 +233,14 @@ extension Meter {
                 }
                 absorb(readings[next])
                 let after = store.state.lastExact
-                if let r = after?.fiveHour?.restartedAt, r != before?.fiveHour?.restartedAt { restarts.append((t, "5h")) }
-                if let r = after?.weekly?.restartedAt, r != before?.weekly?.restartedAt { restarts.append((t, "week")) }
+                // Only against a window the meter already held, as `shown` counts them: a week reset before the replay's span arrives
+                // with that `restartedAt` on the span's first reading (Nov 10: the Oct 30 reset), and nothing in the span can show it.
+                if before?.fiveHour != nil, let r = after?.fiveHour?.restartedAt, r != before?.fiveHour?.restartedAt {
+                    restarts.append((t, "5h"))
+                }
+                if before?.weekly != nil, let r = after?.weekly?.restartedAt, r != before?.weekly?.restartedAt {
+                    restarts.append((t, "week"))
+                }
                 next += 1
             }
             recompute()
@@ -250,6 +257,16 @@ extension Meter {
                     if lead > 0, lead <= 1800 { owe("pace", "0", r) }
                 }
                 for runaway in snapshot.runaways { owe("runaway:\(runaway.id)", "0", r) }
+            }
+            // With no 5-hour limit the week's cap warning is owed the same way, and the Fable limit's thresholds
+            // whenever a reading of it is held (the history log carries one only as a per-model bucket).
+            if snapshot.noFiveHourLimit, let w = snapshot.weekly, !w.stale, let capAt = w.capAt, snapshot.capWarning != nil,
+               let r = w.resetsAt {
+                let lead = capAt.timeIntervalSince(t)
+                if lead > 0, lead <= 1800 { owe(Notifier.weekPace, "0", r) }
+            }
+            if let w = snapshot.fable?.limit, let r = w.resetsAt {
+                for threshold in [80.0, 95.0] where w.pct.rounded() >= threshold { owe(Notifier.fable, "\(Int(threshold))", r) }
             }
             if let w = snapshot.weekly, !snapshot.weekShares.isEmpty {
                 let shares = snapshot.weekShares.reduce(0) { $0 + $1.pct }
@@ -334,7 +351,8 @@ extension Meter {
         // Alerts: the same kind and threshold twice for one window is a duplicate, unless Anthropic
         // reset the window early in between, which re-arms them.
         func window(of kind: Substring) -> String? {
-            kind == Meter.weeklyTitle ? "week" : kind == Meter.fiveHourTitle || kind == "pace" ? "5h" : nil
+            kind == Meter.weeklyTitle || kind == Notifier.weekPace ? "week"
+                : kind == Meter.fiveHourTitle || kind == "pace" ? "5h" : nil
         }
         var sent: [String: [(epoch: Double, at: Date)]] = [:]
         var duplicates = 0
@@ -767,6 +785,105 @@ extension Meter {
                && Fmt.titleWidth("~99% · Wed 10:49 AM") <= Fmt.titleTextBudget,
                "the title's run-out time didn't fit beside the notch (\(longCap), \(shortCap))")
 
+        // The weekly cap warning with no 5-hour limit (Nov 10): a week four days old at 90%, the last day's pace
+        // 30 points an hour ($15 every half hour against a $100 cap), so the cap is 20 minutes out. One alert, not
+        // repeated on the next tick; none when the cap is two hours out, nor from a week nothing has measured lately.
+        func weekPaceKeys(pct: Double, measured: TimeInterval) -> (first: [String], again: [String]) {
+            setUp(now: now, turns: (1...48).map { turn(now.addingTimeInterval(300 - Double($0) * 1800), output: 1_000_000) },
+                  reading: ExactReading(at: now.addingTimeInterval(-60), source: "probe",
+                                        weekly: Window(pct: pct, resetsAt: now.addingTimeInterval(3 * 86400),
+                                                       at: now.addingTimeInterval(-measured))),
+                  cap5h: nil, capWeek: 100)
+            noteSessionLimit(false, at: now.addingTimeInterval(-900))
+            noteSessionLimit(false, at: now)
+            recompute()
+            var sent: [String] = []
+            let notifier = Notifier(store: store) { sent.append($0) }
+            notifier.check(snapshot, now: now, post: true)
+            let first = sent.filter { $0.hasPrefix(Notifier.weekPace + "|") }
+            notifier.check(snapshot, now: now, post: true)
+            return (first, sent.filter { $0.hasPrefix(Notifier.weekPace + "|") })
+        }
+        let onPace = weekPaceKeys(pct: 90, measured: 60)
+        let capLead = snapshot.weekly?.capAt.map { $0.timeIntervalSince(now) } ?? -1
+        expect(noFiveHourLimit && abs(capLead - 1200) < 5 && snapshot.capWarning != nil,
+               "a week at 90% climbing 30 points an hour isn't 20 minutes from its cap (\(Int(capLead)) s)")
+        expect(onPace.first.count == 1, "the weekly cap 20 minutes out with no 5-hour limit sent \(onPace.first.count) cap warnings, not one")
+        expect(onPace.again.count == 1, "the weekly cap warning went out again on the next tick")
+        let farOff = weekPaceKeys(pct: 40, measured: 60)
+        expect(snapshot.weekly?.capAt != nil && farOff.again.isEmpty, "a weekly cap two hours out raised its 30-minute warning")
+        let unmeasured = weekPaceKeys(pct: 90, measured: 1200)
+        expect(snapshot.weekly?.stale == true && snapshot.weekly?.capAt != nil && unmeasured.again.isEmpty,
+               "a week nothing has measured for 20 minutes raised a cap warning")
+
+        // The Fable limit's 80% and 95% (Nov 10): a reading at 96% sends both once (one banner: the lower is recorded
+        // without its own); nothing once its week has lapsed, and nothing while the plan has no Fable limit.
+        func fableKeys(_ reading: Window?, none: Date? = nil, at when: Date) -> [String] {
+            setUp(now: when, turns: [], reading: nil, cap5h: nil, capWeek: nil)
+            store.state.fable = reading
+            store.state.fableNone = none
+            recompute()
+            var sent: [String] = []
+            let notifier = Notifier(store: store) { sent.append($0) }
+            notifier.check(snapshot, now: when, post: true)
+            notifier.check(snapshot, now: when, post: true)
+            return sent.filter { $0.hasPrefix(Notifier.fable + "|") }.map { String($0.split(separator: "|")[2]) }.sorted()
+        }
+        let fableWeek = Window(pct: 96, resetsAt: now.addingTimeInterval(2 * 86400), at: now.addingTimeInterval(-60))
+        let fableSent = fableKeys(fableWeek, at: now)
+        expect(snapshot.fable?.limit?.pct == 96 && fableSent == ["80", "95"],
+               "a Fable reading at 96% sent \(fableSent.isEmpty ? "nothing" : fableSent.joined(separator: ", ")), not 80 and 95 once each")
+        let fableLapsed = fableKeys(fableWeek, at: fableWeek.resetsAt.addingTimeInterval(60))
+        expect(snapshot.fable?.limit == nil && fableLapsed.isEmpty, "a Fable reading whose week has reset still alerted")
+        let fableNone = fableKeys(nil, none: now.addingTimeInterval(-60), at: now)
+        expect(fableNone.isEmpty, "a plan with no Fable limit raised a Fable alert")
+        clock = { now }
+
+        // A row's model is the session's own loop, never a helper's (Nov 10). A Fable session whose newest turn is
+        // a Haiku subagent's is still Fable in Burning now, with the helper's spend counted; one whose own loop
+        // last ran two hours ago, helpers since, is found further back; with no turn of its own, the helper's stands.
+        func made(_ ago: TimeInterval, _ model: String, cacheRead: Int = 0, write1h: Int = 0, sidechain: Bool = false) -> Turn {
+            Turn(key: "synthetic-own-\(model)-\(Int(ago))", at: now.addingTimeInterval(-ago), project: "synthetic", model: model,
+                 session: "synthetic", input: 0, output: 100_000, cacheRead: cacheRead, write5m: 0, write1h: write1h, fast: false,
+                 sidechain: sidechain)
+        }
+        let fableName = Fmt.model("claude-fable-5-2"), haikuName = Fmt.model("claude-haiku-4-5")
+        var own = made(600, "claude-fable-5-2")
+        var helper = made(120, "claude-haiku-4-5", sidechain: true)
+        setUp(now: now, turns: [own, helper], reading: nil, cap5h: nil, capWeek: nil)
+        recompute()
+        var row = snapshot.burning.first { $0.id == "synthetic" }
+        expect(row?.model == fableName, "a Fable session whose newest turn is a Haiku helper's burns as \(row?.model ?? "nothing"), not \(fableName)")
+        expect(row.map { abs($0.perHour - (own.cost + helper.cost) / (Self.burnLookback / 3600)) < 0.01 } ?? false,
+               "Burning now's $/hr left out the helper's spend ($\(row?.perHour ?? -1)/hr)")
+        setUp(now: now, turns: [made(7200, "claude-fable-5-2"), helper], reading: nil, cap5h: nil, capWeek: nil)
+        recompute()
+        row = snapshot.burning.first { $0.id == "synthetic" }
+        expect(row?.model == fableName, "a session whose own loop last ran two hours ago took its helper's model (\(row?.model ?? "nothing"))")
+        setUp(now: now, turns: [helper], reading: nil, cap5h: nil, capWeek: nil)
+        recompute()
+        row = snapshot.burning.first { $0.id == "synthetic" }
+        expect(row?.model == haikuName, "a session with no turn of its own isn't shown by its helper's model (\(row?.model ?? "nothing"))")
+        // Going cold the same way: quiet since the helper's turn 16 minutes ago, it is the Fable loop's 400k-token
+        // context that would be written again, an hour after that loop's own last turn.
+        own = made(1200, "claude-fable-5-2", cacheRead: 400_000, write1h: 1_000)
+        helper = made(960, "claude-haiku-4-5", sidechain: true)
+        setUp(now: now, turns: [own, helper], reading: nil, cap5h: nil, capWeek: nil)
+        recompute()
+        let cold = snapshot.cooling.first { $0.id == "synthetic" }
+        expect(cold?.model == fableName && cold?.coldAt == own.at.addingTimeInterval(3600) && (cold?.extra ?? 0) > 5
+               && !snapshot.burning.contains { $0.id == "synthetic" },
+               "Going cold shows a Fable session by its helper (\(cold?.model ?? "no row"), +$\(cold?.extra ?? -1))")
+
+        // The API credits pace divides by the days the cost report reaches back, 1 to 7 (Nov 10): three days of
+        // $3 are $3 a day, not $9 over 7; ten days of $7 are still the last seven's $7 a day.
+        func pace(days: Int, each: Double) -> Double? {
+            let buckets = (1...days).map { ConsoleCredits.Bucket(start: now.addingTimeInterval(-Double($0) * 86400), amount: each) }
+            return ConsoleCredits.tally(buckets, anchor: CreditAnchor(left: 100, setAt: now.addingTimeInterval(-12 * 86400)), now: now).perDay
+        }
+        expect(pace(days: 3, each: 3).map { abs($0 - 3) < 0.001 } ?? false, "three days of API spend weren't divided by three (\(pace(days: 3, each: 3) ?? -1) a day)")
+        expect(pace(days: 10, each: 7).map { abs($0 - 7) < 0.001 } ?? false, "ten days of API spend weren't the last seven's average (\(pace(days: 10, each: 7) ?? -1) a day)")
+
         // The usage report's reset text, read on its own: each way it may print one, against the moment it
         // means. `now` is 9:40 PM on Saturday Sep 8 in New York. Only the date form had been seen ("Oct 14 at
         // 2:59pm"); the 5-hour line can print a time alone, which before v0.9.25 read as nothing.
@@ -916,7 +1033,7 @@ extension Meter {
 
         cloudChecks(mark: mark, turn: turn, setUp: setUp, expect: expect)
 
-        report.lines.append("6. Synthetic: \(ran) checks (early-reset pace and chart, lapsed windows, probe gate, usage report resets, no 5-hour limit, Fable after a rollover, a probe overtaken by the statusline, cloud sessions).")
+        report.lines.append("6. Synthetic: \(ran) checks (early-reset pace and chart, lapsed windows, probe gate, usage report resets, no 5-hour limit, the weekly cap warning, Fable alerts, a row's own model, the credits pace, Fable after a rollover, a probe overtaken by the statusline, cloud sessions).")
     }
 
     /// Cloud sessions (v0.9.26): how the sessions list is booked, and what the booked spend does to the

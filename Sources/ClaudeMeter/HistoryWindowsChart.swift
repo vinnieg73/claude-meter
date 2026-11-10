@@ -30,8 +30,8 @@ struct HistoryWindowsChart: View {
                 Spacer(minLength: 8)
                 HStack(spacing: 6) {
                     Chip(text: recent.count == 1 ? "1 window" : "\(recent.count) windows")
-                    Chip(text: "capped \(capped)×", tint: .secondary)
-                    Chip(text: "busiest \(HistoryView.peak(peak))", tint: .secondary)
+                    Chip(text: "capped \(capped)×")
+                    Chip(text: "busiest \(HistoryView.peak(peak))")
                 }
                 .accessibilityElement(children: .combine)
             }
@@ -108,7 +108,7 @@ struct HistoryWindowsChart: View {
             .accessibilityValue("peak \(HistoryView.peak(w.peak)), \(w.exact ? "exact reading" : "estimated from the logs")")
     }
 
-    /// Red is a window that hit the cap, as the line and the "capped" count say; orange is one that got hot.
+    /// Red is a window that hit the cap, as the line and the "capped" count say; a darker gray is one that got hot (70% or more).
     private func level(_ peak: Double) -> Level { peak >= 100 ? .critical : peak >= 70 ? .warn : .normal }
 
     private var legend: some View {

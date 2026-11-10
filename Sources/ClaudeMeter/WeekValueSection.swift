@@ -2,7 +2,7 @@ import SwiftUI
 
 /// History's "Value this week": the week so far at pay-as-you-go prices, as a multiple of what the
 /// plan costs for a week, then each day and each model. Grayscale (this Mac, the cloud and Other are
-/// three grays); only the plan's tick is coloured.
+/// three grays), with the plan's tick in the primary colour.
 struct WeekValueSection: View {
     let h: History
     let plan: Plan
@@ -288,7 +288,7 @@ struct WeekValueLine: View {
                 }
             }
             .buttonStyle(.plain)
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(Color.primary)
             .fixedSize()
             .accessibilityLabel("Open History")
         }

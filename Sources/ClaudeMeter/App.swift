@@ -16,6 +16,8 @@ enum Main {
                ClaudeMeter --cloud-check        read the cloud sessions list once and print it (writes nothing)
                ClaudeMeter --credits-check [cost_report.json]
                                                 read the Console cost report once (or a saved one) and print it
+               ClaudeMeter --extra-check        read the claude.ai usage credits once and print them (saves nothing)
+               ClaudeMeter --window-check       print the size the History and Help windows would open at
         """
 
     static func main() {

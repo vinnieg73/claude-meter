@@ -1,12 +1,89 @@
 # Claude Meter: handoff
 
-Updated 2026-11-04 by Claude. Version 1.0 (build 100) = the review-fix batch below, shipped on Vinnie's "version 1.0 yes, commit
-push and ship please": committed, tagged v1.0, pushed and installed. Version naming now follows his rule: two numbers, build =
-major × 100 + minor (next: 1.1 = build 101). The dated log is in `HANDOFF-HISTORY.md`.
+Updated 2026-11-10 by Claude (01:47Z; the evening of Nov 9, Eastern): version 1.1 (build 101) = the clean-up sweep below
+plus the batch Vinnie approved after it (items 10 to 17), shipped on Vinnie's "commit push and ship please": committed,
+tagged v1.1, pushed and installed. The next version is 1.2 (build 102).
+
+Before that, 2026-11-04: version 1.0 (build 100) = the review-fix batch below, shipped on Vinnie's "version 1.0 yes, commit
+push and ship please": committed, tagged v1.0, pushed and installed. Version naming follows his rule: two numbers, build =
+major × 100 + minor. The dated log is in `HANDOFF-HISTORY.md`.
+
+## Sweep (2026-11-10; Vinnie: "find everything that's broken, inconsistent, inefficient, or no longer needed. Fix what you're sure about and list the rest")
+
+Every source file, script and doc was read. Fixed, and shipped in 1.1:
+
+1. Pricing: `claude-fable-5-2` and `claude-mythos-5-2` had no row and were priced as Fable 5.1 ($10 / $50, cache reads
+   $0.25). They are $8 / $40, cache reads $0.20, with fast mode at 2x. The "fable" and "mythos" family fallbacks follow.
+2. Pricing: Sonnet 5.5 cache reads are $0.10 (0.05x input), not $0.20; the "sonnet" family fallback follows. This reverses
+   item 7 of the Nov 4 batch. Source for both: the live pricing page, read Nov 10
+   (https://platform.claude.com/docs/en/about-claude/pricing). Costs are derived from the cached token counts, so the new
+   prices reach old turns at once; the caps re-learn at the next exact reading.
+3. Dead code removed: `Snapshot.activeCount` with `Meter.active` and `LogIndex.activeSessions` (computed every scan, shown
+   nowhere), `Burn.fable` and `SessionRow.fable` (the bar has been gray since 1.0), `WindowCard.tint` (no caller passed
+   one), and `VerdictCallout`'s constant `neutral` with its two dead branches.
+4. `MenuBar`: `@discardableResult` and the `--icons` doc comment sat on `isCapTitle`, which had been inserted between
+   them and `renderIcons`; they are back on `renderIcons`.
+5. VoiceOver: when the title drops the word "cap" to fit ("~99% · Wed 10:49 AM"), the menu bar item's label now adds
+   "when the pace reaches the cap".
+6. The usage text for a mistyped flag lists `--extra-check` and `--window-check`.
+7. Comments that still described the pre-1.0 colours (orange values, a green check, a pink bar, a coloured tick) or the
+   5-hour window where the week also applies; a doubled doc comment on `Meter.lastProbe`.
+8. Docs: README says the Credits tab still uses the sign-in with Cloud sessions off; "Next steps" below no longer
+   lists the two one-off checks that are past.
+9. Replay: an early reset from before the replayed span no longer FAILs the run. The meter-side count now only counts a
+   restart against a window it already held, as the readings-side count does. (Nov 10: the Oct 30 weekly reset rode in
+   on the span's first reading; 900e6fd failed the same way.)
+
+Then, on Vinnie's "go ahead and make all recommended changes please" (Nov 10) for the list that stood under "Not
+changed", and "the dots that show what model is running need to be accurate" for item 17:
+
+10. Weekly cap warning with no 5-hour limit: `Notifier.check` raises "Claude weekly cap in ~20m" when the week's cap
+    (the last day's pace, `weekly().capAt`) is 30 minutes out or less, once per week, key kind `pace-week`
+    (`Notifier.weekPace`); an early weekly reset re-arms it. The replay owes it like the 5-hour "pace".
+11. Fable alerts at 80% and 95%, key kind `fable`: only from `FableView.limit` (a real reading whose week is open), once
+    per Fable week per threshold, one banner when both are crossed. Not re-armed if Anthropic resets the Fable limit
+    early (nothing records that for Fable).
+12. Grayscale finished: the "cold in 6m" chip is the gray `Chip` look; Help's Burning now, Going cold and Fable headers
+    are gray; "History ›" and the Credits card's "Update ›" are primary text; the footer's probe-failure line is primary
+    with its ⚠; footer notices are red only for `loginError`, primary with "exclamationmark.circle" for notifications
+    blocked and the shortcut taken, gray with "info.circle" for "Still reading…" and the no-window notice
+    (`Meter.isInformation`). Gone with it: `Theme.coldText`, `Theme.text`, `Theme.fable`, the tint of `Chip`,
+    `ModuleTitle` and `HelpSection`. `Theme.warnText` stays: Help's orange cap-title sample uses it.
+    Decided beyond the brief, same rule: Help has no links, so its two accent pieces went gray instead (the header's
+    ring and tile, the lightbulb tip), and its two orange ⚠ callouts with them (one `Callout` look, on `Theme.track`;
+    the app's own ⚠ rows lost their orange in 1.0). Say if any should come back.
+13. `WindowCard`'s tooltip: "Estimated from what this Mac and your cloud sessions logged since the last exact reading …".
+14. API credits pace: the last 7 whole UTC days' spend ÷ the days the report reaches back (earliest bucket to today,
+    1 to 7), not always 7. Not checked against a live report (no keychain reads from a dev build): if Anthropic lists
+    a bucket for every requested day, empty ones included, this changes nothing; if it leaves empty days out, a key
+    that spent only on recent days is averaged over those days.
+15. `HistoryFootnote`: "Days spent mostly on a different model than usual (Fable, say) are priced differently…".
+16. `build/` cleared of old renders and replay logs; `build/renders-1.1` is this batch's set.
+17. A row's model is the session's own loop: `Turn.sidechain` (a line's `isSidechain`, or a transcript under
+    `subagents/`; `IndexCache.version` 3, so an older cache is read again), and `recentBySession` keeps the newest
+    main-loop turn (`Recent.mainTurn`, looked for past the hour only when helpers alone ran in it). Burning now's
+    mascot and tooltip and the header crew use it; spend still counts every turn. Going cold uses it for the model,
+    the context re-written and the cold time (the next message goes to the main loop, whose cache counts from its own
+    last turn), but a session still waits 15 quiet minutes, helpers included, so it is never in both lists.
+    What prompted it was not this bug: on Nov 10 the meter was right (see CLAUDE.md's lesson).
+
+Checks (Nov 10, the whole working tree, and again on the 1.1 tree just before the commit): `swift build` (no new
+warnings), `scripts/replay.sh` (PASS, 107 synthetic checks; each new one seen to FAIL with its fix switched off) and
+`scripts/render-all.sh build/renders-1.1`.
+The replay guards 10, 11, 14 and 17 with synthetic cases only: the real history has no weekly cap warning, Fable
+reading or subagent turn in its span. 12, 13 and 15 are looks and words, checked in the renders.
+
+Not changed, for Vinnie to decide (also in the thread "Work on Claude Meter with Fable"):
+
+- `ModelFamily.name` is unused (kept in case the model name goes back inline: see the Mascots decision below).
+- Everything still under "Open decisions" below stands.
+- Seen on the way, not changed: `BarRow`'s `tint` has no caller passing one; `LogIndex.session(of:)` is only used to
+  prune names; `--status` and the Credits card still say "over 7 days" / "this week" for a pace that may now cover fewer.
 
 ## Review-fix batch (2026-11-04, from the Fable review; Vinnie: "i want all the fixes implemented")
 
-Review notes: `/private/tmp/claude-501/-Users-vinnie-Code/1e96335e-ac88-4555-acc8-c5dc2d6778d4/scratchpad/claude-meter-review.md`.
+Review notes: `/private/tmp/claude-501/-Users-vinnie-Code/1e96335e-ac88-4555-acc8-c5dc2d6778d4/scratchpad/claude-meter-review.md`
+(a temp path that may be gone; a copy is in the Utilities project's files as `claude-meter-review.md`).
 All shipped in 1.0. `swift build`, `scripts/replay.sh` (PASS, 92 synthetic checks) and `scripts/render-all.sh build/renders-gray` run.
 
 1. Replay: the 5-hour floors are waived once the plan's switch is seen (`Replay.floor5h`), so Ultra no longer FAILs.
@@ -22,7 +99,7 @@ All shipped in 1.0. `swift build`, `scripts/replay.sh` (PASS, 92 synthetic check
 6. `refreshFable` (`claude -p /usage`) runs every 30 minutes, not 5, when there is no 5-hour limit. `PlanCredits.Reading.week`
    (the 15-minute usage read's `seven_day`) now feeds `reportWeek`, so a week climbing elsewhere still starts a probe.
 7. Pricing: Sonnet 5.5 and the "sonnet" family cache reads are $0.20 (the claude-api docs, Nov 4). Fable 5 cache reads at
-   $1.00 are confirmed (Fable 5.1 is $0.25).
+   $1.00 are confirmed (Fable 5.1 is $0.25). Superseded Nov 10: Sonnet 5.5 is $0.10 (see the sweep above).
 8. A week under a day old holds today's pace (`Meter.youngWeek`): no cap time, no "cap" title, no History projection; the
    7-day average speaks alone. A synthetic check fails without it.
 9. Ultra: History drops the 5-hour windows module, Plan fit drops the Capped and Busiest rows. Fixture `history-ultra`.
@@ -50,9 +127,12 @@ The weekly cap is the larger of the week's average and `recentWeekCap` (spend ov
 
 ## Next steps
 
-1. Oct 15: a scheduled read-only check re-runs replay after the Oct 7 early-reset data ages out.
-2. Nov 4: a scheduled check confirms the weekly reset after DST ended.
-3. Every Monday 9 AM: the weekly replay check reports PASS or FAIL. Scheduled tasks run while the Claude app is open, and a missed one runs at the next launch.
+1. Nothing is waiting to ship: 1.1 is committed, tagged, pushed and installed. The next batch is 1.2 (build 102) and
+   needs Vinnie's go-ahead to commit, push and install. What is left for him is under "Not changed" above and "Open
+   decisions" below. (The first launch of 1.1 read every transcript again once: the log cache's version changed.)
+2. Every Monday 9 AM: the weekly replay check (scheduled task `claude-meter-weekly-replay`) reports PASS or FAIL. Not
+   re-checked on Nov 10 that the task still exists. The Oct 15 and Nov 4 one-off checks are past.
+   Scheduled tasks run while the Claude app is open, and a missed one runs at the next launch.
 
 ## Open decisions (Vinnie's)
 
@@ -64,12 +144,12 @@ The weekly cap is the larger of the week's average and `recentWeekCap` (spend ov
 
 - Mascots (v0.9.16): commit and push v0.9.16 (his typed words). Read "keep the model name text" in Burning now as keeping the model in the row's tooltip (moved there in v0.9.6 at Vinnie's request), not adding it back inline as the mockup shows; say if it should be inline. Help's section headers still wear the flame and snowflake, and its Burning now sample row has no mascot; left as is. Going cold names get about 70 pt now (was about 110) because of the mascot and family column.
 
-- Fable (v0.9.14): whether the Fable limit should notify at 80% and 95% like the other two (it blocks Fable when it fills; today it only shows). Whether to also use the usage report's 5-hour and weekly numbers: it is a free reading that never opens a window, which the probe can't offer with no window open (the "Known limit" below), but it prints whole percents and the probe gives `unifiedWindows` fractions, so it was left out of calibration for now.
+- Fable (v0.9.14): it notifies at 80% and 95% since Nov 10 (item 11 above). Whether to also use the usage report's 5-hour and weekly numbers: it is a free reading that never opens a window, which the probe can't offer with no window open (the "Known limit" below), but it prints whole percents and the probe gives `unifiedWindows` fractions, so it was left out of calibration for now.
 
 - From the 2026-10-11 audit, not done in v0.9.13:
   - Medium 1, Going cold never lists 5-minute-cache sessions: Help says so on purpose ("already cold by then"). Listing them means showing a session in Burning now and Going cold at once, or a shorter idle bar for that tier. Your call.
   - Cache tier from any 1h write (prior #9): kept as decided in v0.9.11.
-  - Display and wording: a stale card still reading "exact"; Plan fit verdict wording, "Capped: never" and "Busiest 0%" when uncalibrated, "Exact readings logged since"; a one-day weekly average labelled an average; 99.6 printed "100%"; "~210% by reset" past the 150% pace line; the weekly project row's 0%; the open window bar past the plot edge; informational footer notices in red; the ring dot angle.
+  - Display and wording: a stale card still reading "exact"; Plan fit verdict wording, "Capped: never" and "Busiest 0%" when uncalibrated, "Exact readings logged since"; a one-day weekly average labelled an average; 99.6 printed "100%"; "~210% by reset" past the 150% pace line; the weekly project row's 0%; the open window bar past the plot edge; the ring dot angle.
   - Behaviour choices: Sync dropped while a probe runs; the probe-failure footer while tap readings flow; the stalled alert re-firing after 8 days, or right after wake; the weekly chart's shape before an early reset when little or nothing was logged here.
   - Plausible, not confirmed, left alone: a held window ended early with no later message; sign-out seen only on stderr, and any "login"/"expired" error text; the runaway title placeholder; per-model rows carried over; a title line after a cut-short line; the 7-day average with a reset after the last reading. nvm searches only the newest version (known).
 - Audit leftovers: the 12 'skip' items in `claude-meter-open-findings-2026-10-11`, plus replay's drawn-vs-group window counting at the 7-day edge (#23, second half).
@@ -107,7 +187,7 @@ The weekly cap is the larger of the week's average and `recentWeekCap` (spend ov
 - Use off this Mac (cloud sessions, claude.ai) shrinks the calibrated cap, because each reading divides local spend by a % that includes the other use. On Oct 10 it fell from about $198 to $76. The live % stays exact (a reading every minute). Burning now's %/hr and the estimate between readings run high on cloud days.
 - Tried and rejected: skipping calibrations that imply a much smaller cap (to ignore cloud use). Estimates and the pace then grew only 0.5x as fast as the readings on cloud days, so "capped at" and the cap warning would come late. Replay's growth check fails.
 - Tried and rejected: a 5-minute hold on the probe gate after a reset. It fails replay by blocking probes after real window openings.
-- The 5-hour % weights turns by API list price (`Pricing.swift`). A new model id falls back to the newest price in its family. Update the table when models change.
+- The 5-hour % weights turns by API list price (`Pricing.swift`). A new model id falls back to the newest price in its family. Update the table when models change, from the live pricing page (https://platform.claude.com/docs/en/about-claude/pricing): Fable 5.2 went a week on Fable 5.1's price, and Sonnet 5.5's cache reads were set wrong on Nov 4.
 - Desktop thread titles come from `~/Library/Application Support/Claude/claude-code-sessions/*/local_*.json`, an undocumented format. If it changes, rows quietly fall back to folder names.
 - The app's placeholder titles ("Remote Control session (from a project)", "Local session (from a project)") are matched by prefix or suffix (`DesktopTitles.isPlaceholder`). If the app changes that wording, the placeholder shows again; check one record's `title` first.
 - Keep the folder at `~/Code/Claude Meter`. Scheduled checks and Claude Code history depend on that path.

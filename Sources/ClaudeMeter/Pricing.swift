@@ -20,6 +20,8 @@ enum Pricing {
     /// A prefix covers the model and its dated snapshots ("claude-opus-4" covers
     /// "claude-opus-4-20250514"), never another version ("claude-opus-4-1" is its own row).
     static let table: [(prefix: String, price: Price)] = [
+        ("claude-fable-5-2", Price(input: 8, output: 40, cacheRead: 0.20, fast: true)), // cheaper than 5.1, and has fast mode (pricing page, Nov 10)
+        ("claude-mythos-5-2", Price(input: 8, output: 40, cacheRead: 0.20, fast: true)),
         ("claude-fable-5-1", Price(input: 10, output: 50, cacheRead: 0.25)),
         ("claude-mythos-5-1", Price(input: 10, output: 50, cacheRead: 0.25)),
         ("claude-fable-5", Price(input: 10, output: 50, cacheRead: 1.0)), // $1 cache reads, 4x Fable 5.1's (checked Nov 4)
@@ -32,7 +34,7 @@ enum Pricing {
         ("claude-opus-4-5", Price(input: 5, output: 25, cacheRead: 0.50)),
         ("claude-opus-4-1", Price(input: 15, output: 75, cacheRead: 1.50)),
         ("claude-opus-4", Price(input: 15, output: 75, cacheRead: 1.50)),
-        ("claude-sonnet-5-5", Price(input: 2, output: 10, cacheRead: 0.20)), // cache reads $0.20, as Sonnet 5 (checked Nov 4)
+        ("claude-sonnet-5-5", Price(input: 2, output: 10, cacheRead: 0.10)), // cache reads $0.10, half Sonnet 5's (pricing page, Nov 10)
         ("claude-sonnet-5", Price(input: 2, output: 10, cacheRead: 0.20)),
         ("claude-sonnet-4-6", Price(input: 3, output: 15, cacheRead: 0.30)),
         ("claude-sonnet-4-5", Price(input: 3, output: 15, cacheRead: 0.30)),
@@ -57,10 +59,10 @@ enum Pricing {
     /// The newest price in each family, for a model the table doesn't know yet: a release
     /// after this was written shouldn't count as free, or as its predecessor's price.
     static let families: [(word: String, price: Price)] = [
-        ("fable", Price(input: 10, output: 50, cacheRead: 0.25)),
-        ("mythos", Price(input: 10, output: 50, cacheRead: 0.25)),
+        ("fable", Price(input: 8, output: 40, cacheRead: 0.20, fast: true)),
+        ("mythos", Price(input: 8, output: 40, cacheRead: 0.20, fast: true)),
         ("opus", Price(input: 4, output: 20, cacheRead: 0.20, fast: true)),
-        ("sonnet", Price(input: 2, output: 10, cacheRead: 0.20)),
+        ("sonnet", Price(input: 2, output: 10, cacheRead: 0.10)),
         ("haiku", haiku55),
     ]
 

@@ -34,8 +34,12 @@ claude.ai extra usage is off, the 5-hour and weekly cards add "Extra usage is of
   open). Fixture `ultra`. Weekly runaways and "Going cold" prices use the weekly cap there (5% of the week in 30
   minutes flags a runaway; a cold row says "+0.6% of week"), and the usage report (`claude -p /usage`) runs every 30
   minutes: the 15-minute usage read already notices the week climbing.
-- **Grayscale first** (1.0): bars, charts, numbers and Plan fit are gray; red from 90%, and orange only for a real
-  alert (the pace will cap the limit before the reset: the title's "cap" time, the menu bar ring). The mascots keep their
+- **Grayscale first** (1.0, finished in 1.1): bars, charts, numbers, chips (the "cold in 6m" one too), links ("History ›",
+  "Update ›": primary text with their chevron) and Plan fit are gray; red from 90%, and orange only for a real
+  alert (the pace will cap the limit before the reset: the title's "cap" time, the menu bar ring). The footer says a
+  problem in words: red only for one that needs you (Open at login refused), primary for one that can wait (a failed
+  probe with its ⚠, notifications blocked, the shortcut taken), gray with an ⓘ for what is only information (still
+  reading the logs, no window to sync in). Help is gray too, apart from samples of a real state. The mascots keep their
   colours (an approved exception).
 - **A fresh week** holds back today's pace (no cap time, no "cap" title, no History projection from one sitting) until
   it is a day old; the 7-day average speaks alone before that.
@@ -44,7 +48,7 @@ claude.ai extra usage is off, the 5-hour and weekly cards add "Extra usage is of
   Fable use as points of the overall windows ("This Mac: ~3% of the 5-hour window · ~1% of the week
   ($6.20)"). A plan without the limit gets "No separate Fable limit on your plan" instead. The card
   appears when a limit is known or Fable was used here this week. In Burning now a Fable session wears
-  the pink Fable mascot. The Fable limit raises no notifications.
+  the pink Fable mascot. The Fable limit alerts at 80% and 95%, like the other two (see [Notifications](#notifications)).
 - **Usage credits** (v0.9.30, Credits tab): extra usage on the Claude plan (claude.ai › Settings › Usage), read with the
   Claude Code sign-in like `/usage` does: this month's extra-usage spend against its monthly limit (a bar, red when
   the limit is reached and extra usage is off) and the prepaid balance. Shown once extra usage was ever on.
@@ -52,7 +56,7 @@ claude.ai extra usage is off, the 5-hour and weekly cards add "Extra usage is of
   calls, separate from the plan's limits. Shown only once you type a balance in (gear menu or right-click →
   **API credits…**: what's left, optionally the grant and its expiry day). No API returns the balance, so the
   typed number is the anchor. With a Console key in the keychain, the Admin API's cost report is taken off it
-  and the card says "Console", with spend since and the 7-day $/day pace; red only when that pace runs it out
+  and the card says "Console", with spend since and the $/day pace over the last 7 days; red only when that pace runs it out
   before the expiry day, or it's used up. Gray after the expiry day until you type the new balance. See
   [API credits](#api-credits).
 - **Weekly**: the same without the chart, plus per-model weekly buckets when a reading has them, and (v0.9.34)
@@ -83,10 +87,13 @@ claude.ai extra usage is off, the 5-hour and weekly cards add "Extra usage is of
   Hover a row for its whole name and, in Burning now, its model.
 - **Going cold**: sessions idle 15+ minutes whose 1-hour prompt cache expires soon, and what
   their next message would cost on top of a warm one once it has (the whole context is
-  re-written at 2x input instead of read at the cache price).
+  re-written at 2x input instead of read at the cache price). Priced and timed by the session's own last turn
+  (its context, its model), not a subagent's that answered after it.
 - **Mascots**: the Claude Code mascot (the worker band's pixels, drawn in `Mascot.swift`) in each
   session's model colour: purple Opus, orange Sonnet, teal Haiku, pink Fable, yellow for anything
-  else. A running crew in the header ("3 working", one per Burning now row, five at most), a bobbing
+  else. The colour (and the model in the row's tooltip) is the session's own: its newest main-loop turn, not a
+  subagent's (`isSidechain`, or a transcript under `subagents/`), whose spend still counts in the row; only a session
+  with no turn of its own in the logs goes by its helper's. A running crew in the header ("3 working", one per Burning now row, five at most), a bobbing
   mascot on each Burning now row, a small eyes-shut one in a dimmed colour on each Going cold row,
   and still ones labelling the limit cards. Going cold rows take two lines (the name, then when it
   goes cold and the extra cost), and a Burning now row's last-ran tag sits under its name, so names
@@ -102,7 +109,9 @@ while you're away. It keeps its ⚠ row, at the top, for those 30 minutes even o
 
 **Cap warning.** When the 5-hour pace hits the cap at least 10 minutes before the reset, the
 menu bar switches to `31% · cap 10:49 AM` in orange (the time says AM or PM; the word "cap" goes when the title would not fit beside the notch), and one notification fires when the cap
-is 30 minutes out. It clears once the pace lands under 95% at the reset.
+is 30 minutes out. It clears once the pace lands under 95% at the reset. With no 5-hour limit the week gets the
+same title and the same notification, once a week, when the last day's pace puts the weekly cap 30 minutes out
+(never in a week's first day, when that pace is held back).
 
 **History** (button, or right-click → History…): Value this week (the week so far at
 pay-as-you-go prices, as a multiple of what the plan picked in Plan fit costs for a week, by day and
@@ -259,7 +268,11 @@ on a failure. It checks:
    booked right (a first sighting whole, rises at their update, nothing twice across a relaunch, a
    fall re-based, Remote Control sessions on this Mac apart) and counted right (the week's cloud part
    and its days, the "Cloud: …" shares, Other as the remainder, the estimate between readings, the
-   weekly cap).
+   weekly cap). Since Nov 10: with no 5-hour limit the weekly cap warning goes out once when the cap is 20 minutes
+   out, and not for a cap two hours out or a week nothing has measured lately; a Fable reading at 96% alerts 80 and
+   95 once, and nothing after its week lapsed or on a plan with no Fable limit; a Fable session whose newest turn is
+   a Haiku subagent's stays Fable in Burning now (its $/hr counting the subagent) and in Going cold; and the API
+   credits pace divides by the days the report reaches back.
 
 The cloud sessions' spend comes from `cloud.json`'s ledger as the running app left it (read only), fed in
 as a feed running all along would have booked it: each entry whole once its time has passed, before that
@@ -413,7 +426,8 @@ ledger of the spend each read saw (14 days):
   15 minutes. A network error or an answer that won't parse keeps the store as it was.
 
 Right-click → **Cloud sessions** turns it off (on by default); off, the numbers are as before
-v0.9.26 and the in-memory token is dropped.
+v0.9.26 and the in-memory token is dropped. (The Credits tab's usage-credits read is separate: it still reads the
+same sign-in every 15 minutes.)
 
 ## API credits
 
@@ -424,7 +438,7 @@ With a key in the keychain the meter reads the Admin API's cost report every 15 
 cents as decimal strings in daily UTC buckets, about 5 minutes behind, summed over every page. Left = typed
 balance − spend since. The typing day is a partial UTC bucket: the first read that same day stores what the
 bucket already had (`baseline`) and only the rest counts; with no read that day (no key yet) counting starts
-the next UTC day. The pace is the last 7 whole UTC days ÷ 7. The last read is in `consoleCreditsRead`.
+the next UTC day. The pace is the spend of the last 7 whole UTC days ÷ the days the report reaches back (its earliest bucket to today, at least 1, at most 7), so a key with three days of data isn't averaged over seven. The last read is in `consoleCreditsRead`.
 
 Add the key yourself (paste it when asked; `-w` last keeps it out of the shell history):
 
@@ -443,7 +457,10 @@ prints the balance and the last read.
 
 At 80% and 95% of each window (as the card shows it, rounded), once per window, in one banner when a
 jump crosses both, and when a 5-hour window that passed 80%
-resets. Also once when exact readings stop: Claude Code in use (a message in the last 15 minutes)
+resets. The same two thresholds for the Fable limit, once per Fable week, from a real reading of it only (never an
+estimate; nothing once its week has reset, or on a plan with no Fable limit): "Claude Fable limit at 80%". When the
+pace puts the 5-hour cap 30 minutes out, once per window; with no 5-hour limit, the same for the weekly cap, once a
+week ("Claude weekly cap in ~20m"). Also once when exact readings stop: Claude Code in use (a message in the last 15 minutes)
 but no exact reading for an hour, when they normally come about once a minute. That usually means
 a Claude Code update changed what the probe or statusline reads, or a sign-out; the alert quotes
 the probe's last error. A new reading re-arms it. **Send test notification** (gear or right-click menu) checks they get through; if macOS

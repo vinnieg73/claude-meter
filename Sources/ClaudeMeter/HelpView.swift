@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// The Help window: what everything in the meter means, in plain words. Each section wears the
-/// symbol and tint the app gives that thing, and the samples are drawn with the app's own pieces
-/// (chips, the ring, the cap title), so a reader can match them to what they see.
+/// The Help window: what everything in the meter means, in plain words. Gray like the app: each section has
+/// its symbol, and colour is kept for the samples that show a real state (the orange cap title, the mascots).
+/// The samples are drawn with the app's own pieces (chips, the ring, the cap title), so a reader can match
+/// them to what they see.
 struct HelpView: View {
     /// False for `--render`: drawn whole rather than in a scroll view, so all of it can be checked.
     var scrolls = true
@@ -96,14 +97,14 @@ struct HelpView: View {
     }
 
     private var fable: some View {
-        HelpSection(symbol: FableCard.symbol, title: "Fable", tint: Theme.fable) {
+        HelpSection(symbol: FableCard.symbol, title: "Fable") {
             Para("Max and Ultra have a separate weekly limit just for Fable, Anthropic's most capable model: Fable can use up to half your week. This card is that limit: how much of it you've used, when it resets, and how fresh the reading is. It only climbs when you use Fable, on any device.")
             Bullets([
                 "The number and the bar are the Fable limit itself, straight from Anthropic. It is gray like the other cards and turns red at 90%.",
                 "\"This Mac: ~3% of the 5-hour window · ~1% of the week ($2.20)\" is Fable's part of your overall limits, worked out from this Mac's Claude Code records: how much of the 5-hour window and of the week went to Fable, and what that use would cost at pay-as-you-go prices.",
                 "In Burning now, a session running on Fable has the pink Fable mascot.",
             ])
-            Para("The reading comes from Claude Code's own usage report (the same numbers as typing /usage): every 5 minutes while Fable is in use on this Mac or no 5-hour window is open (that is how a window opened on another device is noticed), every 30 otherwise, and on Sync. With no 5-hour limit there is no window to find, so it is every 30 minutes unless Fable is in use here (the 15-minute usage read notices the week climbing). It costs nothing and never starts a 5-hour window. The Fable limit doesn't send notifications.",
+            Para("The reading comes from Claude Code's own usage report (the same numbers as typing /usage): every 5 minutes while Fable is in use on this Mac or no 5-hour window is open (that is how a window opened on another device is noticed), every 30 otherwise, and on Sync. With no 5-hour limit there is no window to find, so it is every 30 minutes unless Fable is in use here (the 15-minute usage read notices the week climbing). It costs nothing and never starts a 5-hour window. You get a notification at 80% and at 95% of the Fable limit, once each per week.",
                  secondary: true)
             Para("If your plan has no separate Fable limit, the card says so, and Fable simply counts toward the 5-hour and weekly limits above. The card appears once Fable has been used this week.",
                  secondary: true)
@@ -154,7 +155,7 @@ struct HelpView: View {
     }
 
     private var burning: some View {
-        HelpSection(symbol: "flame.fill", title: "Burning now", tint: .orange) {
+        HelpSection(symbol: "flame.fill", title: "Burning now") {
             Para("Every session that used Claude in the last 15 minutes at 50¢ an hour or more (at pay-as-you-go prices), by name. A runaway stays here with its ⚠ for 30 minutes, even once it has gone quiet. Two different sessions can share a name (two threads in one folder). Then each also says when it started, here and in Going cold, so you can tell them apart. Hover a row for its whole name and the model it runs on.")
             Sample {
                 HStack(spacing: 4) {
@@ -164,7 +165,7 @@ struct HelpView: View {
                     Mascot(pose: .asleep, color: ModelFamily.opus.muted)
                 }
             } says: {
-                Para("Each session has a mascot in its model's colour: purple Opus, orange Sonnet, teal Haiku, pink Fable. A bobbing mascot is working (Burning now, and the crew at the top of the dropdown). Eyes shut in a dimmer colour means idle and going cold. The still ones on the limit cards just label them.")
+                Para("Each session has a mascot in its model's colour: purple Opus, orange Sonnet, teal Haiku, pink Fable. A bobbing mascot is working (Burning now, and the crew at the top of the dropdown). Eyes shut in a dimmer colour means idle and going cold. The mascot is the session's own model: helpers it starts on another model don't change it. The still ones on the limit cards just label them.")
             }
             BarRow(name: "Fix login bug", value: "$4.12/hr", detail: "+2.5%", fraction: 0.55)
                 .padding(.vertical, 2)
@@ -172,18 +173,18 @@ struct HelpView: View {
                 "$/hr: how fast it's using your limit, shown as what the same use would cost at Anthropic's pay-as-you-go prices. Dollar amounts in the meter are a way to compare, not a bill.",
                 "+2.5%: how much of your 5-hour limit it uses per hour.",
             ])
-            Callout(symbol: "exclamationmark.triangle.fill", tint: .orange) {
+            Callout(symbol: "exclamationmark.triangle.fill") {
                 Para("A ⚠ means a runaway: one session used 20% or more of your 5-hour limit in 30 minutes (5% or more of the week, with no 5-hour limit). You also get one notification. It's usually a loop or a big job running while you're away.")
             }
         }
     }
 
     private var cold: some View {
-        HelpSection(symbol: "snowflake", title: "Going cold", tint: .cyan) {
+        HelpSection(symbol: "snowflake", title: "Going cold") {
             Para("Claude keeps a conversation warm for about an hour after your last message. After that it goes cold, and the next message uses more of your limit, because the whole conversation has to be sent again.")
             Sample {
                 HStack(spacing: 4) {
-                    Chip(text: "cold in 6m", tint: .cyan)
+                    Chip(text: "cold in 6m")
                     Text("then").font(Theme.row).foregroundStyle(.secondary)
                     Text("+$1.00").font(Theme.row).monospacedDigit()
                 }
@@ -193,7 +194,7 @@ struct HelpView: View {
             }
             Para("A session shows up here after 15 minutes without a message, and only if going cold would add 50¢ or more. A session on the short 5-minute cache is already cold by then, so it never shows up.",
                  secondary: true)
-            Callout(symbol: "lightbulb.fill", tint: .accentColor) {
+            Callout(symbol: "lightbulb.fill") {
                 Para("Still need that session? Send it something before the countdown ends.")
             }
         }
@@ -245,9 +246,9 @@ struct HelpView: View {
     private var notifications: some View {
         HelpSection(symbol: "bell", title: "Notifications") {
             Bullets([
-                "At 80% and 95% of the 5-hour and weekly limits, once each. Per-model weekly rows and the Fable limit don't alert.",
+                "At 80% and 95% of the 5-hour, weekly and Fable limits, once each. The Fable ones come from a real reading of that limit, never an estimate. Per-model weekly rows don't alert.",
                 "When a 5-hour window that went past 80% resets, so you know you're clear.",
-                "When you're 30 minutes from hitting the 5-hour limit.",
+                "When your pace is 30 minutes from hitting the 5-hour limit. With no 5-hour limit, the same warning for the weekly limit, once a week.",
                 "When a session runs away (see Burning now).",
                 "When exact readings stop: an hour of using Claude Code without one, so everything shown is an estimate. Usually a Claude Code update or a sign-out; try Sync.",
             ])
@@ -286,8 +287,8 @@ struct HelpView: View {
                 "It can't see claude.ai chat, the phone app or your other computers. The next exact reading catches up, and until then the meter leans toward showing a bit too much rather than too little.",
                 "Cloud sessions are counted from what each session cost. A session already running when the meter first saw it is spread evenly over its life, so only its share since the week began counts toward this week.",
             ])
-            Callout(symbol: "exclamationmark.triangle.fill", tint: .orange) {
-                Para("If the line at the bottom of the meter turns orange, it can't get exact readings. Usually Claude Code is signed out: open Terminal, type claude, then /login. While it is, a card with no recent reading shows — and \"Signed out, so no reading\" rather than a guess.")
+            Callout(symbol: "exclamationmark.triangle.fill") {
+                Para("If the line at the bottom of the meter shows a ⚠ and \"Probe failed\", it can't get exact readings. Usually Claude Code is signed out: open Terminal, type claude, then /login. While it is, a card with no recent reading shows — and \"Signed out, so no reading\" rather than a guess.")
             }
         }
     }
@@ -301,8 +302,8 @@ private struct HelpHeader: View {
         HStack(alignment: .center, spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.14))
-                Ring(fill: 0.62, tint: .accentColor, line: 4)
+                    .fill(Theme.track)
+                Ring(fill: 0.62, tint: .primary, line: 4)
                     .frame(width: 24, height: 24)
             }
             .frame(width: 44, height: 44)
@@ -321,16 +322,15 @@ private struct HelpHeader: View {
     }
 }
 
-/// A module with the section's symbol and tint in its title.
+/// A module with the section's symbol in its title.
 private struct HelpSection<Content: View>: View {
     let symbol: String
     let title: String
-    var tint: Color = .secondary
     @ViewBuilder var content: Content
 
     var body: some View {
         Module {
-            ModuleTitle(symbol: symbol, title: title, tint: tint)
+            ModuleTitle(symbol: symbol, title: title)
                 .padding(.bottom, 2)
             VStack(alignment: .leading, spacing: 7) { content }
         }
@@ -395,24 +395,23 @@ private struct Sample<Shown: View, Meaning: View>: View {
     }
 }
 
-/// A tinted note: a tip or a warning.
+/// A note set apart on a gray ground: a tip or a warning, told apart by its symbol.
 private struct Callout<Content: View>: View {
     let symbol: String
-    let tint: Color
     @ViewBuilder var content: Content
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 7) {
             Image(systemName: symbol)
                 .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(Theme.text(tint))
+                .foregroundStyle(.primary)
                 .frame(width: 14)
                 .accessibilityHidden(true)
             content
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(tint.opacity(0.11)))
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.track))
     }
 }
 

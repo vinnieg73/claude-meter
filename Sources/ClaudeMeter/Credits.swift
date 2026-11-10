@@ -169,7 +169,9 @@ enum ConsoleCredits {
         return c
     }
 
-    /// Spend since the balance was typed in, the 7-day pace, and the typing day's baseline once known.
+    /// Spend since the balance was typed in, the pace over the last 7 days, and the typing day's baseline once known.
+    /// The pace divides by the days the report reaches back (its earliest bucket to today, 1 to 7), not always
+    /// by 7: a key with three days of data spent that in three days, and a seventh of it read as a slower pace.
     static func tally(_ buckets: [Bucket], anchor: CreditAnchor, now: Date) -> (spent: Double, perDay: Double?, baseline: Double?) {
         let cal = utc
         let typedDay = cal.startOfDay(for: anchor.setAt)
@@ -182,7 +184,8 @@ enum ConsoleCredits {
         let spent = byDay.filter { $0.key >= from }.values.reduce(0, +) - (baseline ?? 0)
         let weekStart = today.addingTimeInterval(-7 * 86400)
         let week = byDay.filter { $0.key >= weekStart && $0.key < today }
-        let perDay = week.isEmpty ? nil : week.values.reduce(0, +) / 7
+        let reach = byDay.keys.min().map { today.timeIntervalSince($0) / 86400 } ?? 7
+        let perDay = week.isEmpty ? nil : week.values.reduce(0, +) / min(7, max(1, reach.rounded()))
         return (max(0, spent), perDay, baseline)
     }
 
@@ -434,7 +437,7 @@ struct CreditsCard: View {
                     }
                     .buttonStyle(.plain)
                     .font(Theme.row)
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.primary)
                     .accessibilityLabel("Update API credits")
                 }
             }

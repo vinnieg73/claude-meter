@@ -81,7 +81,7 @@ private struct PlanCard: View {
     let fit: PlanFit
     /// False when nothing was measured, so there is no fit to claim.
     let judged: Bool
-    /// Both limits measured: only then is a green check earned.
+    /// Both limits measured: only then is a check earned.
     let complete: Bool
     /// False with no 5-hour limit: the plans differ by their week alone, so the window rows go.
     let showWindows: Bool
@@ -138,7 +138,7 @@ private struct PlanCard: View {
     }
 }
 
-/// A label over its value; the value is orange, and heavier, where it is a problem.
+/// A label over its value; the value is heavier where it is a problem.
 private struct PlanStat: View {
     let label: String
     let value: StatValue
@@ -204,7 +204,7 @@ private struct Verdict {
     let tone: Tone
 }
 
-/// The answer under the cards, in the colour of the current plan's fit.
+/// The answer under the cards, in a plain box: the words and the symbol say how the plan fits.
 private struct VerdictCallout: View {
     let verdict: Verdict
 
@@ -225,7 +225,6 @@ private struct VerdictCallout: View {
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
-        let neutral = true // no coloured box: the words and the symbol say it
         HStack(alignment: .firstTextBaseline, spacing: 7) {
             Image(systemName: symbol).foregroundStyle(tint).accessibilityHidden(true)
             Text(verdict.text).fixedSize(horizontal: false, vertical: true)
@@ -234,8 +233,8 @@ private struct VerdictCallout: View {
         .padding(.horizontal, 9)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(shape.fill(neutral ? Theme.surface : tint.opacity(0.09)))
-        .overlay(shape.strokeBorder(neutral ? Theme.hairline : tint.opacity(0.25), lineWidth: 0.5))
+        .background(shape.fill(Theme.surface))
+        .overlay(shape.strokeBorder(Theme.hairline, lineWidth: 0.5))
         .accessibilityElement(children: .combine)
     }
 }
@@ -257,7 +256,7 @@ struct HistoryFootnote: View {
     }
 
     private var text: String {
-        var text = "Estimates use this Mac's Claude Code logs and today's calibration; claude.ai chat and other devices only show up in exact readings. Days spent on other models (Opus 5 before Sep 22, Fable) are priced differently and may read high."
+        var text = "Estimates use this Mac's Claude Code logs and today's calibration; claude.ai chat and other devices only show up in exact readings. Days spent mostly on a different model than usual (Fable, say) are priced differently and may read high."
         if let since = h.exactSince { text += " Exact readings logged since \(Fmt.when(since))." }
         text += " Plan fit scales your use by each plan's limits as claude.com/pricing lists them: Pro 1×, Max 5× (5-hour and week), Ultra 10× the week with no 5-hour limit once Anthropic verifies the account (before that, its temporary 5-hour limit is taken as the old Max 20×)."
         text += " In Value this week, \"Cloud sessions\" is exact, from the sessions list; \"Other\" is claude.ai chat, the phone and other computers, estimated from the weekly %; and \(plan.name) is priced at $\(Int(plan.monthlyPrice)) a month (\(WeekValueSection.price(plan.weeklyPrice)) a week)."

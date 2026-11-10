@@ -4,10 +4,8 @@ import SwiftUI
 /// A limit window: its %, the chart or bar, when it resets, and where the pace takes it.
 struct WindowCard: View {
     let w: WindowView
-    /// The card's own colour while its level is normal: gray unless given.
-    var tint: Color? = nil
 
-    private var color: Color { w.level == .normal ? (tint ?? Theme.color(.normal)) : Theme.color(w.level) }
+    private var color: Color { Theme.color(w.level) }
 
     /// "exact · 2m ago", or "est. ±0.7 · 12m ago" counting from the last exact reading.
     private var status: String? {
@@ -18,7 +16,7 @@ struct WindowCard: View {
 
     private var tooltip: String {
         guard let asOf = w.asOf, !w.exact else { return "Exact reading." }
-        let base = "Estimated from this Mac's logs since the last exact reading \(Fmt.ago(asOf))."
+        let base = "Estimated from what this Mac and your cloud sessions logged since the last exact reading \(Fmt.ago(asOf))."
         return [base, w.accuracyDetail].compactMap { $0 }.joined(separator: " ")
     }
 

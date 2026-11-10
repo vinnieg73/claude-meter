@@ -260,7 +260,7 @@ struct DropdownTabs: View {
     }
 }
 
-/// Under the 5-hour or weekly card from 70% (orange, red from 90%, as the card), when claude.ai extra usage is
+/// Under the 5-hour or weekly card from 70% (primary, red from 90%, as the card), when claude.ai extra usage is
 /// off: the plan's limit is a hard stop. Where it bites, rather than a marker on the Credits tab.
 private struct ExtraOffLine: View {
     let w: WindowView
@@ -271,7 +271,7 @@ private struct ExtraOffLine: View {
             Text(c.limitReached ? "Extra usage hit its monthly limit, so you'll stop at this limit."
                                 : "Extra usage is off, so you'll stop at this limit.")
                 .font(Theme.meta)
-                .foregroundStyle(Theme.text(Theme.color(w.level)))
+                .foregroundStyle(Theme.color(w.level))
                 .fixedSize(horizontal: false, vertical: true)
         }
     }

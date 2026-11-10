@@ -61,10 +61,8 @@ struct Burn: Identifiable {
     let name: String
     let model: String
     let perHour: Double
-    /// Points of the 5-hour window per hour, once a cap is known.
+    /// Points of the 5-hour window (the week, with no 5-hour limit) per hour, once a cap is known.
     let pctPerHour: Double?
-    /// Runs on Fable, the model with a limit of its own: its bar is pink.
-    var fable = false
     /// When the session started ("started 9:41 PM"), else when it last ran ("18m"), set only while
     /// another row shows the same name.
     var tag: String? = nil
@@ -170,7 +168,6 @@ struct Snapshot {
     var projects: [Row] = []
     var models: [Row] = []
     var daily: [DayBar] = []
-    var activeCount = 0
     var probing = false
     var probeStatus: String?
     var tapSeen: Date?
@@ -254,7 +251,6 @@ final class Meter: ObservableObject {
     /// Each session's first turn, built once per change to `turns` (`tagSharedNames`), not by scanning
     /// every turn for every same-named row on every recompute.
     private var firstTurnAt: [String: Date]?
-    private var active: [String] = []
     private var names: [String: String] = [:]
     /// When this meter first had its logs to look at (its clock, so the replay's too): the readings-stopped
     /// alert doesn't count time it wasn't running.
@@ -274,7 +270,6 @@ final class Meter: ObservableObject {
     private var historyFile: UInt64?
     /// Uptime of the last history compaction: at launch, then daily, since the app runs for weeks.
     private var compactedAt: TimeInterval = 0
-    /// When the last probe finished, whatever it found.
     /// When the last probe was launched, whatever it came to. New activity has to be after this to
     /// call for another, or an answer that was turned away would be asked for again every minute.
     private var lastProbe: Date?
@@ -292,7 +287,7 @@ final class Meter: ObservableObject {
     private static let fiveHours: TimeInterval = 5 * 3600
     private static let week: TimeInterval = 7 * 86400
     private static let logSpan: TimeInterval = 8 * 86400
-    private static let burnLookback: TimeInterval = 900
+    static let burnLookback: TimeInterval = 900 // internal for the replay's synthetic checks
     /// An exact reading at most this often, and only after new activity.
     private static let probeEvery: TimeInterval = 60
     /// The usage report, for the Fable limit: this often while Fable is in use on this Mac, and while it isn't.
@@ -332,6 +327,8 @@ final class Meter: ObservableObject {
     private static let loadingNotice = "Still reading your Claude Code logs. Try Sync again in a moment."
     private static let noWindowNotice =
         "No 5-hour window is open, and a probe would start one. It will sync once one opens, here or elsewhere."
+    /// A footer notice that only informs (Sync has nothing to do yet), not a problem: drawn gray (`FooterView`).
+    static func isInformation(_ notice: String) -> Bool { notice == loadingNotice || notice == noWindowNotice }
 
     func start() {
         _ = notifier // set as the notification delegate before anything is posted
@@ -455,7 +452,6 @@ final class Meter: ObservableObject {
             let changed = index.refresh()
             if !readOnly { index.saveCache() }
             let turns: [Turn]? = changed || firstScan ? index.turns : nil
-            let active = index.activeSessions
             let names = index.sessionNames
             let covered = index.coveredFrom
             Task { @MainActor in
@@ -463,7 +459,6 @@ final class Meter: ObservableObject {
                 self.scanning = false
                 self.coveredFrom = covered
                 if let turns { self.turns = turns }
-                self.active = active
                 self.names = names
                 if !self.loaded {
                     self.loaded = true
@@ -481,7 +476,6 @@ final class Meter: ObservableObject {
     private func take(from index: LogIndex) {
         turns = index.turns
         coveredFrom = index.coveredFrom
-        active = index.activeSessions
         names = index.sessionNames
     }
 
@@ -794,7 +788,7 @@ final class Meter: ObservableObject {
             }
             if let r = reading.weekly?.restartedAt, r != last.weekly?.restartedAt {
                 restarted.insert("week")
-                rearmAlerts([Self.weeklyTitle], resets: reading.weekly!.resetsAt)
+                rearmAlerts([Self.weeklyTitle, Notifier.weekPace], resets: reading.weekly!.resetsAt)
             }
             if noFiveHourLimit {
                 reading.fiveHour = nil
@@ -1084,7 +1078,6 @@ final class Meter: ObservableObject {
         }
         s.tapSeen = store.state.tapSeen.flatMap { now.timeIntervalSince($0) < 6 * 3600 ? $0 : nil } // a live feed only (FooterView)
         s.hasReading = store.state.lastExact != nil
-        s.activeCount = active.count
         if loaded {
             s.fiveHour = fiveHour(now)
             if var f = s.fiveHour {
@@ -1508,21 +1501,38 @@ final class Meter: ObservableObject {
     private struct Recent {
         var last15 = 0.0
         var last30 = 0.0
+        /// The newest turn of any kind, a subagent's included: when the session last did anything.
         var lastTurn: Turn?
+        /// The newest turn of the session's own loop. Its model is the row's (mascot, tooltip), and its context
+        /// is what a next message would re-write: a helper on Haiku doesn't make a Fable session a Haiku one.
+        /// Nil only when the logs hold no turn of its own loop at all.
+        var mainTurn: Turn?
         var hourCache = false
     }
 
     private func recentBySession(_ now: Date) -> [String: Recent] {
         var recent: [String: Recent] = [:]
-        for t in turns.reversed() {
+        var i = turns.count - 1
+        while i >= 0 {
+            let t = turns[i]
             let age = now.timeIntervalSince(t.at)
             if age > 3600 { break }
             var r = recent[t.session] ?? Recent()
             if r.lastTurn == nil { r.lastTurn = t }
+            if r.mainTurn == nil, !t.sidechain { r.mainTurn = t }
             if age <= Self.burnLookback { r.last15 += t.cost }
             if age <= 1800 { r.last30 += t.cost }
             if t.write1h > 0 { r.hourCache = true }
             recent[t.session] = r
+            i -= 1
+        }
+        // A session whose helpers alone have run for the hour: its own loop's last turn is further back. Only
+        // then is the rest of the log walked, and only until each such session's is found.
+        var missing = Set(recent.filter { $0.value.mainTurn == nil }.keys)
+        while i >= 0, !missing.isEmpty {
+            let t = turns[i]
+            if !t.sidechain, missing.remove(t.session) != nil { recent[t.session]?.mainTurn = t }
+            i -= 1
         }
         return recent
     }
@@ -1577,8 +1587,9 @@ final class Meter: ObservableObject {
             guard r.last15 > 0 || flagged.contains(session), let t = r.lastTurn else { return nil }
             let perHour = r.last15 / (Self.burnLookback / 3600)
             guard perHour >= 0.5 || flagged.contains(session) else { return nil }
-            return Burn(id: session, name: names[session] ?? "…", model: Fmt.model(t.model),
-                        perHour: perHour, pctPerHour: cap.map { perHour / $0 * 100 }, fable: t.fable)
+            // The session's own model, not a helper's that happened to answer last; the spend is all of it.
+            return Burn(id: session, name: names[session] ?? "…", model: Fmt.model((r.mainTurn ?? t).model),
+                        perHour: perHour, pctPerHour: cap.map { perHour / $0 * 100 })
         }
         .sorted { a, b in
             let (fa, fb) = (flagged.contains(a.id), flagged.contains(b.id))
@@ -1629,10 +1640,17 @@ final class Meter: ObservableObject {
         // Priced against the 5-hour window, or the week when there is none (`Cooling.extraPct`).
         let cap = noFiveHourLimit ? store.state.calibration.capWeek : store.state.calibration.cap5h
         return recent.compactMap { session, r -> Cooling? in
-            guard let t = r.lastTurn else { return nil }
+            guard let last = r.lastTurn else { return nil }
+            // Quiet for 15 minutes, helpers included: until then it is Burning now's, never both.
+            guard now.timeIntervalSince(last.at) >= Self.burnLookback else { return nil }
+            // The next message goes to the session's own loop, so that loop's last turn says what is written
+            // again (its context, at its model's price) and when (its cache counts from its own last turn; a
+            // helper has a context of its own and keeps neither warm). The same turn as `last` unless a helper
+            // answered after it.
+            let t = r.mainTurn ?? last
             let ttl: TimeInterval = r.hourCache ? 3600 : 300
             let idle = now.timeIntervalSince(t.at)
-            guard idle >= Self.burnLookback, idle < ttl, let price = Pricing.price(for: t.model) else { return nil }
+            guard idle < ttl, let price = Pricing.price(for: t.model) else { return nil }
             // Cold, the whole prompt is written to cache again instead of read from it.
             let context = Double(t.input + t.cacheRead + t.cacheWrite)
             let rate = Pricing.rates(price, promptTokens: Int(context)) // a long prompt can cost more

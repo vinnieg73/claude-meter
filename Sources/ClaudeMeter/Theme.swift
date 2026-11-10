@@ -22,14 +22,10 @@ enum Theme {
     static let track = Color.primary.opacity(0.08)
     static let quiet = Color.primary.opacity(0.16)
 
-    /// Fable's colour: the one limit that is a model's own, and the sessions running on it. Used
-    /// nowhere else, so pink always means Fable.
-    static let fable = Color.pink
-
-    /// Orange and cyan for small text. The system colours are too pale to read at 9–11pt on a light
-    /// surface (about 2:1), so the light appearance gets a deeper shade of the same hue (about 3.3:1
-    /// for orange, 5:1 for cyan); dark keeps the system colour. Resolved per appearance, so they
-    /// follow Increase Contrast like the system colours do.
+    /// Orange for small text, used only where Help shows the menu bar's cap warning. System orange is too
+    /// pale to read at 9–11pt on a light surface (about 2:1), so the light appearance gets a deeper shade of
+    /// the same hue (about 3.3:1); dark keeps the system colour. Resolved per appearance, so it follows
+    /// Increase Contrast like the system colours do.
     static let warnText = Color(nsColor: NSColor(name: nil) { appearance in
         var resolved = NSColor.systemOrange
         appearance.performAsCurrentDrawingAppearance {
@@ -40,19 +36,6 @@ enum Theme {
         }
         return resolved
     })
-    static let coldText = Color(nsColor: NSColor(name: nil) { appearance in
-        var resolved = NSColor.systemCyan
-        appearance.performAsCurrentDrawingAppearance {
-            guard appearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua else { return }
-            resolved = NSColor.systemCyan.blended(withFraction: 0.45, of: .black) ?? .systemCyan
-        }
-        return resolved
-    })
-
-    /// Text in a tint: the deeper shades for orange and cyan, any other tint as it is.
-    static func text(_ tint: Color) -> Color {
-        tint == .orange ? warnText : tint == .cyan ? coldText : tint
-    }
 
     /// Grayscale first: bars, charts and numbers are gray, and colour is kept for 90% and over (red) and for
     /// real alerts. The warn level (70%) is a darker gray, not a colour. The Credits tab is the model.
@@ -86,13 +69,12 @@ struct Module<Content: View>: View {
 struct ModuleTitle: View {
     let symbol: String
     let title: String
-    var tint: Color = .secondary
 
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: symbol)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(tint)
+                .foregroundStyle(.secondary)
                 .frame(width: 13)
                 .accessibilityHidden(true)
             Text(title).font(Theme.title)
@@ -100,11 +82,10 @@ struct ModuleTitle: View {
     }
 }
 
-/// A short status in a capsule: "est. ±1.0 · 3m ago", "cold in 6m".
+/// A short status in a gray capsule: "est. ±1.0 · 3m ago", "3 windows".
 struct Chip: View {
     let text: String
     var symbol: String? = nil
-    var tint: Color = .secondary
 
     var body: some View {
         HStack(spacing: 3) {
@@ -115,10 +96,10 @@ struct Chip: View {
         }
         .font(Theme.chip)
         .monospacedDigit()
-        .foregroundStyle(Theme.text(tint))
+        .foregroundStyle(.secondary)
         .padding(.horizontal, 5)
         .padding(.vertical, 1.5)
-        .background(Capsule().fill(tint == .secondary ? Theme.track : tint.opacity(0.14)))
+        .background(Capsule().fill(Theme.track))
     }
 }
 
