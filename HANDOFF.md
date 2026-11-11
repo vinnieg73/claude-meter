@@ -1,12 +1,51 @@
 # Claude Meter: handoff
 
-Updated 2026-11-10 by Claude (01:47Z; the evening of Nov 9, Eastern): version 1.1 (build 101) = the clean-up sweep below
+Updated 2026-11-11 by Claude: version 1.2 (build 102) = the shared cap warning below, shipped on Vinnie's "commit push
+and ship please" (Nov 11, 2:52 PM Eastern): committed, tagged v1.2, pushed and installed. The next version is 1.3
+(build 103).
+
+Before that, 2026-11-10 (01:47Z; the evening of Nov 9, Eastern): version 1.1 (build 101) = the clean-up sweep below
 plus the batch Vinnie approved after it (items 10 to 17), shipped on Vinnie's "commit push and ship please": committed,
 tagged v1.1, pushed and installed. The next version is 1.2 (build 102).
 
 Before that, 2026-11-04: version 1.0 (build 100) = the review-fix batch below, shipped on Vinnie's "version 1.0 yes, commit
 push and ship please": committed, tagged v1.0, pushed and installed. Version naming follows his rule: two numbers, build =
 major × 100 + minor. The dated log is in `HANDOFF-HISTORY.md`.
+
+## Shared cap warning (2026-11-11; Vinnie: "send all recommendations and fixes to the appropriate thread and have them all implemented")
+
+Shipped in 1.2. The usage band (`~/.claude/mods/usage-band`, its own repo) works out its orange "cap" warning from
+`lastExact` with simpler math, so it could disagree with the menu bar. The meter now writes its own into `state.json`
+for the band to show. The band's side is not done here (a different repo and thread).
+
+- `capWarning` in `PersistedState` (`CapWarning`, Limits.swift): `window` ("week" with no 5-hour limit, else
+  "fiveHour"), `capAt` (`Snapshot.capWarning`, what `updateWarning` returned: the held warning the title and ring
+  use; left out while not warning), `resetsAt` (that window's reset; left out with no such window), `at` (when it
+  was worked out). No object at all means a meter before 1.2. Dates as everywhere in the file (ISO 8601 UTC,
+  milliseconds). Chosen beyond the brief: `capAt` is left out, not written as null (the file never writes nulls);
+  a `capWarning` that won't decode is dropped without setting the file aside, since it is worked out again in seconds.
+- `Meter.shareWarning` runs in every `recompute` once the logs are read: the state always holds the newest, and the
+  file is written (`CapWarning.needsWrite` against `StateStore.savedWarning`, the copy the file holds) when the
+  warning turns on or off, the window or reset changes, the cap time moves 5 minutes, or the copy is 10 minutes old.
+  Every other save (each exact reading) carries the newest along. Not in a quiet meter (replay, `--render`,
+  `--status`), and `save` refuses a read-only store anyway.
+- Cost: with nothing else going on, one whole-file write every 10 minutes (144 a day) where an idle meter wrote none.
+  That is the price of `at` telling a reader the meter is alive; the band skips its read while the file is unchanged.
+- `--status`: "shared cap warning: week caps Thu 2:49 AM, resets Wed 2:00 PM, worked out 0m ago", "… none (week) …",
+  "(old: is Claude Meter running?)" past 15 minutes, or "not written yet". It prints the file's copy, not its own math.
+- For a reader: stale when `at` is over 15 minutes old; over when `resetsAt` has passed.
+- Docs: README "Reading the meter from another tool"; CLAUDE.md's 2026-11-11 exception. Help mentions neither the
+  band nor state.json, so it is unchanged.
+
+Checks (Nov 11): `swift build` (no new warnings), `scripts/replay.sh` PASS with 129 synthetic checks (22 new: the
+right window and the menu bar's own value in both modes, on, held at the reset, off, no reading; when the file is
+written; a 1.1 file loading; the file's text with the field taken back out equal to the 1.1 text byte for byte, with
+`lastExact` and `fable` spelled out; null, odd shapes, a 5-hour plan), and `scripts/render-all.sh build/renders-1.2`
+(55 pictures, nothing in the views changed). Seen to FAIL with the fix switched off: no `shareWarning` call, a
+`needsWrite` that never writes, the strict decode, the card's raw pace in place of the held warning, the wrong window.
+Not covered by the replay: the write itself (a quiet meter never writes), so after an install check that
+`state.json` gains `capWarning` and `--status` says "worked out 0m ago". A hidden `--render` run on this Mac's real
+logs gave `{"at": "2026-11-11T19:47:08.767Z", "resetsAt": "2026-11-18T19:00:00.000Z", "window": "week"}` (6%, no warning).
 
 ## Sweep (2026-11-10; Vinnie: "find everything that's broken, inconsistent, inefficient, or no longer needed. Fix what you're sure about and list the rest")
 
@@ -127,7 +166,8 @@ The weekly cap is the larger of the week's average and `recentWeekCap` (spend ov
 
 ## Next steps
 
-1. Nothing is waiting to ship: 1.1 is committed, tagged, pushed and installed. The next batch is 1.2 (build 102) and
+1. Nothing is waiting to ship: 1.2 is committed, tagged, pushed and installed, and `state.json` holds `capWarning`.
+   The usage band still has to read it (its own repo; not started here). The next batch is 1.3 (build 103) and
    needs Vinnie's go-ahead to commit, push and install. What is left for him is under "Not changed" above and "Open
    decisions" below. (The first launch of 1.1 read every transcript again once: the log cache's version changed.)
 2. Every Monday 9 AM: the weekly replay check (scheduled task `claude-meter-weekly-replay`) reports PASS or FAIL. Not

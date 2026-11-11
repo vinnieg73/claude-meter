@@ -1116,6 +1116,7 @@ final class Meter: ObservableObject {
             s.planCredits = credits.plan.flatMap { $0.everOn || ($0.balance ?? 0) > 0 ? $0 : nil }
             s.weekSurfaces = PlanCredits.currentSurfaces(credits.plan, now: now)
             s.capWarning = updateWarning(noFiveHourLimit ? s.weekly : s.fiveHour)
+            shareWarning(s, now: now)
             // In use for an hour since the last reading (its first message after it an hour old, and one
             // in the last 15 minutes) yet nothing exact, when readings come about once a minute while you
             // work. Not the first message after a break: its reading is a minute away. Counted from when
@@ -1613,6 +1614,17 @@ final class Meter: ObservableObject {
         }
         if let atReset = f.atReset, atReset < 95 { warningOn = false }
         return warningOn ? resets : nil
+    }
+
+    /// Puts the cap warning just worked out into the state for other tools (`CapWarning`), and writes the
+    /// file when it says something the file's copy doesn't: on, off, another window, a cap time five minutes
+    /// off, or a copy ten minutes old. Every other save carries the newest one along. A quiet meter (the
+    /// replay, `--render`, `--status`) writes nothing; its store is read-only besides.
+    private func shareWarning(_ s: Snapshot, now: Date) {
+        let shared = CapWarning(window: s.noFiveHourLimit ? .week : .fiveHour, capAt: s.capWarning,
+                                resetsAt: (s.noFiveHourLimit ? s.weekly : s.fiveHour)?.resetsAt, at: now)
+        store.state.capWarning = shared
+        if !quiet, shared.needsWrite(over: store.savedWarning) { store.save() }
     }
 
     private func runaways(_ recent: [String: Recent]) -> [Runaway] {

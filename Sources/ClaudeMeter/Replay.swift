@@ -837,6 +837,200 @@ extension Meter {
         expect(snapshot.fable?.limit == nil && fableLapsed.isEmpty, "a Fable reading whose week has reset still alerted")
         let fableNone = fableKeys(nil, none: now.addingTimeInterval(-60), at: now)
         expect(fableNone.isEmpty, "a plan with no Fable limit raised a Fable alert")
+
+        // The cap warning shared in state.json for other tools (Nov 11): after every recompute the state holds what
+        // the menu bar has (`snapshot.capWarning`, the held warning), filed under the window that leads it.
+        // With a 5-hour limit: a window at 50% with two hours left, a $100 cap, and a week that isn't the one meant.
+        now = mark.addingTimeInterval(3 * 3600)
+        let fiveResets = now.addingTimeInterval(2 * 3600), sharedWeek = now.addingTimeInterval(3 * 86400)
+        func fiveShared(_ made: [Turn]) -> CapWarning? {
+            setUp(now: now, turns: made,
+                  reading: ExactReading(at: now.addingTimeInterval(-60), source: "probe",
+                                        fiveHour: Window(pct: 50, resetsAt: fiveResets, at: now.addingTimeInterval(-60)),
+                                        weekly: Window(pct: 20, resetsAt: sharedWeek, at: now.addingTimeInterval(-60))),
+                  cap5h: 100, capWeek: 1000)
+            recompute()
+            return store.state.capWarning
+        }
+        func said(_ c: CapWarning?) -> String {
+            guard let c else { return "nothing shared" }
+            return "\(c.window.rawValue), cap \(c.capAt.map { String(Int($0.timeIntervalSince(now))) + " s out" } ?? "none")"
+        }
+        let quietTurn = [turn(now.addingTimeInterval(-600), output: 10_000)]
+        var shared = fiveShared(quietTurn)
+        expect(!noFiveHourLimit && snapshot.capWarning == nil && shared?.window == .fiveHour && shared?.capAt == nil
+               && shared?.resetsAt == fiveResets && shared?.at == now,
+               "a calm 5-hour window isn't shared as the 5-hour window with no warning (\(said(shared)))")
+        // $45 in the last 45 minutes: 60 points an hour, so the cap is 50 minutes out, well before the reset.
+        shared = fiveShared([2400, 1500, 600].map { turn(now.addingTimeInterval(-$0), output: 1_000_000) })
+        let fiveLead = shared?.capAt.map { $0.timeIntervalSince(now) } ?? -1
+        expect(snapshot.capWarning != nil && shared?.capAt == snapshot.capWarning && abs(fiveLead - 3000) < 5
+               && shared?.window == .fiveHour && shared?.resetsAt == fiveResets,
+               "the 5-hour cap 50 minutes out isn't shared as the menu bar has it (\(said(shared)))")
+        // The pace eases to land at 98%: the menu bar holds its warning at the reset, and so does the shared one.
+        shared = fiveShared([turn(now.addingTimeInterval(-600), output: 1_200_000)])
+        expect(snapshot.fiveHour?.capAt == nil && snapshot.capWarning == fiveResets && shared?.capAt == fiveResets,
+               "a held 5-hour warning (pace landing at \(Int(snapshot.fiveHour?.atReset ?? -1))%) isn't shared as held (\(said(shared)))")
+        shared = fiveShared(quietTurn)
+        expect(snapshot.capWarning == nil && shared?.capAt == nil && shared?.window == .fiveHour,
+               "the 5-hour warning stayed shared after the menu bar dropped it (\(said(shared)))")
+        // With no 5-hour limit the week leads: the weekly cap warning's own case (90%, 30 points an hour), then a calm week.
+        func weekShared(pct: Double, _ made: [Turn]) -> CapWarning? {
+            setUp(now: now, turns: made,
+                  reading: ExactReading(at: now.addingTimeInterval(-60), source: "probe",
+                                        weekly: Window(pct: pct, resetsAt: sharedWeek, at: now.addingTimeInterval(-60))),
+                  cap5h: 100, capWeek: 100)
+            noteSessionLimit(false, at: now.addingTimeInterval(-900))
+            noteSessionLimit(false, at: now)
+            recompute()
+            return store.state.capWarning
+        }
+        shared = weekShared(pct: 90, (1...48).map { turn(now.addingTimeInterval(300 - Double($0) * 1800), output: 1_000_000) })
+        let weekLead = shared?.capAt.map { $0.timeIntervalSince(now) } ?? -1
+        expect(noFiveHourLimit && snapshot.capWarning != nil && shared?.capAt == snapshot.capWarning && abs(weekLead - 1200) < 5
+               && shared?.window == .week && shared?.resetsAt == sharedWeek && shared?.at == now,
+               "the weekly cap 20 minutes out with no 5-hour limit isn't shared as the menu bar has it (\(said(shared)))")
+        shared = weekShared(pct: 40, quietTurn)
+        expect(noFiveHourLimit && snapshot.capWarning == nil && shared?.window == .week && shared?.capAt == nil
+               && shared?.resetsAt == sharedWeek,
+               "a calm week with no 5-hour limit isn't shared as the week with no warning (\(said(shared)))")
+        // No reading at all: still shared, as "not warning", so a reader can tell this meter from one before 1.2.
+        setUp(now: now, turns: [], reading: nil, cap5h: nil, capWeek: nil)
+        recompute()
+        shared = store.state.capWarning
+        expect(shared != nil && shared?.capAt == nil && shared?.resetsAt == nil && shared?.window == .fiveHour,
+               "with no reading the cap warning isn't shared as worked out and off (\(said(shared)))")
+
+        // When the file is written for it: on, off, another window or reset, a cap time 5 minutes off, a copy 10 minutes
+        // old or dated ahead of the clock. Not for a wobble, nor on every tick.
+        let wrote = CapWarning(window: .week, capAt: now.addingTimeInterval(3600), resetsAt: sharedWeek, at: now)
+        func next(_ after: TimeInterval, _ change: (inout CapWarning) -> Void = { _ in }) -> CapWarning {
+            var c = wrote
+            c.at = now.addingTimeInterval(after)
+            change(&c)
+            return c
+        }
+        expect(wrote.needsWrite(over: nil), "a cap warning never written isn't written")
+        expect(!next(10).needsWrite(over: wrote) && !next(590) { $0.capAt = now.addingTimeInterval(3600 + 290) }.needsWrite(over: wrote),
+               "the state file is rewritten for an unchanged cap warning, or one that moved under 5 minutes")
+        expect(next(10) { $0.capAt = nil }.needsWrite(over: wrote)
+               && wrote.needsWrite(over: next(-10) { $0.capAt = nil }),
+               "the state file isn't rewritten when the cap warning turns on or off")
+        expect(next(10) { $0.capAt = now.addingTimeInterval(3600 - 300) }.needsWrite(over: wrote)
+               && next(10) { $0.capAt = now.addingTimeInterval(3600 + 300) }.needsWrite(over: wrote),
+               "the state file isn't rewritten when the cap time moves 5 minutes")
+        expect(next(10) { $0.window = .fiveHour }.needsWrite(over: wrote)
+               && next(10) { $0.resetsAt = sharedWeek.addingTimeInterval(7 * 86400) }.needsWrite(over: wrote)
+               && next(10) { $0.resetsAt = nil }.needsWrite(over: wrote),
+               "the state file isn't rewritten when the cap warning moves to another window or reset")
+        expect(next(600).needsWrite(over: wrote) && !next(599).needsWrite(over: wrote) && next(-120).needsWrite(over: wrote),
+               "the shared cap warning's time isn't kept fresh (10 minutes, or a copy dated ahead of the clock)")
+
+        // The file itself. A 1.1 state file (no capWarning) loads as before; the new field sits beside the fields the
+        // usage band reads (`lastExact.at`, `.weekly`, `.fiveHour`, `.noFiveHourLimit`, `fable`) and changes none of
+        // them: taking the capWarning block back out of the text leaves the 1.1 text, byte for byte.
+        let epoch = Date(timeIntervalSince1970: 1_000_000_000), epochReset = epoch.addingTimeInterval(3 * 86400)
+        let stamp = "2001-09-09T01:46:40.000Z", stampReset = "2001-09-12T01:46:40.000Z"
+        func written(_ state: PersistedState) -> String {
+            (try? JSONCoding.encoder(pretty: true).encode(state)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        }
+        func read(_ text: String) -> PersistedState? { try? JSONCoding.decoder().decode(PersistedState.self, from: Data(text.utf8)) }
+        func block(_ key: String, in text: String) -> String {
+            var out: [Substring] = [], inside = false
+            for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+                if line.hasPrefix("  \"\(key)\" : {") { inside = true }
+                if inside { out.append(line) }
+                if inside, line == "  }," || line == "  }" { break }
+            }
+            return out.joined(separator: "\n")
+        }
+        func dropping(_ key: String, from text: String) -> String {
+            let cut = block(key, in: text)
+            return cut.isEmpty ? text : text.replacingOccurrences(of: cut + "\n", with: "")
+        }
+        let fromOnePointOne = """
+            {"calibration":{"capWeek":2000},"fable":{"at":"\(stamp)","pct":68,"resetsAt":"\(stampReset)"},\
+            "fiveHourGoneSince":"\(stamp)","lastExact":{"at":"\(stamp)","extras":{},"noFiveHourLimit":true,"source":"probe",\
+            "weekly":{"at":"\(stamp)","pct":79,"resetsAt":"\(stampReset)"}},"noSessionReads":2,"notified":["pace-week|1|x"]}
+            """
+        let old = read(fromOnePointOne)
+        expect(old != nil && old?.damaged == false && old?.capWarning == nil && old?.lastExact?.at == epoch
+               && old?.lastExact?.weekly?.pct == 79 && old?.lastExact?.weekly?.resetsAt == epochReset
+               && old?.lastExact?.noFiveHourLimit == true && old?.lastExact?.fiveHour == nil && old?.fable?.pct == 68
+               && old?.fiveHourGoneSince == epoch && old?.notified == ["pace-week|1|x"],
+               "a 1.1 state file without capWarning doesn't load as it did")
+        var fileState = old ?? PersistedState()
+        let before = written(fileState)
+        fileState.capWarning = CapWarning(window: .week, capAt: epoch.addingTimeInterval(1200), resetsAt: epochReset, at: epoch)
+        let after = written(fileState)
+        let sharedBlock = """
+              "capWarning" : {
+                "at" : "\(stamp)",
+                "capAt" : "2001-09-09T02:06:40.000Z",
+                "resetsAt" : "\(stampReset)",
+                "window" : "week"
+              },
+            """
+        expect(block("capWarning", in: after) == sharedBlock, "capWarning isn't written in the shape readers were told:\n" + block("capWarning", in: after))
+        expect(!before.isEmpty && before != after && dropping("capWarning", from: after) == before,
+               "writing capWarning changed other fields of the state file")
+        let bandWeek = """
+              "lastExact" : {
+                "at" : "\(stamp)",
+                "extras" : {
+
+                },
+                "noFiveHourLimit" : true,
+                "source" : "probe",
+                "weekly" : {
+                  "at" : "\(stamp)",
+                  "pct" : 79,
+                  "resetsAt" : "\(stampReset)"
+                }
+              },
+            """
+        let bandFable = """
+              "fable" : {
+                "at" : "\(stamp)",
+                "pct" : 68,
+                "resetsAt" : "\(stampReset)"
+              },
+            """
+        expect(block("lastExact", in: after) == bandWeek && block("fable", in: after) == bandFable,
+               "the fields the usage band reads (lastExact, fable) changed in the state file:\n" + block("lastExact", in: after) + "\n" + block("fable", in: after))
+        let back = read(after)
+        expect(back?.capWarning == fileState.capWarning && back?.damaged == false && back.map(written) == after,
+               "a state file with capWarning doesn't read back as written")
+        // Not warning: the object stays, without capAt. A reader's null reads the same; a shape from another version is
+        // dropped without setting the file aside.
+        fileState.capWarning?.capAt = nil
+        let calm = written(fileState)
+        expect(block("capWarning", in: calm).contains("\"window\" : \"week\"") && !block("capWarning", in: calm).contains("capAt")
+               && read(calm)?.capWarning == fileState.capWarning && dropping("capWarning", from: calm) == before,
+               "a cap warning that is off isn't written as the object without capAt")
+        let withNull = read(#"{"capWarning":{"at":"2001-09-09T01:46:40.000Z","capAt":null,"window":"fiveHour"}}"#)
+        expect(withNull?.capWarning == CapWarning(window: .fiveHour, capAt: nil, resetsAt: nil, at: epoch) && withNull?.damaged == false,
+               "capWarning with a null capAt and no reset doesn't load")
+        let oddShape = read(#"{"capWarning":{"window":"month"},"lastExact":{"at":"2001-09-09T01:46:40.000Z","source":"probe"}}"#)
+        expect(oddShape != nil && oddShape?.capWarning == nil && oddShape?.damaged == false && oddShape?.lastExact?.at == epoch,
+               "a capWarning this version can't read spoiled the rest of the state file")
+        // A plan with a 5-hour limit: `lastExact.fiveHour` beside the new field, unchanged too.
+        var withFive = PersistedState()
+        withFive.lastExact = ExactReading(at: epoch, source: "probe", fiveHour: Window(pct: 31.5, resetsAt: epoch.addingTimeInterval(7200), at: epoch),
+                                          weekly: Window(pct: 79, resetsAt: epochReset, at: epoch))
+        let fiveBefore = written(withFive)
+        withFive.capWarning = CapWarning(window: .fiveHour, capAt: nil, resetsAt: epoch.addingTimeInterval(7200), at: epoch)
+        let fiveAfter = written(withFive)
+        expect(fiveAfter.contains("\"window\" : \"fiveHour\"") && dropping("capWarning", from: fiveAfter) == fiveBefore
+               && block("lastExact", in: fiveAfter).contains("""
+                    "fiveHour" : {
+                      "at" : "\(stamp)",
+                      "pct" : 31.5,
+                      "resetsAt" : "2001-09-09T03:46:40.000Z"
+                    },
+                """),
+               "lastExact.fiveHour changed beside capWarning in the state file")
+        now = mark // the checks below count from the mark again
         clock = { now }
 
         // A row's model is the session's own loop, never a helper's (Nov 10). A Fable session whose newest turn is
@@ -1033,7 +1227,7 @@ extension Meter {
 
         cloudChecks(mark: mark, turn: turn, setUp: setUp, expect: expect)
 
-        report.lines.append("6. Synthetic: \(ran) checks (early-reset pace and chart, lapsed windows, probe gate, usage report resets, no 5-hour limit, the weekly cap warning, Fable alerts, a row's own model, the credits pace, Fable after a rollover, a probe overtaken by the statusline, cloud sessions).")
+        report.lines.append("6. Synthetic: \(ran) checks (early-reset pace and chart, lapsed windows, probe gate, usage report resets, no 5-hour limit, the weekly cap warning, Fable alerts, the cap warning shared in state.json, a row's own model, the credits pace, Fable after a rollover, a probe overtaken by the statusline, cloud sessions).")
     }
 
     /// Cloud sessions (v0.9.26): how the sessions list is booked, and what the booked spend does to the

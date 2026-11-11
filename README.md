@@ -217,8 +217,8 @@ drawn or written exits 1, and a mistyped command exits 2.
 
 `~/Applications/ClaudeMeter.app/Contents/MacOS/ClaudeMeter --status` prints how the app is
 set up (open at login, notification permission, CLI found) and what it last knew (last exact
-reading, the cloud sessions list's state and last read, the week's cloud spend, calibrated caps,
-accuracy). `ClaudeMeter --cloud-check` reads the sessions list once and prints the row count, the
+reading, the cap warning shared in `state.json`, the cloud sessions list's state and last read, the
+week's cloud spend, calibrated caps, accuracy). `ClaudeMeter --cloud-check` reads the sessions list once and prints the row count, the
 week's cloud spend and the state, writing nothing (exit 0 when the list answered).
 
 `swift scripts/make-icon.swift [previewDir]` redraws `Resources/AppIcon.icns` (and, given a folder,
@@ -396,6 +396,44 @@ State (last exact reading, calibration, notifications sent) is in `state.json` n
 state file this version can't read is kept as `state.unreadable-<time>.json`, never overwritten.
 `history.jsonl` keeps five weeks, a line per reading (about one a minute while you work, a few MB
 at the most). A reading dated in the future is ignored, and `at` may be in seconds or milliseconds.
+
+## Reading the meter from another tool
+
+`state.json` is the one file other tools read (the usage band above Claude Code's prompt does). It is
+rewritten whole, atomically, with keys sorted and dates as ISO 8601 UTC to the millisecond
+(`2026-11-11T19:47:08.767Z`). What a reader can rely on:
+
+- `lastExact`: the newest exact reading. `at`, `source`, `weekly` and `fiveHour` (each `pct`, `resetsAt`,
+  `at`, and `restartedAt` after an early reset), and `noFiveHourLimit: true` on a plan with no 5-hour
+  limit (there is no `fiveHour` then).
+- `fable`: the separate weekly Fable limit (`pct`, `resetsAt`, `at`), missing when none is known.
+- `capWarning` (1.2 on): the cap warning exactly as the menu bar shows it, so a reader needn't work out
+  its own from `lastExact` and disagree with the meter.
+
+```json
+"capWarning" : {
+  "at" : "2026-11-11T19:47:08.767Z",
+  "capAt" : "2026-11-12T07:49:00.000Z",
+  "resetsAt" : "2026-11-18T19:00:00.000Z",
+  "window" : "week"
+}
+```
+
+- `window`: `"week"` or `"fiveHour"`, the window that leads the menu bar (the week on a plan with no
+  5-hour limit, the 5-hour window otherwise).
+- `capAt`: when the pace reaches the cap, the same time the orange title and ring use (the held warning,
+  which stays on through a wobbling pace, not a card's raw "today's pace"). **Left out while the meter
+  isn't warning**; read a `null` the same way.
+- `resetsAt`: that window's reset. Left out when the meter has no such window to show.
+- `at`: when the meter worked this out.
+- No `capWarning` at all: the file was written by a meter older than 1.2 (or one that hasn't read its logs
+  yet). Then, and only then, a reader is on its own.
+
+The file is rewritten at every exact reading as before, and also when the warning turns on or off, moves
+to another window or reset, or its cap time moves by 5 minutes; failing all that, every 10 minutes while
+the app runs, so `at` stays fresh. Treat a `capWarning` whose `at` is more than 15 minutes old as stale
+(the app has quit or the Mac slept), and one whose `resetsAt` has passed as belonging to a window that is
+over. `--status` prints it ("shared cap warning: …"). Nothing in the meter reads it back.
 
 ## Cloud sessions
 

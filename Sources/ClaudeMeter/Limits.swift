@@ -83,6 +83,41 @@ struct Check: Codable {
     var anchor: Double?
 }
 
+/// The cap warning exactly as the menu bar has it, written for other tools that read state.json (the usage
+/// band above Claude Code's prompt), so they show this one instead of working out their own from `lastExact`
+/// with simpler math and disagreeing. The object is there whenever the meter has worked it out, warning or
+/// not: no `capAt` says "not warning", no object at all says a meter from before 1.2 wrote the file.
+struct CapWarning: Codable, Equatable {
+    enum Leading: String, Codable { case week, fiveHour }
+    /// The window that leads the menu bar: the week with no 5-hour limit, the 5-hour window on a plan with one.
+    var window: Leading
+    /// When the pace reaches the cap: `Snapshot.capWarning`, the held warning the title and ring use
+    /// (`Meter.updateWarning`), not a card's raw pace. Left out while the meter isn't warning.
+    var capAt: Date?
+    /// That window's reset, so a reader can tell which window this was worked out for. Left out when the
+    /// meter has no such window to show (no reading yet).
+    var resetsAt: Date?
+    /// When the meter worked this out. It runs every few seconds; the file is written less often (`needsWrite`).
+    var at: Date
+
+    /// A cap time that moved this far is written; a smaller move waits for the next write.
+    static let moved: TimeInterval = 300
+    /// The file's copy is never left older than this while the app runs, so a reader can tell a meter that
+    /// says "no warning" from one that has quit.
+    static let refresh: TimeInterval = 600
+
+    /// Whether the file's copy (`saved`) no longer says what this one does: the warning went on or off, moved
+    /// to another window or reset, its cap time moved by five minutes, or the copy is ten minutes old (or
+    /// dated ahead of a clock since put back). The pace wobbles every tick, and each write is the whole file.
+    func needsWrite(over saved: CapWarning?) -> Bool {
+        guard let saved else { return true }
+        if window != saved.window || (capAt == nil) != (saved.capAt == nil) || !Window.same(resetsAt, saved.resetsAt) { return true }
+        if let capAt, let was = saved.capAt, abs(capAt.timeIntervalSince(was)) >= Self.moved { return true }
+        let age = at.timeIntervalSince(saved.at)
+        return age >= Self.refresh || age < -60
+    }
+}
+
 /// Every field optional on the way in, so a state file from an older or newer version still
 /// loads instead of being replaced by an empty one.
 struct PersistedState: Codable {
@@ -111,6 +146,8 @@ struct PersistedState: Codable {
     var fiveHourGoneSince: Date?
     var noSessionReads = 0
     var sessionReadAt: Date?
+    /// The menu bar's cap warning, for other tools to read (`CapWarning`, `Meter.shareWarning`). Nothing here reads it back.
+    var capWarning: CapWarning?
     /// The week as the last usage report listed it, for the probe gate with no 5-hour limit. Not saved.
     var reportWeek: Window?
     /// A field was there but wouldn't read, so it fell back to its default. Not saved: it tells the
@@ -119,7 +156,7 @@ struct PersistedState: Codable {
 
     enum CodingKeys: String, CodingKey {
         case lastExact, checks, calibration, probeError, probeRetryAt, tapSeen, notified, fable, fableChecked, fableNone, sessionResets
-        case fiveHourGoneSince, noSessionReads, sessionReadAt
+        case fiveHourGoneSince, noSessionReads, sessionReadAt, capWarning
     }
 
     init() {}
@@ -144,6 +181,9 @@ struct PersistedState: Codable {
         fiveHourGoneSince = field(Date.self, .fiveHourGoneSince)
         noSessionReads = field(Int.self, .noSessionReads) ?? 0
         sessionReadAt = field(Date.self, .sessionReadAt)
+        // Worked out again within seconds of launch, so one that won't read (another version's shape) is
+        // dropped, not a reason to set the whole file aside.
+        capWarning = (try? c.decodeIfPresent(CapWarning.self, forKey: .capWarning)) ?? nil
         damaged = bad
     }
 }
@@ -255,6 +295,8 @@ final class StateStore {
 
     /// The state file couldn't be read; it's set aside (not overwritten) at the first save.
     private var unreadable = false
+    /// The cap warning as the file holds it: what it held at launch, then what each save wrote.
+    private(set) var savedWarning: CapWarning?
 
     init() {
         do {
@@ -287,6 +329,7 @@ final class StateStore {
         if let at = state.sessionResets, at > now.addingTimeInterval(5 * 3600 + 60) { state.sessionResets = nil }
         // A check dated ahead of the clock would hold off new checks for its window until the clock caught up.
         state.checks?.removeAll { $0.at > now.addingTimeInterval(60) }
+        savedWarning = state.capWarning
         pruneNotified()
     }
 
@@ -313,7 +356,7 @@ final class StateStore {
             unreadable = false
         }
         Paths.makeSupport()
-        try? data.write(to: Paths.state, options: .atomic)
+        if (try? data.write(to: Paths.state, options: .atomic)) != nil { savedWarning = state.capWarning }
     }
 }
 

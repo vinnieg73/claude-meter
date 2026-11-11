@@ -94,6 +94,19 @@ enum Status {
         // With no 5-hour limit the title shows the week whatever this says (`Meter.recompute`).
         lines.append("weekly in title: " + (state.fiveHourGoneSince != nil ? "always (no 5-hour limit)"
             : prefs.bool(forKey: "showWeeklyInTitle") ? "on" : "off"))
+        // The menu bar's cap warning as the file holds it for other tools (the usage band), not worked out here.
+        if let c = state.capWarning {
+            let age = Int(max(0, Date().timeIntervalSince(c.at)) / 60)
+            let window = c.window == .week ? "week" : "5-hour window"
+            let resets = c.resetsAt.map { ", resets \(Fmt.when($0))" } ?? ""
+            var line = "shared cap warning: " + (c.capAt.map { "\(window) caps \(Fmt.when($0))" } ?? "none (\(window))")
+                + "\(resets), worked out \(age)m ago"
+            // Written at least every 10 minutes while the app runs (`CapWarning.refresh`).
+            if Date().timeIntervalSince(c.at) > CapWarning.refresh + 300 { line += " (old: is Claude Meter running?)" }
+            lines.append(line)
+        } else {
+            lines.append("shared cap warning: not written yet (written by 1.2 and later, once the logs are read)")
+        }
         // The statusline only runs in terminal Claude Code sessions, never in the desktop app.
         lines.append("statusline: " + (state.tapSeen.map { "last reading \(Fmt.when($0))" } ?? "no readings yet")
             + " (runs only in terminal Claude Code sessions)")

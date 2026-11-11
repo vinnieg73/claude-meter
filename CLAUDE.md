@@ -112,6 +112,12 @@ Help, links, the footer's lines), the API credits pace over the days the report 
 model from the session's own loop, not a subagent's (`Turn.sidechain`). The list is in HANDOFF.md. Scope is back to bug
 elimination.
 
+Exception (2026-11-11, asked for by the user: "send all recommendations and fixes to the appropriate thread and have
+them all implemented", for the usage band's cap warning disagreeing with the meter's): the meter writes its own cap
+warning into `state.json` (`capWarning`: window, capAt, resetsAt, at; `Meter.shareWarning`) so the band can show the
+menu bar's instead of its own simpler math, with a "shared cap warning:" line in `--status`. Nothing the meter shows
+changes. The shape is in README.md ("Reading the meter from another tool"). Scope is back to bug elimination.
+
 Before calling a fix done, run `./scripts/replay.sh` and confirm PASS. It replays the real history
 log and transcripts through the working tree (read-only) and checks window openings, the probe
 gate, duplicate alerts and accuracy. If a fix guards something the replay doesn't cover, say so.
