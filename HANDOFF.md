@@ -1,8 +1,116 @@
 # Claude Meter: handoff
 
-Updated 2026-11-11 by Claude: version 1.2 (build 102) = the shared cap warning below, shipped on Vinnie's "commit push
-and ship please" (Nov 11, 2:52 PM Eastern): committed, tagged v1.2, pushed and installed. The next version is 1.3
-(build 103).
+Updated 2026-11-19 (evening, Eastern) by Claude: version 1.3 (build 103) = "Personal burn" below, shipped on Vinnie's
+"commit, tag v1.3, push, install and restart Claude Meter" (Nov 19, 7:58 PM Eastern): committed, tagged v1.3, pushed
+and installed. The next version is 1.4 (build 104).
+
+Before that, 2026-11-11: version 1.2 (build 102) = the shared cap warning below, shipped on Vinnie's "commit push
+and ship please" (Nov 11, 2:52 PM Eastern): committed, tagged v1.2, pushed and installed.
+
+## Personal burn (2026-11-19; Vinnie: "doesnt look like its tracking my specific burn anymore")
+
+His dropdown on Thu Nov 19 at 7:15 PM Eastern (Ultra, week-only, week reset Wed Nov 18 2:00 PM): weekly 6%, "Worth
+$60.48 so far", Today $3.10, "This Mac: <1% of the week ($2.46)", day bars nearly empty, no Burning now rows, after
+a day of Fable work in cloud project threads.
+
+What the diagnosis found (figures from that evening):
+
+- This Mac's side was right. Four transcripts that day, $3.10 at 7:15 PM (Fable 5.2 $2.46, Sonnet 5.5 $0.64), all in
+  the index; no new path layout, no `CLAUDE_CONFIG_DIR`, cache version fine. His work simply wasn't here.
+- By design Today, the 7 day bars and the Fable line counted this Mac alone; cloud sessions only showed under This
+  week. That evening the ledger held $51.84 of cloud spend for the day ($62.50 for the week; Fable $16.81 and
+  $27.47). So Today would have read about $55, and the Fable line "~2% of the week ($29.93)", had they counted it.
+  This was most of what he saw.
+- The sessions list is ordered newest-created first and the feed read 50 rows of each listing, once, with no
+  paging. Paged to the end: default 19, `hearth-thread` 138, `rc-child` 166. Of the 15 threads used since the week
+  began, 1 sat past row 50: "Parlay Builder next steps" (row 118, made Oct 11), known at $336.28 since Oct 26, now
+  $425.02: $88.74 never booked. Older misses of the same kind: "Forgelight Studio site" +$47.78, three Pocket
+  Fishing threads +$10.69, and 20 threads from Oct 7-10 never seen at all ($267.96 whole, one of them "Console
+  credits runs" $77.40, last used Nov 18).
+- Every project thread has a parent the three listings never return: the project coordinator (the session behind
+  each project's own chat), tag `hearth-overview`, with a `cost_usd` of its own. 280 of them, $671.82 whole, none
+  ever booked; 9 used that week, $17.72. Other tags tried (`hearth`, `aibo`, `hearth-joined`, `hearth-rc-child`)
+  add nothing new. `rc-child` rows still carry no cost (37 of 166 carry token counts only).
+- Not explained: "Share by app" said Duet 24% that week. No listing shows Duet sessions, so that part can only sit
+  in Other.
+
+What changed (1.3):
+
+1. `CloudSessions.read` pages every listing to its end: `limit=100` (the list refuses more), `after_id=<last_id>`
+   while `has_more`, 30 pages at most a listing (`maxPages`; past that the oldest go unread, as before, and
+   `--cloud-check` says "cut short"). A cursor that doesn't move stops the listing. A sign-out or a 429 on any page
+   stops the read with nothing booked (the next read, 5 minutes on, starts over; a read is now about 8 GETs, not
+   3, so one 429 costs more than it did); any other failure ends that listing and keeps the pages already answered.
+   The read itself (`read(bridged:home:fetch:)`) takes its GET as a closure so the replay can feed it a made-up
+   list; `CloudSessions.wait` runs one read to its end for `--cloud-check` and the replay.
+2. A fourth listing, `tags=hearth-overview`: the project coordinators. They show as "Cloud: Project coordinator
+   ("Utilities")" rows; all of a project's coordinators share that title, so they add up in one row.
+3. `CloudStore.take` is unchanged, on purpose. A session known at an old cost that is listed again books only its
+   rise, at its `updated_at`, spread evenly from its last sighting (so Parlay Builder's $88.74 over Oct 26 to
+   Nov 19 puts $4.16 into this week). A first sighting is booked whole over its own life, which for a coordinator
+   is hours, so its spend lands on the right days.
+4. Today counts the cloud sessions (`fillToday`): `todayCost` is this Mac plus cloud, `todayCloud` the cloud part,
+   "Cloud: title" rows among the projects (`Row.cloud`, the bar This week gives them), the models line by each
+   session's model, and the 7 day bars each day's cloud spend (`DayBar.cloud`). The header reads "$55.94 · $3.10
+   this Mac · $52.84 cloud", "$78.97 · $13 Mac + $66 cloud" or "$6.1k · this Mac + cloud", the longest that fits
+   (`ViewThatFits`); tokens and cache, this Mac's only, moved to its tooltip. With no cloud spend today the header
+   is the old one. The menu bar's "$0.42 today" title (shown only while no limit card is known) is `todayCost` too,
+   so it now counts the cloud as well.
+5. The Fable card's line counts cloud sessions on Fable (`cloudFable`, `CloudSpend.fable`, by the model that last
+   served the session when each rise was booked): "This Mac + cloud: ~4% of the week ($42.37)", "Mac + cloud: …"
+   beside a 5-hour part, and "This Mac: …" as before while the list isn't read (`FableView.cloud`).
+6. `--status` adds "cloud today: …". `--cloud-check` lists each listing's rows and pages and says what the read
+   would book on top of `cloud.json` ("against cloud.json: …"), still writing nothing.
+7. Fixture `cloudtoday` (in `render-all.sh`); `long` now carries a long cloud row, the widest Today total and the
+   longest Fable line. Help, README and CLAUDE.md (exception and a lesson) say the same.
+
+With Cloud sessions off, nothing above changes anything: the ledger is empty, so every number and word is 1.2's.
+
+What the first read after an install will do (worked out with the working tree's `--cloud-check` at about 8:40 PM
+Eastern on Nov 19, which writes nothing):
+
+- It books about 104 new entries, $381 in all (what the last 14 days keep of the coordinators, the 20 old threads
+  and the rises above). $24.25 of it lands in this week ($20.09 today): the coordinators' $17 or so, Parlay
+  Builder's $4.16 share, and whatever the current threads added since the last 1.2 read. The rest lands on earlier
+  days, so the 7 day bars for last week grow a little.
+- "Worth so far" and the This week rows rise by about that $24 at once (Other, if any is showing, shrinks by as much).
+- The weekly % does not jump: every catch-up entry is dated in the past, before the last exact reading, and the
+  estimate only adds spend since that reading.
+- The weekly cap is not held or excluded from; it is left to learn, and it will go up, not wild. It was learned
+  from spend that left the coordinators out, so it is low: $1.2k that evening, where the week's spend with them
+  implies about $1.6-1.7k. Each reading moves it about a tenth of the way (the blend's weight is 0.4 x % / 25, and
+  1.5x at most a step), so it takes a few hours of use. Until then the This week rows add up to a point or two
+  more than the weekly card says (8.5% against 7% that evening) and Other reads nothing. I chose this over
+  holding the catch-up out of calibration because the spend is real and dated where it happened; held out, the
+  cap would stay low for good. If it reads badly, the catch-up could be held to a cap of its own; say so.
+- From then on a read is 8 GETs, not 3, every 5 minutes, growing by one per 100 new sessions.
+
+Checks (Nov 19): `swift build` (the same two warnings as 1.2, none new: checked against a build of the last
+commit), `scripts/replay.sh` PASS with 148 synthetic checks (19 new), `scripts/render-all.sh build/renders-1.3` (57
+pictures, every dropdown 340 pt wide; looked at `cloudtoday`, `long`, `week` and the live one, light and dark). Each
+new check was seen to FAIL with its fix switched off (`build/diag/mutate.py`, four runs: no paging; no coordinators
+listing; any failure dropping the read; a sign-out or 429 not stopping it; no ceiling flag; a stuck cursor; a rise
+booked at the read instead of spread over the gap; Today, the models, the day bars and the Fable line without the
+cloud; the Fable line saying "cloud" with the setting off). The working tree's `--cloud-check` read the real list:
+603 sessions in 8 pages (default 19 in 1, hearth-thread 138 in 2, hearth-overview 280 in 3, rc-child 166 in 2).
+
+Not covered by the replay, and not verified:
+
+- The replay's real-data parts judged nothing that day: 0 window openings, 0 gate points, 0 accuracy checks ("the
+  week began too recently for the logs to teach its cap"). I did not run the last commit's replay to compare. The PASS rests on
+  the synthetic checks.
+- The live feed itself (`CloudFeed.finish` saving `cloud.json`) only runs in the installed app. After an install,
+  check `--status`: "cloud sessions: ok", "cloud today: …", and "cloud this week" up by about $24 on the first
+  read; and that a replay still passes once `cloud.json` holds the catch-up (it adds real spend to last week's days).
+- Whether the coordinators' cost counts toward the weekly % the way a thread's does. It is `cost_usd` on the same
+  list and the plan's own sessions, so I took it as counted; if the This week rows keep running over the weekly
+  card for days, look here first.
+- When, inside its gap, a long-unread thread really spent its rise (the list doesn't say). Spread evenly.
+- The header's three widths were checked in renders at this Mac's font metrics only.
+
+Suggested, not built (his call): Burning now rows for cloud sessions (a thread that rose in the last two reads,
+at $/hr from the ledger; coarse, since the list is read every 5 minutes); the History "By model on this Mac" line
+counting the cloud by model too; stacking the cloud on each day bar the way History's columns do.
 
 Before that, 2026-11-10 (01:47Z; the evening of Nov 9, Eastern): version 1.1 (build 101) = the clean-up sweep below
 plus the batch Vinnie approved after it (items 10 to 17), shipped on Vinnie's "commit push and ship please": committed,
@@ -166,9 +274,9 @@ The weekly cap is the larger of the week's average and `recentWeekCap` (spend ov
 
 ## Next steps
 
-1. Nothing is waiting to ship: 1.2 is committed, tagged, pushed and installed, and `state.json` holds `capWarning`.
-   The usage band still has to read it (its own repo; not started here). The next batch is 1.3 (build 103) and
-   needs Vinnie's go-ahead to commit, push and install. What is left for him is under "Not changed" above and "Open
+1. 1.3 (build 103) is committed, tagged, pushed and installed. Over its first hours, watch the weekly cap settle
+   ("Not covered by the replay" above). `state.json` holds `capWarning` since 1.2.
+   The usage band still has to read it (its own repo; not started here). What is left for him is under "Not changed" above and "Open
    decisions" below. (The first launch of 1.1 read every transcript again once: the log cache's version changed.)
 2. Every Monday 9 AM: the weekly replay check (scheduled task `claude-meter-weekly-replay`) reports PASS or FAIL. Not
    re-checked on Nov 10 that the task still exists. The Oct 15 and Nov 4 one-off checks are past.
@@ -203,8 +311,11 @@ The weekly cap is the larger of the week's average and `recentWeekCap` (spend ov
   (Oct 25 21:32), and no `cloud.json` existed: the cloud feed wasn't running. Quit and reopen the app (Vinnie's call).
 - Cloud sessions (v0.9.26): the sessions list is an unofficial API (`anthropic-beta: ccr-byoc-2025-07-29`); if it
   changes or breaks, the feed goes quiet ("error" in `--status`), the ledger keeps what it had, and the numbers fall back
-  to this Mac + Other as the days pass. Only the 50 newest rows of each listing are read, so a session that drops off
-  and is resumed later is re-based from its stored cost (kept 60 days), not booked whole. `cost_usd` is taken as priced
+  to this Mac + Other as the days pass. Since 1.3 every listing is read to its end (`limit=100`, `after_id`), 30 pages
+  at most; before, only the 50 newest rows were, and an older thread still in use was never read again. A session
+  that does go unread and comes back is re-based from its stored cost (kept 60 days), not booked whole. If paging
+  ever breaks (the cursor fields `has_more` / `last_id` renamed), each listing quietly reads its first 100 rows only:
+  compare `--cloud-check`'s "listings:" line with the number of threads you know of. `cost_usd` is taken as priced
   like `Pricing.swift` (API list price); not checked. A Remote Control session on another Mac with the same folder path
   under the same home would be taken for this Mac's (not counted). `rcChild` is a reconciliation stub, counted nowhere.
 - The keychain prompt (if any) names the binary that asks: the dev build in `.build/` and the installed app each may

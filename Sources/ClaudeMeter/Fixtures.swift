@@ -6,7 +6,7 @@ import Foundation
 @MainActor
 enum Fixtures {
     static let popover = ["calm", "warn", "critical", "idle", "signedout", "empty", "loading", "trouble", "week", "long", "nofable", "samename",
-                                 "ultra", "credits", "creditslow", "creditstyped", "creditsexpired", "creditsalert", "nocredits"]
+                                 "ultra", "cloudtoday", "credits", "creditslow", "creditstyped", "creditsexpired", "creditsalert", "nocredits"]
     static let history = ["fits", "thismac", "cloudonly", "uncalibrated", "ultra"]
 
     /// `weekScope` is the Today / This week picker; `tab` the dropdown's tab; `notice` stands in for the
@@ -22,6 +22,7 @@ enum Fixtures {
         switch name {
         case "calm": calm
         case "ultra": ultra
+        case "cloudtoday": cloudtoday
         case "warn": warn
         case "critical": critical
         case "idle": idle
@@ -237,6 +238,31 @@ enum Fixtures {
         return p
     }
 
+    /// A day spent in project threads (1.3), on Ultra: little on this Mac, most of it cloud sessions. Today lists
+    /// them with this Mac's projects and its total says both, the models and the day bars count both, and the Fable
+    /// card's line says "This Mac + cloud".
+    private static var cloudtoday: Popover {
+        var p = ultra
+        p.snapshot.burning = []
+        p.snapshot.todayCost = 55.94
+        p.snapshot.todayCloud = 52.84
+        p.snapshot.todayTokens = 3_400_000
+        p.snapshot.cacheHit = 0.94
+        p.snapshot.projects = [
+            Row(id: "Cloud: Fable sweep of Shift Hours", cost: 14.18, tokens: 0, cloud: true),
+            Row(id: "Cloud: Spec wired-only arm control electronics", cost: 7.95, tokens: 0, cloud: true),
+            Row(id: "Cloud: Project coordinator (\"Workshop\")", cost: 6.98, tokens: 0, cloud: true),
+            Row(id: "Utilities", cost: 1.41, tokens: 0), Row(id: "shift-hours-site", cost: 1.05, tokens: 0),
+            Row(id: "Code", cost: 0.64, tokens: 0),
+        ]
+        p.snapshot.models = [Row(id: "Sonnet 5.5", cost: 33.5, tokens: 0), Row(id: "Fable 5.2", cost: 19.3, tokens: 0),
+                             Row(id: "Opus 5.5", cost: 3.1, tokens: 0)]
+        p.snapshot.daily = days([12, 0, 110, 4, 0, 10.7, 55.94])
+        p.snapshot.fable = FableView(limit: fable(5, left: 3.2 * 86400), weekCost: 29.93, weekTokens: 1_200_000, weekPts: 2.5,
+                                     todayCost: 19.3, cloud: true, weekCloud: 27.47)
+        return p
+    }
+
     private static var warn: Popover {
         var s = base(.warn, title: "~78% · 1h10m", pct: 78)
         s.fiveHour = fiveHour(78, left: 70 * 60, landing: 96)
@@ -411,11 +437,19 @@ enum Fixtures {
             Cooling(id: "d", name: name, coldAt: now.addingTimeInterval(59 * 60), extra: 41.8, extraPct: 25, tag: "started 9:41 PM", model: "Sonnet 5.5"),
             Cooling(id: "e", name: "Short", coldAt: now.addingTimeInterval(60), extra: 0.01, extraPct: nil, model: "claude-experimental-9"),
         ]
-        p.snapshot.todayCost = 4_812
+        // With cloud sessions (1.3): the widest Today total, a long cloud title, and the Fable line at its longest
+        // ("Mac + cloud: …" beside a 5-hour part).
+        p.snapshot.todayCost = 6_052
+        p.snapshot.todayCloud = 1_240
         p.snapshot.todayTokens = 1_420_000_000
-        p.snapshot.projects = [Row(id: name, cost: 4_100, tokens: 0), Row(id: "Pocket Saloon", cost: 690, tokens: 0),
+        p.snapshot.projects = [Row(id: name, cost: 4_100, tokens: 0),
+                               Row(id: "Cloud: A project thread whose title keeps going and going", cost: 1_240, tokens: 0, cloud: true),
+                               Row(id: "Pocket Saloon", cost: 690, tokens: 0),
                                Row(id: "x", cost: 22, tokens: 0), Row(id: "Claude Meter", cost: 0.004, tokens: 0)]
-        p.snapshot.daily = days([1200, 4_812, 300, 0, 0, 2_200, 4_812])
+        p.snapshot.daily = days([1200, 4_812, 300, 0, 0, 2_200, 6_052])
+        p.snapshot.fable = FableView(limit: fable(92, left: 1.6 * 86400), fiveHourCost: 46.2, fiveHourPts: 27.7,
+                                     weekCost: 1_318, weekTokens: 260_000_000, weekPts: 87, todayCost: 46.2,
+                                     cloud: true, weekCloud: 1_000)
         // The widest the weekly card's value line gets: "~$12.4k" and a three-digit multiple.
         p.snapshot.weekValue = value(left: 1.6 * 86400, perDay: [400, 1200, 4_812, 300, 0, 0, 4_812],
                                      cloudPerDay: [0, 140, 320, 0, 0, 96, 210], elsewhere: 110,

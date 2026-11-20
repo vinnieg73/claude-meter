@@ -101,7 +101,7 @@ struct HelpView: View {
             Para("Max and Ultra have a separate weekly limit just for Fable, Anthropic's most capable model: Fable can use up to half your week. This card is that limit: how much of it you've used, when it resets, and how fresh the reading is. It only climbs when you use Fable, on any device.")
             Bullets([
                 "The number and the bar are the Fable limit itself, straight from Anthropic. It is gray like the other cards and turns red at 90%.",
-                "\"This Mac: ~3% of the 5-hour window · ~1% of the week ($2.20)\" is Fable's part of your overall limits, worked out from this Mac's Claude Code records: how much of the 5-hour window and of the week went to Fable, and what that use would cost at pay-as-you-go prices.",
+                "\"This Mac + cloud: ~3% of the week ($39.40)\" is Fable's part of your overall limits: how much of the week (and of the 5-hour window, on a plan with one) went to Fable, and what that use would cost at pay-as-you-go prices. It counts this Mac's Claude Code records and your cloud sessions that run on Fable (project threads, claude.ai/code), from the sessions list. Each part of a cloud session's spend counts under the model the session was on when the meter read it. With Cloud sessions off it says \"This Mac:\" and counts this Mac alone.",
                 "In Burning now, a session running on Fable has the pink Fable mascot.",
             ])
             Para("The reading comes from Claude Code's own usage report (the same numbers as typing /usage): every 5 minutes while Fable is in use on this Mac or no 5-hour window is open (that is how a window opened on another device is noticed), every 30 otherwise, and on Sync. With no 5-hour limit there is no window to find, so it is every 30 minutes unless Fable is in use here (the 15-minute usage read notices the week climbing). It costs nothing and never starts a 5-hour window. You get a notification at 80% and at 95% of the Fable limit, once each per week.",
@@ -203,10 +203,11 @@ struct HelpView: View {
     private var usage: some View {
         HelpSection(symbol: "sun.max", title: "Today / This week") {
             Bullets([
-                "Today: how much you've used today, by project, in pay-as-you-go dollars.",
+                "Today: how much you've used today in pay-as-you-go dollars, by project on this Mac and by cloud session (\"Cloud: …\", gray bar, by its title). The top line is the total, this Mac plus cloud; hover over it for each part and this Mac's tokens. With no cloud use today (or Cloud sessions off) it is this Mac alone, with its tokens and cache.",
+                "The line of models under the rows counts both too. Each part of a cloud session's spend counts under the model the session was on when the meter read it.",
                 "This week: each project's share of your weekly limit, and each cloud session (\"Cloud: …\", gray bar) by its title: claude.ai/code sessions and project threads, from the sessions list.",
                 "In This week, \"Other\" is use neither this Mac nor the sessions list accounts for: claude.ai chat, the phone, other computers.",
-                "The small chart shows what you used each day for the last 7 days.",
+                "The small chart shows what you used each day for the last 7 days, this Mac and cloud sessions together.",
             ])
         }
     }
@@ -234,7 +235,7 @@ struct HelpView: View {
             Para("The first thing in History: what your use since the weekly limit last reset would have cost if you paid Anthropic's pay-as-you-go prices instead of a plan.")
             Bullets([
                 "The big number is the total. The one next to it is how many times what your plan costs for a week that is: $20, $100 or $200 a month (Pro, Max, Ultra, from the plan picker in Plan fit), spread over 52 weeks.",
-                "The bar splits it in three. This Mac's Claude Code (dark gray), counted from its records. Cloud sessions (mid gray): claude.ai/code sessions and project threads, exact, from the sessions list Anthropic keeps, read every 5 minutes with the Claude Code sign-in on this Mac. Other (light gray): claude.ai chat, the phone and other computers, worked out from your weekly %. The black tick is your plan's week.",
+                "The bar splits it in three. This Mac's Claude Code (dark gray), counted from its records. Cloud sessions (mid gray): claude.ai/code sessions, project threads and each project's own chat (\"Project coordinator\"), exact, from the sessions list Anthropic keeps, read every 5 minutes with the Claude Code sign-in on this Mac. Other (light gray): claude.ai chat, the phone and other computers, worked out from your weekly %. The black tick is your plan's week.",
                 "The first time, macOS may ask once to let Claude Meter read Claude Code's sign-in from the keychain. It's only held in memory and only sent to Anthropic. Remote Control sessions run on this Mac aren't counted twice: their records here already are. Turn it off with Cloud sessions in the settings.",
                 "A \"~\" before the total means it includes Other, so part of it is an estimate. With no Other, there's no \"~\".",
                 "The columns are each day of the week so far, this Mac with the cloud stacked on top (Other can't be split by day). A reset in the afternoon makes the first and last days partial, so the reset's weekday shows twice. Today's label is bold.",
@@ -285,7 +286,7 @@ struct HelpView: View {
                 "In between, the meter estimates from Claude Code's own records on this Mac, and from what your cloud sessions cost (Anthropic's sessions list, read every 5 minutes).",
                 "The Fable limit comes from Claude Code's usage report, which costs nothing to read.",
                 "It can't see claude.ai chat, the phone app or your other computers. The next exact reading catches up, and until then the meter leans toward showing a bit too much rather than too little.",
-                "Cloud sessions are counted from what each session cost. A session already running when the meter first saw it is spread evenly over its life, so only its share since the week began counts toward this week.",
+                "Cloud sessions are counted from what each session cost. A session already running when the meter first saw it is spread evenly over its life, so only its share since the week began counts toward this week. One the meter lost sight of for a while has what it added since spread evenly over that gap.",
             ])
             Callout(symbol: "exclamationmark.triangle.fill") {
                 Para("If the line at the bottom of the meter shows a ⚠ and \"Probe failed\", it can't get exact readings. Usually Claude Code is signed out: open Terminal, type claude, then /login. While it is, a card with no recent reading shows — and \"Signed out, so no reading\" rather than a guess.")

@@ -18,7 +18,7 @@ import Foundation
 ///    never add up to more than the weekly card; History's windows don't overlap or peak above
 ///    their own readings.
 /// 6. Synthetic: made-up early resets, lapsed windows and probe-gate edges the log may never hold,
-///    and how the cloud sessions list is booked and counted.
+///    and how the cloud sessions list is read (every page of every listing), booked and counted.
 /// The cloud sessions' spend comes from cloud.json's ledger, as the running app left it (read only).
 /// Each reading is replayed with only the windows it measured, not ones carried over.
 @MainActor
@@ -1227,7 +1227,7 @@ extension Meter {
 
         cloudChecks(mark: mark, turn: turn, setUp: setUp, expect: expect)
 
-        report.lines.append("6. Synthetic: \(ran) checks (early-reset pace and chart, lapsed windows, probe gate, usage report resets, no 5-hour limit, the weekly cap warning, Fable alerts, the cap warning shared in state.json, a row's own model, the credits pace, Fable after a rollover, a probe overtaken by the statusline, cloud sessions).")
+        report.lines.append("6. Synthetic: \(ran) checks (early-reset pace and chart, lapsed windows, probe gate, usage report resets, no 5-hour limit, the weekly cap warning, Fable alerts, the cap warning shared in state.json, a row's own model, the credits pace, Fable after a rollover, a probe overtaken by the statusline, cloud sessions, every listing read to its end, cloud spend in Today, the day bars and the Fable line).")
     }
 
     /// Cloud sessions (v0.9.26): how the sessions list is booked, and what the booked spend does to the
@@ -1343,6 +1343,176 @@ extension Meter {
         recompute()
         expect(snapshot.weekValue?.cloud == nil && !snapshot.weekShares.contains(where: \.cloud),
                "with Cloud sessions off, the cloud still shows")
+
+        cloudPagingChecks(t0: t0, expect: expect)
+        cloudTodayChecks(t0: t0, expect: expect)
+    }
+
+    /// 1.3: every listing is read to its end. The list is ordered newest-created first and was read 50 rows
+    /// deep, so a thread made more than 50 threads ago and still in use was never read again (Nov 19: "Parlay
+    /// Builder next steps", 118th of 138, $88.74 unbooked since Oct 26); and project coordinators, in a listing
+    /// of their own (`hearth-overview`), were never read at all ($17.72 that week). Run over a made-up list:
+    /// 250 project threads in three pages, a coordinator, nothing else.
+    private func cloudPagingChecks(t0: Date, expect: (Bool, String) -> Void) {
+        func near(_ a: Double?, _ b: Double) -> Bool { a.map { abs($0 - b) < 0.01 } ?? false }
+        /// What the made-up list does on a thread page: answers, or fails with a state from `failAt` on;
+        /// `endless` never runs out of pages; `stuck` keeps handing the same place to go on from.
+        enum Fault: Sendable { case none, fail(page: Int, state: String), endless, stuck }
+        let iso = ISO8601DateFormatter()
+        let created = iso.string(from: t0.addingTimeInterval(-30 * 86400)), updated = iso.string(from: t0.addingTimeInterval(-600))
+        func list(_ fault: Fault) -> CloudSessions.Read? {
+            CloudSessions.wait(30) {
+                await CloudSessions.read(bridged: [], home: "/nowhere") { query in
+                    let tag = query.first { $0.name == "tags" }?.value ?? ""
+                    let after = query.first { $0.name == "after_id" }?.value
+                    func session(_ id: String, _ cost: Double) -> [String: Any] {
+                        ["id": id, "title": id == "overview" ? "Project coordinator" : "Thread \(id)", "tags": [tag],
+                         "created_at": created, "updated_at": updated,
+                         "external_metadata": ["usage": ["cost_usd": cost], "last_served_model": "claude-opus-5-5"]]
+                    }
+                    switch tag {
+                    case "hearth-thread":
+                        // thread-0 is the newest; thread-249, the oldest, is the one still in use.
+                        let start = after.flatMap { Int($0.dropFirst("thread-".count)) }.map { $0 + 1 } ?? 0
+                        let page = start / 100 + 1
+                        if case .fail(let at, let state) = fault, page >= at { return .failure(state) }
+                        if case .endless = fault {
+                            return .success(["data": [session("thread-\(start)", 1)], "has_more": true, "last_id": "thread-\(start)"])
+                        }
+                        let end = min(start + 100, 250)
+                        let rows = (start..<end).map { session("thread-\($0)", $0 == 249 ? 25 : 1) }
+                        if case .stuck = fault {
+                            return .success(["data": rows, "has_more": true, "last_id": "thread-99"])
+                        }
+                        return .success(["data": rows, "has_more": end < 250, "last_id": "thread-\(end - 1)"])
+                    case "hearth-overview":
+                        return .success(["data": [session("overview", 3)], "has_more": false])
+                    default:
+                        return .success(["data": [], "has_more": false])
+                    }
+                }
+            }
+        }
+        let whole = list(.none)
+        let threads = whole?.listings.first { $0.tag == "hearth-thread" }
+        expect(whole?.state == "ok" && whole?.rows?.count == 251 && threads?.pages == 3 && threads?.rows == 250 && threads?.capped == false,
+               "a listing of 250 sessions wasn't read to its end (\(whole?.rows?.count ?? -1) rows in \(threads?.pages ?? -1) pages)")
+        expect(whole?.rows?.contains { $0.id == "overview" && $0.cost == 3 && !$0.local } == true,
+               "the project coordinators' listing (hearth-overview) wasn't read")
+        // The thread past the first page, known at $10 nine days ago: only its rise is booked, at its update,
+        // spread over the nine days it went unread, so a week that began two days ago takes its share, not $15.
+        var book = CloudStore()
+        let lastSeen = t0.addingTimeInterval(-9 * 86400)
+        book.sessions["thread-249"] = CloudSession(id: "thread-249", title: "Thread thread-249", cost: 10,
+                                                   createdAt: t0.addingTimeInterval(-30 * 86400), updatedAt: lastSeen,
+                                                   model: "claude-opus-5-5", cwd: nil, seenAt: lastSeen, local: false)
+        book.take(whole?.rows ?? [], now: t0)
+        let rise = book.ledger.filter { $0.session == "thread-249" }
+        let span = t0.addingTimeInterval(-600).timeIntervalSince(lastSeen)
+        expect(rise.count == 1 && near(rise.first?.cost, 15) && rise.first?.from == lastSeen
+               && near(rise.first?.share(from: t0.addingTimeInterval(-2 * 86400), to: t0), 15 * (2 * 86400 - 600) / span),
+               "a thread past the first page, known at an old cost, wasn't booked as its rise alone spread over the gap "
+               + "(\(rise.count) entries, $\(rise.first?.cost ?? -1))")
+        // A coordinator never seen before is booked whole over its own life, like any first sighting.
+        expect(book.ledger.contains { $0.session == "overview" && near($0.cost, 3) }, "a project coordinator's cost wasn't booked")
+        // A later page that fails: the rows already answered stand (they are true), the read says so, and
+        // nothing is booked for the pages unread. A sign-out or a 429 anywhere stops the read with nothing.
+        let broken = list(.fail(page: 2, state: "error"))
+        expect(broken?.state == "error" && broken?.rows?.count == 101 && broken?.rows?.contains { $0.id == "thread-249" } == false,
+               "a failed second page didn't keep the first page's rows alone (\(broken?.state ?? "nil"), \(broken?.rows?.count ?? -1) rows)")
+        var unread = CloudStore()
+        unread.sessions["thread-249"] = book.sessions["thread-249"].map { var s = $0; s.cost = 10; return s }
+        unread.take(broken?.rows ?? [], now: t0)
+        expect(!unread.ledger.contains { $0.session == "thread-249" } && unread.sessions["thread-249"]?.cost == 10,
+               "a session on a page that failed was booked or re-based")
+        expect(list(.fail(page: 3, state: "rate_limited")).map { $0.state == "rate_limited" && $0.rows == nil } == true,
+               "a 429 on a later page didn't stop the read with nothing")
+        expect(list(.fail(page: 2, state: "signed_out")).map { $0.state == "signed_out" && $0.rows == nil } == true,
+               "a sign-out on a later page didn't stop the read with nothing")
+        // A list that never ends stops at the page ceiling and says so; one that hands back the same place
+        // to go on from stops there.
+        let endless = list(.endless)?.listings.first { $0.tag == "hearth-thread" }
+        expect(endless?.pages == CloudSessions.maxPages && endless?.capped == true,
+               "an endless listing wasn't cut at the page ceiling (\(endless?.pages ?? -1) pages)")
+        let stuck = list(.stuck)?.listings.first { $0.tag == "hearth-thread" }
+        expect(stuck?.pages == 2 && stuck?.capped == false, "a listing whose cursor doesn't move was read \(stuck?.pages ?? -1) times")
+    }
+
+    /// 1.3: Today, the 7 day bars and the Fable card's line count the cloud sessions with this Mac. They counted
+    /// this Mac alone, so a day spent in project threads read as almost nothing (Nov 19: "Today $3.10", "This
+    /// Mac: <1% of the week ($2.46)" beside $52 of cloud sessions that day). With Cloud sessions off, as before.
+    private func cloudTodayChecks(t0: Date, expect: (Bool, String) -> Void) {
+        func near(_ a: Double?, _ b: Double) -> Bool { a.map { abs($0 - b) < 0.01 } ?? false }
+        // 6 PM local, so "today" and "yesterday" are the same whatever the time zone.
+        let dayStart = Calendar.current.startOfDay(for: t0)
+        let now = dayStart.addingTimeInterval(18 * 3600)
+        let resets = now.addingTimeInterval(3 * 86400)
+        func entry(_ session: String, _ title: String, _ cost: Double, _ model: String?, from: TimeInterval, at: TimeInterval) -> CloudSpend {
+            CloudSpend(at: dayStart.addingTimeInterval(at), from: dayStart.addingTimeInterval(from), seen: now, session: session,
+                       title: title, cost: cost, model: model)
+        }
+        // A Fable thread's $12 this afternoon; a coordinator's $4 over the 12 hours around midnight (half of it
+        // today); a Fable thread's $5 yesterday noon; one with no model, $1 today.
+        let cloud = [entry("c", "Old Fable thread", 5, "claude-fable-5-2", from: -12 * 3600, at: -11 * 3600),
+                     entry("b", "Project coordinator", 4, "claude-opus-5-5", from: -6 * 3600, at: 6 * 3600),
+                     entry("a", "Fable thread", 12, "claude-fable-5-2", from: 15 * 3600, at: 16 * 3600),
+                     entry("d", "Unknown model", 1, nil, from: 17 * 3600, at: 17 * 3600)]
+        // This Mac today: $15 on Sonnet 4.5 and $4 on Fable 5.2.
+        let mac = [Turn(key: "synthetic-today-sonnet", at: now.addingTimeInterval(-3 * 3600), project: "synthetic", model: "claude-sonnet-4-5",
+                        session: "synthetic", input: 0, output: 1_000_000, cacheRead: 0, write5m: 0, write1h: 0, fast: false),
+                   Turn(key: "synthetic-today-fable", at: now.addingTimeInterval(-2 * 3600), project: "synthetic", model: "claude-fable-5-2",
+                        session: "synthetic", input: 0, output: 100_000, cacheRead: 0, write5m: 0, write1h: 0, fast: false)]
+        func setUp(cloudOn: Bool) {
+            clock = { now }
+            turns = mac
+            var state = PersistedState()
+            state.lastExact = ExactReading(at: now.addingTimeInterval(-60), source: "probe",
+                                           weekly: Window(pct: 40, resetsAt: resets, at: now.addingTimeInterval(-60)))
+            state.calibration.capWeek = 100
+            state.fiveHourGoneSince = now.addingTimeInterval(-86400)
+            store.state = state
+            cloudSpend = cloudOn ? cloud : []
+            cloudKnown = cloudOn
+            recompute()
+        }
+        setUp(cloudOn: true)
+        var s = snapshot
+        expect(near(s.todayCloud, 15) && near(s.todayCost, 34),
+               "Today doesn't count today's cloud sessions with this Mac ($\(s.todayCost) with $\(s.todayCloud) of cloud, not $34 with $15)")
+        var rows = Dictionary(s.projects.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        expect(near(rows["Cloud: Fable thread"]?.cost, 12) && rows["Cloud: Fable thread"]?.cloud == true
+               && near(rows["Cloud: Project coordinator"]?.cost, 2) && rows["Cloud: Old Fable thread"] == nil
+               && near(rows["synthetic"]?.cost, 19) && rows["synthetic"]?.cloud == false && s.projects.first?.id == "synthetic",
+               "Today doesn't list today's cloud sessions by title beside this Mac's projects")
+        var models = Dictionary(s.models.map { ($0.id, $0.cost) }, uniquingKeysWith: { a, _ in a })
+        expect(near(models[Fmt.model("claude-fable-5-2")], 16) && near(models[Fmt.model("claude-opus-5-5")], 2)
+               && near(models[Fmt.model("claude-sonnet-4-5")], 15),
+               "Today's models don't count the cloud sessions by their model")
+        expect(s.todayTokens == mac.reduce(0) { $0 + $1.tokens }, "Today's tokens aren't this Mac's alone")
+        expect(s.daily.count == 7 && near(s.daily.last?.cost, 34) && near(s.daily.last?.cloud, 15)
+               && near(s.daily.dropLast().last?.cost, 7) && near(s.daily.dropLast().last?.cloud, 7),
+               "the day bars don't count each day's cloud spend (today $\(s.daily.last?.cost ?? -1), yesterday $\(s.daily.dropLast().last?.cost ?? -1))")
+        // Fable: this Mac's $4 and the Fable threads' $12 and $5 this week; not the coordinator on Opus.
+        var f = s.fable
+        expect(f?.cloud == true && near(f?.weekCost, 21) && near(f?.weekCloud, 17) && near(f?.weekPts, 21) && near(f?.todayCost, 16),
+               "the Fable card doesn't count cloud sessions on Fable (week $\(f?.weekCost ?? -1), today $\(f?.todayCost ?? -1))")
+        var line = f.flatMap { FableCard(f: $0).line }
+        expect(line == "This Mac + cloud: ~21% of the week ($21.00)", "the Fable line with cloud sessions reads \"\(line ?? "nothing")\"")
+
+        // Cloud sessions off: all of it this Mac alone, worded as before.
+        setUp(cloudOn: false)
+        s = snapshot
+        rows = Dictionary(s.projects.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        models = Dictionary(s.models.map { ($0.id, $0.cost) }, uniquingKeysWith: { a, _ in a })
+        f = s.fable
+        line = f.flatMap { FableCard(f: $0).line }
+        expect(s.todayCloud == 0 && near(s.todayCost, 19) && rows.count == 1 && !s.projects.contains(where: \.cloud)
+               && near(models[Fmt.model("claude-fable-5-2")], 4) && near(s.daily.last?.cost, 19) && s.daily.last?.cloud == 0
+               && near(s.daily.dropLast().last?.cost, 0),
+               "with Cloud sessions off, Today or the day bars still count the cloud")
+        expect(f?.cloud == false && near(f?.weekCost, 4) && f?.weekCloud == 0 && near(f?.todayCost, 4)
+               && line == "This Mac: ~4% of the week ($4.00)",
+               "with Cloud sessions off, the Fable line reads \"\(line ?? "nothing")\"")
     }
 
     /// The history log saves each reading as the meter held it, windows carried over from earlier

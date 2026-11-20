@@ -111,29 +111,42 @@ struct Row: Identifiable {
     let id: String
     let cost: Double
     let tokens: Int
+    /// A cloud session title in Today ("Cloud: …"), not a project on this Mac (1.3).
+    var cloud = false
 }
 
 struct DayBar: Identifiable {
     var id: Date { day }
     let day: Date
+    /// This Mac's spend that day and the cloud sessions' together (the cloud's since 1.3).
     let cost: Double
+    /// The cloud sessions' part of it.
+    var cloud = 0.0
 }
 
-/// The Fable card: Anthropic's separate weekly Fable limit, and this Mac's Fable use.
+/// The Fable card: Anthropic's separate weekly Fable limit, and your Fable use on this Mac and in the
+/// cloud sessions.
 struct FableView {
     /// The limit as last read, exact as of then. Nil when none is known for the week.
     var limit: WindowView?
     /// Claude Code's usage report lists no Fable limit: the plan has none, so Fable only counts in
     /// the overall limits.
     var noLimit = false
-    /// This Mac's Fable spend in the open 5-hour window and this week, and as points of each window
-    /// once its cap is known. Nil where the window isn't known.
+    /// Fable spend in the open 5-hour window and this week, and as points of each window once its cap is
+    /// known. Nil where the window isn't known. This Mac's turns, and (1.3) what cloud sessions on Fable
+    /// spent, while the sessions list is read (`cloud`).
     var fiveHourCost: Double?
     var fiveHourPts: Double?
     var weekCost: Double?
+    /// This Mac's tokens only: the sessions list gives a session's cost, not its tokens.
     var weekTokens = 0
     var weekPts: Double?
     var todayCost = 0.0
+    /// The cloud sessions count in the numbers above (Cloud sessions is on and the list has answered), so
+    /// the card's line says "This Mac + cloud", not "This Mac".
+    var cloud = false
+    /// The cloud sessions' part of `weekCost`, for the tooltip.
+    var weekCloud = 0.0
 }
 
 struct Snapshot {
@@ -162,7 +175,11 @@ struct Snapshot {
     /// Set while the 5-hour pace hits the cap before the reset: when (the reset itself while
     /// the warning holds on a pace that lands just under it).
     var capWarning: Date?
+    /// Today's spend: this Mac's turns and (1.3) the cloud sessions' together.
     var todayCost = 0.0
+    /// The cloud sessions' part of `todayCost`: 0 with Cloud sessions off, or none today.
+    var todayCloud = 0.0
+    /// This Mac's alone: the sessions list gives no tokens, and the cache is this Mac's.
     var todayTokens = 0
     var cacheHit: Double?
     var projects: [Row] = []
@@ -1187,14 +1204,19 @@ final class Meter: ObservableObject {
     private func cloudCost(from: Date, to: Date) -> Double {
         guard !cloudSpend.isEmpty, to > from else { return 0 }
         var total = 0.0
-        // Sorted by `at`, and a span ends at its `at`: nothing booked before `from` reaches into the range.
+        for e in cloudSpend[cloudIndex(atOrAfter: from)...] { total += e.share(from: from, to: to) }
+        return total
+    }
+
+    /// Index of the first cloud entry booked at or after `date`. Sorted by `at`, and a span ends at its
+    /// `at`: nothing before it reaches into a range that starts at `date`.
+    private func cloudIndex(atOrAfter date: Date) -> Int {
         var low = 0, high = cloudSpend.count
         while low < high {
             let mid = (low + high) / 2
-            if cloudSpend[mid].at < from { low = mid + 1 } else { high = mid }
+            if cloudSpend[mid].at < date { low = mid + 1 } else { high = mid }
         }
-        for e in cloudSpend[low...] { total += e.share(from: from, to: to) }
-        return total
+        return low
     }
 
     /// This Mac's turns and the cloud sessions together: all the use the meter can put a price on. The
@@ -1762,22 +1784,39 @@ final class Meter: ObservableObject {
             f.noLimit = true
         }
         let cal = store.state.calibration
+        // With the sessions list read, cloud sessions on Fable count too (1.3): most Fable use can be in project
+        // threads, and this Mac's alone read "<1% of the week ($2.46)" on a day of Fable threads (Nov 19).
+        f.cloud = cloudKnown
         if let w = s.fiveHour, !w.idle, let resets = w.resetsAt {
-            let spend = fableSpend(from: Self.countsFrom(resets, span: Self.fiveHours, w.restartedAt), to: now)
-            f.fiveHourCost = spend.cost
-            f.fiveHourPts = cal.cap5h.map { spend.cost / $0 * 100 }
+            let from = Self.countsFrom(resets, span: Self.fiveHours, w.restartedAt)
+            let cost = fableSpend(from: from, to: now).cost + cloudFable(from: from, to: now)
+            f.fiveHourCost = cost
+            f.fiveHourPts = cal.cap5h.map { cost / $0 * 100 }
         }
         // The week is the weekly window's (from an early reset, if it had one), or the Fable limit's own
         // when there is no weekly reading.
         if let end = s.weekly?.resetsAt ?? store.state.fable?.resetsAt, now < end {
-            let spend = fableSpend(from: Self.countsFrom(end, span: Self.week, s.weekly?.restartedAt), to: now)
-            f.weekCost = spend.cost
+            let from = Self.countsFrom(end, span: Self.week, s.weekly?.restartedAt)
+            let spend = fableSpend(from: from, to: now)
+            f.weekCloud = cloudFable(from: from, to: now)
+            let cost = spend.cost + f.weekCloud
+            f.weekCost = cost
             f.weekTokens = spend.tokens
-            f.weekPts = cal.capWeek.map { spend.cost / $0 * 100 }
+            f.weekPts = cal.capWeek.map { cost / $0 * 100 }
         }
-        f.todayCost = fableSpend(from: Calendar.current.startOfDay(for: now), to: now).cost
+        let dayStart = Calendar.current.startOfDay(for: now)
+        f.todayCost = fableSpend(from: dayStart, to: now).cost + cloudFable(from: dayStart, to: now)
         let used = (f.weekCost ?? 0) > 0 || f.todayCost > 0
         return f.limit != nil || used ? f : nil
+    }
+
+    /// What cloud sessions on Fable spent in [from, to). Each rise counts under the model the list named when it
+    /// was booked (the list says no more), so a thread that changed models keeps its earlier rises under the old one.
+    private func cloudFable(from: Date, to: Date) -> Double {
+        guard to > from else { return 0 }
+        var total = 0.0
+        for e in cloudSpend[cloudIndex(atOrAfter: from)...] where e.fable { total += e.share(from: from, to: to) }
+        return total
     }
 
     /// This Mac's Fable turns in a span: their $-equivalent and tokens.
@@ -2018,14 +2057,35 @@ final class Meter: ObservableObject {
         }
         let prompt = uncached + read + written
         s.cacheHit = prompt > 0 ? Double(read) / Double(prompt) : nil
-        s.projects = projects.map { Row(id: $0.key, cost: $0.value.0, tokens: $0.value.1) }
+        // The cloud sessions' part of today (1.3), exact from the sessions list: in the total, as "Cloud: title"
+        // rows the way This week lists them, and by model. Before, Today counted this Mac alone, so a day spent
+        // in project threads read as a few dollars (Nov 19: $3.10 beside $52 of cloud sessions). Nothing with
+        // Cloud sessions off: the ledger is empty then.
+        var cloudRows: [String: Double] = [:]
+        for e in cloudSpend[cloudIndex(atOrAfter: dayStart)...] {
+            let part = e.share(from: dayStart, to: now)
+            guard part > 0 else { continue }
+            s.todayCloud += part
+            cloudRows[e.title, default: 0] += part
+            guard let model = e.model else { continue }
+            let name = names[model] ?? {
+                let n = Fmt.model(model)
+                names[model] = n
+                return n
+            }()
+            models[name, default: (0, 0)].0 += part
+        }
+        s.todayCost += s.todayCloud
+        s.projects = (projects.map { Row(id: $0.key, cost: $0.value.0, tokens: $0.value.1) }
+            + cloudRows.filter { $0.value >= 0.005 }.map { Row(id: "Cloud: " + $0.key, cost: $0.value, tokens: 0, cloud: true) })
             .sorted { $0.cost > $1.cost }
         s.models = models.map { Row(id: $0.key, cost: $0.value.0, tokens: $0.value.1) }
             .sorted { $0.cost > $1.cost }
         s.daily = (0..<7).reversed().compactMap { back in
             guard let day = cal.date(byAdding: .day, value: -back, to: dayStart),
                   let next = cal.date(byAdding: .day, value: 1, to: day) else { return nil }
-            return DayBar(day: day, cost: cost(from: day, to: next))
+            let cloud = cloudCost(from: day, to: min(next, now))
+            return DayBar(day: day, cost: cost(from: day, to: next) + cloud, cloud: cloud)
         }
     }
 

@@ -1,8 +1,8 @@
 import Darwin
 import Foundation
 
-// The cloud sessions list: claude.ai/code sessions, project threads and Remote Control sessions, each
-// with the exact `cost_usd` Anthropic reports for it. The weekly % counts that use, but this Mac's
+// The cloud sessions list: claude.ai/code sessions, project threads, project coordinators and Remote
+// Control sessions, each with the exact `cost_usd` Anthropic reports for it. The weekly % counts that use, but this Mac's
 // transcripts never see it, so before v0.9.26 it hid in "Elsewhere" (and in the calibrated cap). Read the
 // way Swarm Watch and Claude Dashboard read it (`Bridge.fetch`, `CloudReader`, verified on this Mac): GET
 // only, with the Claude Code sign-in already on this Mac, held in memory and never written anywhere.
@@ -60,6 +60,9 @@ struct CloudSpend: Codable {
         case at, from, seen, session, title, cost = "delta", model
     }
 
+    /// A session on Fable when this was booked: the model with a weekly limit of its own (as `Turn.fable`).
+    var fable: Bool { model.map { Pricing.bare($0).lowercased().contains("fable") } ?? false }
+
     /// The part of it spent in [a, b), spread evenly over its span (a point counts whole where it falls).
     func share(from a: Date, to b: Date) -> Double {
         let start = min(from, at)
@@ -89,7 +92,7 @@ struct CloudStore: Codable {
     /// would be booked whole again.
     static let keepSessions: TimeInterval = 60 * 86400
 
-    init() {}
+    init(ledger: [CloudSpend] = []) { self.ledger = ledger }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -192,40 +195,89 @@ enum CloudSessions {
         var rows: [CloudRow]?
         /// Rows the listings held, a cost or not.
         var listed = 0
+        /// Each listing as it was read, for `--cloud-check`.
+        var listings: [Listing] = []
+
+        struct Listing {
+            /// The tag asked for; empty for the default listing.
+            var tag: String
+            var rows = 0
+            var pages = 0
+            /// The page ceiling cut it short: its oldest sessions weren't read.
+            var capped = false
+        }
     }
 
-    /// The three listings Swarm Watch reads: the default one, project threads, and Remote Control
-    /// children. A sign-out or a 429 stops the read (the next listing would get the same); any other
-    /// failure keeps what the other listings answered, since a row missing from one read books nothing.
+    /// The listings: the default one, project threads, project coordinators (the session behind each
+    /// project's own chat, tag `hearth-overview`: it has a cost and is in none of the others; read since 1.3),
+    /// and Remote Control children.
+    static let listings: [[String]] = [[], ["hearth-thread"], ["hearth-overview"], ["rc-child"]]
+    /// The most the list hands over at once (it refuses a larger `limit`).
+    static let pageSize = 100
+    /// Pages read of one listing at most: 3,000 sessions. Past that its oldest are left unread, as before 1.3.
+    static let maxPages = 30
+
+    /// One read of every listing, each paged to its end. The list is ordered newest-created first, so
+    /// before 1.3, reading only its first 50 rows, a thread made more than 50 threads ago and still in use
+    /// was never read again and its spend never booked (Nov 19: 1 of the 15 threads used that week).
     static func read() async -> Read {
+        let bridged = await offMain { bridgedSessionIDs() }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return await read(bridged: bridged, home: home) { await fetch($0) }
+    }
+
+    /// The read itself, over whatever answers a GET (the replay's made-up list, too). A sign-out or a 429
+    /// stops the read with nothing (the next request would get the same); any other failure ends that
+    /// listing and keeps the rows already answered, its earlier pages included: a row missing from one
+    /// read books nothing, and its rise is booked whole by the next read that lists it.
+    static func read(bridged: Set<String>, home: String,
+                     fetch: ([URLQueryItem]) async -> Fetched) async -> Read {
         var found: [String: CloudRow] = [:]
         var order: [String] = []
         var failed: String?
         var answered = 0
-        var listed = 0
-        let bridged = await offMain { bridgedSessionIDs() }
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        for tags in [[], ["hearth-thread"], ["rc-child"]] as [[String]] {
-            var query = [URLQueryItem(name: "limit", value: "50")]
-            query += tags.map { URLQueryItem(name: "tags", value: $0) }
-            switch await fetch(query) {
-            case .success(let json):
-                answered += 1
-                for case let raw as [String: Any] in (json["data"] as? [Any]) ?? [] {
-                    guard let row = parse(raw, bridged: bridged, home: home) else { continue }
-                    if found[row.id] == nil {
-                        order.append(row.id)
-                        listed += 1
+        var read = Read(state: "ok", rows: nil)
+        for tags in listings {
+            var listing = Read.Listing(tag: tags.first ?? "")
+            var after: String?
+            paging: while true {
+                var query = [URLQueryItem(name: "limit", value: String(pageSize))]
+                query += tags.map { URLQueryItem(name: "tags", value: $0) }
+                if let after { query.append(URLQueryItem(name: "after_id", value: after)) }
+                switch await fetch(query) {
+                case .success(let json):
+                    if listing.pages == 0 { answered += 1 }
+                    listing.pages += 1
+                    let data = (json["data"] as? [Any]) ?? []
+                    for case let raw as [String: Any] in data {
+                        guard let row = parse(raw, bridged: bridged, home: home) else { continue }
+                        listing.rows += 1
+                        if found[row.id] == nil {
+                            order.append(row.id)
+                            read.listed += 1
+                        }
+                        found[row.id] = row
                     }
-                    found[row.id] = row
+                    // More only when the list says so and gives a new place to go on from.
+                    let last = (json["last_id"] as? String) ?? ((data.last as? [String: Any])?["id"] as? String)
+                    guard json["has_more"] as? Bool == true, !data.isEmpty, let last, !last.isEmpty, last != after else { break paging }
+                    guard listing.pages < maxPages else {
+                        listing.capped = true
+                        break paging
+                    }
+                    after = last
+                case .failure(let state):
+                    if state == "signed_out" || state == "rate_limited" { return Read(state: state, rows: nil) }
+                    failed = failed ?? state
+                    break paging
                 }
-            case .failure(let state):
-                if state == "signed_out" || state == "rate_limited" { return Read(state: state, rows: nil) }
-                failed = failed ?? state
             }
+            read.listings.append(listing)
         }
         guard answered > 0 else { return Read(state: failed ?? "error", rows: nil) }
-        return Read(state: failed ?? "ok", rows: order.compactMap { found[$0] }, listed: listed)
+        read.state = failed ?? "ok"
+        read.rows = order.compactMap { found[$0] }
+        return read
     }
 
     /// Blocking work (the keychain, which can wait on a macOS prompt; the file system) on a utility thread.
@@ -242,7 +294,8 @@ enum CloudSessions {
         return URLSession(configuration: c)
     }()
 
-    private enum Fetched {
+    /// What one GET came to: the page, or "signed_out", "rate_limited" or "error".
+    enum Fetched {
         case success([String: Any])
         case failure(String)
     }
@@ -350,30 +403,37 @@ enum CloudSessions {
         func age(_ d: Date?) -> String { d.map { "\(Int(max(0, now.timeIntervalSince($0)) / 60))m ago" } ?? "never" }
         let begin = weekBegin(state, now: now)
         let week = store.spent(from: begin, to: now)
+        let today = store.spent(from: Calendar.current.startOfDay(for: now), to: now)
         let cloud = store.sessions.values.filter { !$0.local }.count
         return [
             "cloud sessions: \(store.state ?? "not read yet"), last read \(age(store.readAt)), last tried \(age(store.triedAt))",
             "cloud this week: \(Fmt.dollars(week.total)) across \(week.byTitle.count) titles since \(Fmt.when(begin)) "
                 + "(\(cloud) cloud sessions known, \(store.ledger.count) spend entries, \(store.rcChild.count) Remote Control entries not counted)",
+            "cloud today: \(Fmt.dollars(today.total)) across \(today.byTitle.count) titles",
         ]
+    }
+
+    /// One read run to its end for a caller that can't wait on it asynchronously (`--cloud-check`, the replay's
+    /// made-up lists); nil when it takes longer than `seconds`.
+    static func wait(_ seconds: TimeInterval, for read: @escaping @Sendable () async -> Read) -> Read? {
+        final class Box: @unchecked Sendable { var value: Read? }
+        let done = DispatchSemaphore(value: 0)
+        let box = Box()
+        Task.detached {
+            box.value = await read()
+            done.signal()
+        }
+        return done.wait(timeout: .now() + seconds) == .success ? box.value : nil
     }
 
     /// `--cloud-check`: one read, printed, without touching cloud.json. Exits 0 when the read answered.
     static func check() -> Int32 {
-        final class Box: @unchecked Sendable { var value = CloudSessions.Read(state: "error", rows: nil) }
-        let done = DispatchSemaphore(value: 0)
-        let box = Box()
         let started = Date()
-        Task.detached {
-            box.value = await CloudSessions.read()
-            done.signal()
-        }
         // Long enough to answer a first macOS prompt to allow the keychain read.
-        guard done.wait(timeout: .now() + 180) == .success else {
+        guard let result = wait(180, for: { await CloudSessions.read() }) else {
             Swift.print("cloud sessions: timed out (a keychain prompt left open?)")
             return 1
         }
-        let result = box.value
         let now = Date()
         Swift.print("cloud sessions: \(result.state) (read in \(String(format: "%.1f", now.timeIntervalSince(started))) s; cloud.json not touched)")
         guard let rows = result.rows else { return 1 }
@@ -381,6 +441,10 @@ enum CloudSessions {
         let cloud = rows.filter { !$0.local && $0.cost != nil }
         Swift.print("listed: \(result.listed) sessions (\(cloud.count) cloud with a cost, \(local.count) Remote Control on this Mac, "
                     + "\(rows.count - cloud.count - local.count) cloud without a cost)")
+        Swift.print("listings: " + result.listings.map {
+            "\($0.tag.isEmpty ? "default" : $0.tag) \($0.rows) in \($0.pages) page\($0.pages == 1 ? "" : "s")"
+                + ($0.capped ? " (cut short at the page ceiling)" : "")
+        }.joined(separator: ", "))
         // As the app would book them on a first read: each session's whole cost, spread over its life.
         let begin = weekBegin(StateStore().state, now: now)
         var store = CloudStore()
@@ -392,12 +456,25 @@ enum CloudSessions {
         for (title, cost) in week.byTitle.sorted(by: { $0.value > $1.value }).prefix(5) {
             Swift.print("  \(Fmt.dollars(cost))  \(title)")
         }
+        // And as the running app would book this read on top of what cloud.json holds: only what is new.
+        if var held = load() {
+            held.take(rows, now: now)
+            let fresh = CloudStore(ledger: held.ledger.filter { $0.seen == now })
+            let added = fresh.spent(from: begin, to: now)
+            let today = fresh.spent(from: Calendar.current.startOfDay(for: now), to: now)
+            Swift.print("against cloud.json: this read would book \(fresh.ledger.count) new entries, \(Fmt.dollars(fresh.ledger.reduce(0) { $0 + $1.cost })) in all: "
+                        + "\(Fmt.dollars(added.total)) into this week (\(Fmt.dollars(today.total)) of it today), the rest into earlier days")
+            for (title, cost) in added.byTitle.sorted(by: { $0.value > $1.value }).prefix(5) {
+                Swift.print("  \(Fmt.dollars(cost))  \(title)")
+            }
+        }
         return result.state == "ok" ? 0 : 1
     }
 }
 
 /// Polls the list while the app runs and the setting is on: about 20 seconds after launch, then every
-/// 5 minutes (15 after a 429). Each read is booked into `cloud.json`.
+/// 5 minutes (15 after a 429), every listing to its end (a GET per 100 sessions). Each read is booked
+/// into `cloud.json`.
 @MainActor
 final class CloudFeed {
     static let cloudPollSeconds: TimeInterval = 300

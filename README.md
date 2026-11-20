@@ -44,10 +44,12 @@ claude.ai extra usage is off, the 5-hour and weekly cards add "Extra usage is of
 - **A fresh week** holds back today's pace (no cap time, no "cap" title, no History projection from one sitting) until
   it is a day old; the 7-day average speaks alone before that.
 - **Weekly · Fable**: Max and Ultra have a separate weekly limit for Fable (up to half the week). Its card (gray like the others) shows that
-  limit as Claude Code's own usage report last gave it, exact as of then, and under it this Mac's
-  Fable use as points of the overall windows ("This Mac: ~3% of the 5-hour window · ~1% of the week
-  ($6.20)"). A plan without the limit gets "No separate Fable limit on your plan" instead. The card
-  appears when a limit is known or Fable was used here this week. In Burning now a Fable session wears
+  limit as Claude Code's own usage report last gave it, exact as of then, and under it your
+  Fable use as points of the overall windows: this Mac's turns and (1.3) what cloud sessions on Fable
+  cost, from the sessions list ("This Mac + cloud: ~3% of the week ($39.40)"; "Mac + cloud: …" beside a
+  5-hour part; "This Mac: …" with Cloud sessions off or the list not read yet). Each part of a cloud
+  session's spend counts under the model the session was on when the meter read it. A plan without the limit gets "No separate Fable limit on your plan"
+  instead. The card appears when a limit is known or Fable was used this week, here or in a cloud session. In Burning now a Fable session wears
   the pink Fable mascot. The Fable limit alerts at 80% and 95%, like the other two (see [Notifications](#notifications)).
 - **Usage credits** (v0.9.30, Credits tab): extra usage on the Claude plan (claude.ai › Settings › Usage), read with the
   Claude Code sign-in like `/usage` does: this month's extra-usage spend against its monthly limit (a bar, red when
@@ -99,9 +101,15 @@ claude.ai extra usage is off, the 5-hour and weekly cards add "Extra usage is of
   goes cold and the extra cost), and a Burning now row's last-ran tag sits under its name, so names
   read whole. They move only while the
   dropdown is open, never under Reduce Motion. The menu bar keeps its ring.
-- **Today / This week**: spend by project today, or each project's share of the weekly
-  limit, plus each cloud session by title ("Cloud: …", a gray bar, from the sessions list) and
-  "Other", what neither accounts for (chat, the phone, other computers).
+- **Today / This week**: spend today by project and (1.3) by cloud session ("Cloud: …", a gray bar,
+  by title, from the sessions list), or each one's share of the weekly limit, plus
+  "Other", what neither accounts for (chat, the phone, other computers). Today's total is this Mac
+  plus cloud ("$55.94 · $3.10 this Mac · $52.84 cloud"; beside the picker, where that won't fit,
+  "$78.97 · $13 Mac + $66 cloud", or at the least "$6.1k · this Mac + cloud"; the tooltip has each part
+  and this Mac's tokens and cache). With no
+  cloud spend today it is this Mac's alone, as before ("$3.10 · 3.4M tok · cache 94%"). The models line
+  and the 7 day bars count both too; each part of a cloud session's spend counts under the model
+  the session was on when the meter read it.
 
 **Runaway alert.** A single session that uses 20%+ of the 5-hour window within 30 minutes
 gets a ⚠ in Burning now and one notification per window, to catch loops and large workflows
@@ -153,7 +161,7 @@ once a minute while a 5-hour window is open and fills the time between from the 
 | `tap.json` drop-in | any exact reading, from anywhere (Claude Dashboard writes one as `source: "dashboard"`); counted like the statusline tap (it can raise a window or start a later one, never lower one), since a drop-in is dated when written and can carry an older number | when written |
 | usage credits | `GET https://api.anthropic.com/api/oauth/usage` (`extra_usage`: `used_credits`, `monthly_limit` in minor units, `spend_limit_reached`, `is_enabled`) and `GET /api/oauth/organizations/<org>/prepaid/credits` (`amount` in cents), with the Claude Code sign-in (held in memory) | ~25 s after launch, then every 15 minutes |
 | cost report | `GET https://api.anthropic.com/v1/organizations/cost_report` (`bucket_width=1d`, `limit=31`, every page): real billed spend for the **API credits** card, with the key in the keychain item `Claude Meter Console key` (read per check, held in memory) | ~15 s after launch or a new balance, then every 15 minutes while a balance is set and a key is there |
-| sessions list | `GET https://api.anthropic.com/v1/sessions` (default, `tags=hearth-thread`, `tags=rc-child`): each cloud session's title, model and exact `cost_usd`, with the Claude Code sign-in on this Mac (read only, held in memory); the same feed Swarm Watch and Claude Dashboard read | ~20 s after launch, then every 5 minutes (15 after a 429) while **Cloud sessions** is on |
+| sessions list | `GET https://api.anthropic.com/v1/sessions` (default, `tags=hearth-thread`, `tags=hearth-overview`, `tags=rc-child`; `limit=100`, every page): each cloud session's title, model and exact `cost_usd`, with the Claude Code sign-in on this Mac (read only, held in memory); the same feed Swarm Watch and Claude Dashboard read | ~20 s after launch, then every 5 minutes (15 after a 429) while **Cloud sessions** is on |
 
 A turn is logged once per content block, and the first copy can be written mid-stream with a
 partial output count; the meter keeps the largest copy of each. Each turn is weighted by API
@@ -218,8 +226,9 @@ drawn or written exits 1, and a mistyped command exits 2.
 `~/Applications/ClaudeMeter.app/Contents/MacOS/ClaudeMeter --status` prints how the app is
 set up (open at login, notification permission, CLI found) and what it last knew (last exact
 reading, the cap warning shared in `state.json`, the cloud sessions list's state and last read, the
-week's cloud spend, calibrated caps, accuracy). `ClaudeMeter --cloud-check` reads the sessions list once and prints the row count, the
-week's cloud spend and the state, writing nothing (exit 0 when the list answered).
+week's and today's cloud spend, calibrated caps, accuracy). `ClaudeMeter --cloud-check` reads the sessions list once and prints the row count,
+each listing's rows and pages, the week's cloud spend, what the read would book on top of `cloud.json` (new
+entries, how much of it into this week and today) and the state, writing nothing (exit 0 when the list answered).
 
 `swift scripts/make-icon.swift [previewDir]` redraws `Resources/AppIcon.icns` (and, given a folder,
 writes a 1024px PNG and a contact sheet of every size there).
@@ -268,7 +277,12 @@ on a failure. It checks:
    booked right (a first sighting whole, rises at their update, nothing twice across a relaunch, a
    fall re-based, Remote Control sessions on this Mac apart) and counted right (the week's cloud part
    and its days, the "Cloud: …" shares, Other as the remainder, the estimate between readings, the
-   weekly cap). Since Nov 10: with no 5-hour limit the weekly cap warning goes out once when the cap is 20 minutes
+   weekly cap). Since 1.3 (Nov 19): a made-up list of 250 threads is read to its end, the coordinators' listing with
+   it; a thread past the first page known at an old cost is booked as its rise alone, spread over the gap; a later
+   page that fails keeps the pages before it and books nothing for the rest; a sign-out or a 429 on any page stops
+   the read with nothing; an endless list stops at the page ceiling and a cursor that doesn't move stops at once;
+   and Today (total, "Cloud: …" rows, models), the 7 day bars and the Fable line count the cloud sessions, and
+   with Cloud sessions off read as before. Since Nov 10: with no 5-hour limit the weekly cap warning goes out once when the cap is 20 minutes
    out, and not for a cap two hours out or a week nothing has measured lately; a Fable reading at 96% alerts 80 and
    95 once, and nothing after its week lapsed or on a plan with no Fable limit; a Fable session whose newest turn is
    a Haiku subagent's stays Fable in Burning now (its $/hr counting the subagent) and in Going cold; and the API
@@ -443,8 +457,19 @@ The cloud sessions list is the one Swarm Watch and Claude Dashboard read (Swarm 
 ccr-byoc-2025-07-29` and `x-organization-uuid` from `~/.claude.json` (`oauthAccount.organizationUuid`).
 The token is Claude Code's own, read with `/usr/bin/security find-generic-password -s "Claude
 Code-credentials" -w` off the main thread (the first time, macOS may ask to allow it), held in memory,
-never written, logged or refreshed, and re-read once on a 401/403. Three listings, 50 rows each: the
-default one, `tags=hearth-thread` (project threads) and `tags=rc-child` (Remote Control children).
+never written, logged or refreshed, and re-read once on a 401/403. Four listings: the
+default one, `tags=hearth-thread` (project threads), `tags=hearth-overview` (project coordinators: the
+session behind each project's own chat, titled `Project coordinator ("Utilities")`; it has a cost and is
+in no other listing) and `tags=rc-child` (Remote Control children).
+
+Each listing is read to its end (1.3): `limit=100` (the most the list allows), then `after_id=<last_id>`
+while the answer says `has_more`, at most 30 pages (3,000 sessions) a listing. The list is ordered
+newest-created first and before 1.3 only its first 50 rows were read, so a thread made more than 50
+threads ago and still in use was never read again and its spend never booked; the coordinators were
+never read at all. (Nov 19: 138 threads, 280 coordinators, 166 Remote Control rows; 8 GETs a read
+where there were 3. It grows by a GET per 100 new sessions.) A sign-out or a 429 on any page stops the
+read with nothing booked; any other failure ends that listing and keeps the pages already answered.
+A session on a page that wasn't read books nothing, and the next read that lists it books its rise.
 
 `~/Library/Application Support/ClaudeMeter/cloud.json` (0600) keeps each session as last read (id,
 title, `cost_usd`, `created_at`, `updated_at`, model, folder; 60 days after it was last listed) and a
@@ -454,6 +479,9 @@ ledger of the spend each read saw (14 days):
   session already running before the week began counts only its share since.
 - After that each rise is booked at the `updated_at` that carried it (or the read's time if that
   didn't move), spread from the read before. A cost that fell is the new base; nothing is booked.
+  A session that went unread for weeks (past the first 50 rows, before 1.3) and is listed again is
+  booked the same way: only what it added since, spread evenly over the gap, so a week takes its
+  share of the gap and no more. When in that gap it was really spent, the list doesn't say.
 - An entry is unique by session and read, and the store holds the last cost, so a relaunch never
   books anything twice.
 - Remote Control sessions run on this Mac (tag `rc-child` or `remote-control-sdk`, an id a Claude Code

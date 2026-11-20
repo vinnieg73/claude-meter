@@ -1,7 +1,7 @@
 import Charts
 import SwiftUI
 
-/// Today's spend by project, or each project's share of the weekly limit, and the last 7 days.
+/// Today's spend by project and cloud session, or each one's share of the weekly limit, and the last 7 days.
 struct UsageSection: View {
     let s: Snapshot
     @AppStorage("weekScope") private var weekScope = false
@@ -63,6 +63,20 @@ struct UsageSection: View {
             } else {
                 Text("\(Fmt.pct(logged)) of weekly limit from this Mac")
             }
+        } else if s.todayCloud >= 0.005 {
+            // Cloud sessions spent today too (1.3): the total is both, split out where it fits. The tokens and
+            // the cache are this Mac's alone, so they move to the tooltip.
+            let mac = Fmt.dollars(max(0, s.todayCost - s.todayCloud)), cloud = Fmt.dollars(s.todayCloud)
+            let hit = s.cacheHit.map { ", cache \(Fmt.pct($0 * 100))" } ?? ""
+            ViewThatFits(in: .horizontal) {
+                Text("\(Fmt.dollars(s.todayCost)) · \(mac) this Mac · \(cloud) cloud")
+                Text("\(Fmt.dollars(s.todayCost)) · \(Self.short(s.todayCost - s.todayCloud)) Mac + \(Self.short(s.todayCloud)) cloud")
+                Text("\(Fmt.dollars(s.todayCost)) · this Mac + cloud")
+            }
+            .help("Today at pay-as-you-go prices. This Mac's Claude Code: \(mac), \(Fmt.tokens(s.todayTokens)) tokens\(hit). "
+                  + "Cloud sessions (project threads and claude.ai/code): \(cloud), exact, from Anthropic's sessions list.")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(Fmt.dollars(s.todayCost)) today: \(mac) this Mac, \(cloud) cloud sessions")
         } else {
             let hit = s.cacheHit.map { " · cache \(Fmt.pct($0 * 100))" } ?? ""
             Text("\(Fmt.dollars(s.todayCost)) · \(Fmt.tokens(s.todayTokens)) tok\(hit)")
@@ -70,14 +84,21 @@ struct UsageSection: View {
         }
     }
 
+    /// "$52", or "$3.10" under ten dollars: a part of today's total, where the whole figures won't fit beside the picker.
+    private static func short(_ v: Double) -> String {
+        v >= 9.995 && v < 999.5 ? String(format: "$%.0f", v) : Fmt.dollars(max(0, v))
+    }
+
     // MARK: Rows
 
-    /// Each project's share of today, drawn behind its row.
+    /// Each project's share of today, drawn behind its row, and each cloud session title's ("Cloud: …", the
+    /// bar This week gives it).
     @ViewBuilder
     private var todayRows: some View {
         let top = max(s.projects.first?.cost ?? 1, 0.01)
         ForEach(s.projects.prefix(4)) { row in
-            BarRow(name: row.id, value: Fmt.dollars(row.cost), fraction: row.cost / top)
+            BarRow(name: row.id, value: Fmt.dollars(row.cost), fraction: row.cost / top,
+                   tint: row.cloud ? Color.primary : Theme.neutral)
                 .accessibilityElement(children: .combine)
         }
     }
@@ -103,7 +124,7 @@ struct UsageSection: View {
     }
 }
 
-/// Spend per day for the last 7 days, today highlighted.
+/// Spend per day for the last 7 days (this Mac and the cloud sessions together), today highlighted.
 struct DailyChart: View {
     let daily: [DayBar]
 
@@ -120,7 +141,7 @@ struct DailyChart: View {
                 .foregroundStyle(isToday ? Color.primary.opacity(0.55) : Theme.quiet)
                 // The accent says "today" to the eye; say it to VoiceOver too.
                 .accessibilityLabel(isToday ? "Today" : bar.day.formatted(.dateTime.weekday(.wide)))
-                .accessibilityValue(Fmt.dollars(bar.cost))
+                .accessibilityValue(Fmt.dollars(bar.cost) + (bar.cloud >= 0.005 ? ", \(Fmt.dollars(bar.cloud)) of it cloud sessions" : ""))
         }
         .chartYScale(domain: 0...top)
         .chartXAxis {

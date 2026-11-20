@@ -118,6 +118,12 @@ warning into `state.json` (`capWarning`: window, capAt, resetsAt, at; `Meter.sha
 menu bar's instead of its own simpler math, with a "shared cap warning:" line in `--status`. Nothing the meter shows
 changes. The shape is in README.md ("Reading the meter from another tool"). Scope is back to bug elimination.
 
+Exception (2026-11-19, asked for by the user: "doesnt look like its tracking my specific burn anymore"): the cloud
+feed reads every listing to its end (`limit=100`, `after_id`, 30 pages at most) and a fourth one, the project
+coordinators (`tags=hearth-overview`); and Today (total, "Cloud: …" rows, models), the 7 day bars and the Fable card's
+line ("This Mac + cloud: …") count the cloud sessions with this Mac. `--cloud-check` says what a read would book on
+top of `cloud.json`; fixture `cloudtoday`. Done in 1.3. Scope is back to bug elimination.
+
 Before calling a fix done, run `./scripts/replay.sh` and confirm PASS. It replays the real history
 log and transcripts through the working tree (read-only) and checks window openings, the probe
 gate, duplicate alerts and accuracy. If a fix guards something the replay doesn't cover, say so.
@@ -159,4 +165,5 @@ word "cap" when the title would be wider ("~99% · cap Wed 10:49 AM" is 163 pt, 
 - NSStatusItem Preferred Position values on macOS 27 are not screen coordinates and can't be seeded reliably; only autosaveName plus a user ⌘-drag (v0.9.21).
 - Prices come from the live pricing page, not from memory or a cached copy: Fable 5.2 had no row for a week and ran at Fable 5.1's price, and Sonnet 5.5's cache reads were set to $0.20 when the page says $0.10 (Nov 10).
 - A replay FAIL "early resets: the readings show 0, the meter recorded 1" right at the start of the span was a reset from before the span carried in on its first reading (its `restartedAt`), not a meter bug; the replay now counts a restart only against a window the meter already held (Nov 10).
+- "Not tracking my burn" (Nov 19) was two things. The numbers Vinnie looks at (Today, the day bars, the Fable line) counted this Mac alone while nearly all his use had moved to project threads ($3.10 here beside $52 in the cloud that day): when where the work happens moves, check which numbers still only count the old place. And the cloud feed read 50 rows of a list ordered newest-created first, with coordinators in a listing it never asked for: a list read with a `limit` and no paging silently loses its oldest rows once it outgrows the limit, so page it, and check a row's parent ids against what the listings return.
 - "Wrong model colours" (Nov 10: orange Sonnet mascots on threads Vinnie knew as Fable) was the meter being right: a cloud thread on Fable starts a Remote Control session on this Mac with no model, and it takes the Mac's default (Sonnet 5.5). Check `requestedModel` and `message.model` in the session's transcript before blaming the row; `~/.claude/sessions/*.json` records no model.
